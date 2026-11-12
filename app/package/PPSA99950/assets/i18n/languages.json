@@ -1,0 +1,137 @@
+[
+  {
+    "code": "fr",
+    "name": "Français",
+    "fr": "français",
+    "english": "French",
+    "decimal": ","
+  },
+  {
+    "code": "fr-CA",
+    "name": "Français (Canada)",
+    "fr": "français (Canada)",
+    "english": "French (Canada)",
+    "decimal": ",",
+    "base": "fr"
+  },
+  {
+    "code": "en",
+    "name": "English",
+    "fr": "anglais",
+    "english": "English",
+    "decimal": "."
+  },
+  {
+    "code": "es",
+    "name": "Español",
+    "fr": "espagnol",
+    "english": "Spanish",
+    "decimal": ","
+  },
+  {
+    "code": "es-419",
+    "name": "Español (Latinoamérica)",
+    "fr": "espagnol (Amérique latine)",
+    "english": "Spanish (Latin America)",
+    "decimal": "."
+  },
+  {
+    "code": "pt-BR",
+    "name": "Português (Brasil)",
+    "fr": "portugais (Brésil)",
+    "english": "Portuguese (Brazil)",
+    "decimal": ","
+  },
+  {
+    "code": "pt-PT",
+    "name": "Português (Portugal)",
+    "fr": "portugais (Portugal)",
+    "english": "Portuguese (Portugal)",
+    "decimal": ","
+  },
+  {
+    "code": "de",
+    "name": "Deutsch",
+    "fr": "allemand",
+    "english": "German",
+    "decimal": ","
+  },
+  {
+    "code": "it",
+    "name": "Italiano",
+    "fr": "italien",
+    "english": "Italian",
+    "decimal": ","
+  },
+  {
+    "code": "nl",
+    "name": "Nederlands",
+    "fr": "néerlandais",
+    "english": "Dutch",
+    "decimal": ","
+  },
+  {
+    "code": "pl",
+    "name": "Polski",
+    "fr": "polonais",
+    "english": "Polish",
+    "decimal": ","
+  },
+  {
+    "code": "tr",
+    "name": "Türkçe",
+    "fr": "turc",
+    "english": "Turkish",
+    "decimal": ","
+  },
+  {
+    "code": "ru",
+    "name": "Русский",
+    "fr": "russe",
+    "english": "Russian",
+    "decimal": ","
+  },
+  {
+    "code": "zh-Hans",
+    "name": "简体中文",
+    "fr": "chinois simplifié",
+    "english": "Chinese (Simplified)",
+    "decimal": "."
+  },
+  {
+    "code": "zh-Hant",
+    "name": "繁體中文",
+    "fr": "chinois traditionnel",
+    "english": "Chinese (Traditional)",
+    "decimal": "."
+  },
+  {
+    "code": "ja",
+    "name": "日本語",
+    "fr": "japonais",
+    "english": "Japanese",
+    "decimal": "."
+  },
+  {
+    "code": "ko",
+    "name": "한국어",
+    "fr": "coréen",
+    "english": "Korean",
+    "decimal": "."
+  },
+  {
+    "code": "vi",
+    "name": "Tiếng Việt",
+    "fr": "vietnamien",
+    "english": "Vietnamese",
+    "decimal": ","
+  },
+  {
+    "code": "ar",
+    "name": "العربية",
+    "fr": "arabe",
+    "english": "Arabic",
+    "decimal": ".",
+    "rtl": true
+  }
+]

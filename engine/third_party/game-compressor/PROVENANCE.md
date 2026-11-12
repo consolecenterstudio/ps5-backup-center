@@ -1,0 +1,97 @@
+# game-compressor — provenance
+
+- Source : https://github.com/juma-sayeh/PS5-Game-Compressor
+- Commit figé : `5a040799eed7a8355ae9194608f353717b6634d5` (v1.0.4 (2026-08-21))
+- Archive : https://codeload.github.com/juma-sayeh/PS5-Game-Compressor/tar.gz/5a040799eed7 (SHA-256 `b5d10865563959f242181f866c08c2cccdb538e5f71fb4332d030a317a8c7d7a`)
+- Auteur : juma-sayeh
+- Rôle : Compression / décompression, déplacement interne ↔ USB, validation des jeux — destiné à PS5 Center.
+- Licence : GPL-3.0 (confirmée par le propriétaire du projet, 2026-11-07). Crédité dans l'écran Remerciements.
+
+## Règles
+- Fichiers copiés **sans modification** (binaires .elf/.pkg/.zip exclus). Nos adaptations vivent dans nos fichiers.
+- Rien n'est compilé tant qu'une intégration n'est pas décidée et testée.
+- Mise à jour volontaire uniquement : diff relu, tests console, puis mise à jour de ce fichier.
+
+## Empreintes (SHA-256)
+
+- `CHANGELOG.md` 5e66db09f4f19ff835892d2500484fa99ea6b6adaa8d8c7ccc72ecba3f797e20
+- `Makefile` 781ed3e5a9326b38569761abb82ae9c7241733b1b55d374f5acf4f5b2291af37
+- `NEXT_RELEASE_BACKLOG.md` f01faf19d83b7fd556f4432aa12b0ba020b4e64501a51c78b9208869f384d872
+- `README.md` ecd428ef23e00d442c9de55290edd763c73df26be437aa6bd0419d2ced877647
+- `RELEASE_NOTES_0.9.7.md` 3ca4643eaafd412862fb3ce584a16c529f992d17ebc057d22a30e9eeb5191cc9
+- `RELEASE_NOTES_0.9.9.md` 34a03ca9674c556c6a4d22b0cdf333fb476c264fe99ff1d5983b7b08f697c00e
+- `RELEASE_NOTES_1.0.0.md` f6df32dafc1f1724ec09105d1919fe3df51d54d821bcf73f4642bd05ed6bfb15
+- `RELEASE_NOTES_1.0.1.md` 2e031ae30bafff70af7fbde2aeda9ae05bff5c336c725d71616dbe8f53916383
+- `RELEASE_NOTES_1.0.2.md` 266f1f02f0665875f7e835ca089ad2f85154324639b4ab2c5625b16e0cf25288
+- `RELEASE_NOTES_1.0.3.md` 8887cd46ad6c03dd45bb2ebda049b4c39e044aefe4031a1782d04dfa3e7dbf82
+- `RELEASE_NOTES_1.0.4.md` 0dbccb0ff36f1ab8f9a9df03d629656d3c3e58943125c337eaefa063bd25a6df
+- `assets/flag-cn.svg` aacc271c3ebbca8cc3ee09a543329bf6157cd97ee16bd0c931bf883006699d62
+- `assets/flag-de.svg` 8124f1090d31014b6ceeafd4c0e89eb06a6a8813c683bd2f27464aed9cd3177a
+- `assets/flag-es.svg` 511a9877d06c2823b4c2637c022448c404e3d44da2c8be15ea00d715786077b9
+- `assets/flag-fr.svg` a8843f9a5caebb6f2d562b8713088ca1e14b88c0a64436369eb853e4b0205d7c
+- `assets/flag-gb.svg` b4dde66ffe545f249fae8e000498e97692f64fa1dc5182000d727ebfe3f667b8
+- `assets/flag-it.svg` 14d538fa45cd6f3e64f4a90c13a3b7ed497d212f68c69e4eb498e0f91d938512
+- `assets/flag-ps.svg` d7079f499844db7ec75e445d87b0e149757cb0a82ebb658b0e257d7040d88da8
+- `assets/game-compressor-i18n.js` 33fdcf015e9f3f7b48283950009ae9b116800a6e85bb65bfe8c75c21ed3eb795
+- `assets/game-compressor-locale-ar.js` ead9bea2a236265b1e79daadf3c993948226b31f5cd5479a8e7a7d5678fcc4c4
+- `assets/game-compressor-locale-de.js` 119f88dc773c7b164e3884121785563d02b9e0ca55903d5dcafd5d3d2f87776b
+- `assets/game-compressor-locale-es.js` af432a11157196ed3243868d537ac89d1c8f92d2c1eef51811e6fe45f80a1e6e
+- `assets/game-compressor-locale-fr.js` a58a7546794bc85f00f30423287c6e279486a4faac0dc679013c2b4be993c84d
+- `assets/game-compressor-locale-it.js` bb0a37de44be4038fec7f13815d6db369e47bd4e4b4a2a4b0c5ad76365f63536
+- `assets/game-compressor-locale-zh-hans.js` 2587b541ce3bded5e2ee3ba21150f5c83be9bccc211710154fa8a96d342a8750
+- `assets/game-compressor-rtl.css` a17c97a1fa8429e9689f737b6f6ac9ca2a9475133dea4b8d272733336fa32197
+- `assets/game-compressor.html` 4f677ee753124f0e365c87173b88e95bc7febf04748506d6c015da8135f3415c
+- `assets/language-system.svg` 93f5b4cefecfd0c21ff6fdfd62e8a21f9758aef84d0b84dcee317fdceeb37147
+- `assets-app/icon0.png` ebf39333b48a7eeb9fb7145f70e7dabc2f8fdb1cdfdec08e6ae8a38392eb4167
+- `assets-app/param.json` cb583a403354588dbf41c193e1d89c15ac2635ca5443d44a1f02167ffe5264c1
+- `gen-asset-module.py` bd60e8dd1a1f61d6a46846b35eca5ae5c2d79d9a7069c5d611ce35df909d87d9
+- `payload-manager/game-compressor.elf.json` 95ddcda50752dad615849f733563deb7045484496d0ae249a6981f57b6aa89b9
+- `src/ampr_index.c` e23412e02d7b684718a86a8f556319bc972a474f6e4214e9acfa15e1d2810e3e
+- `src/ampr_index.h` 5d9aa238f98960861db17fc5ae41c2c893c0308c56bad4677b363873100b2c18
+- `src/asset.c` 4f4c667ce3cf99bf9e82faad621a033f6a043f8735a438b80d8e0a7a36cd2b99
+- `src/asset.h` d84925bc4ef0d3a6b3cb8ab928306f59c61496f81e7815569a470a09a8114bf3
+- `src/exfat_upcase_standard.inc` 309f4989e88cfdd19e0be10d188df8bcb1d1cfeddf755009f9b10f87daee1418
+- `src/gc_api.c` 802e4adc894e5d5f7e42eabde61a206a9947defab4dac63f3af8ea39e0bc9f09
+- `src/gc_api.h` d0bb6f52c299f2a0a35f0c9288bafd0c40d10dfcaac7d824cdba1b6e0847e2d6
+- `src/gc_app_installer.c` fdb03180d9ea77f3c61f123678b8380c2fa8c557e6e8c205096279ffa615de80
+- `src/gc_app_installer.h` a096fd985a902cd86df184c0ad19b9146ecedf91bc77677aaa84099261faf4fb
+- `src/gc_diag.c` 381ac3e3f8d157f814f96ff4b67e1551e531be398db9e53f03f78003412c640c
+- `src/gc_diag.h` f78ea635c2c9194bb7baf936e63fe43b29cca85b8cb42f36648aef39a33532ef
+- `src/gc_icon_thumb.c` e26686c53e8b2b0442da453c929ab513cc5fbfefdc12d0bc13df8ff15f2873ab
+- `src/gc_icon_thumb.h` 23becaabd6f902561cd71e66b28d57722ab549118e728f12b57544836d3682d9
+- `src/gc_job.c` 6e39b420d2da2288ffb2ccc3ef10f0818081937e2268dfe920249fd126ae237e
+- `src/gc_json_escape.h` bda424d75383456ba91e5c71f273746b0a08dc942e2c271ff082a4617cb896b4
+- `src/gc_main.c` bb0e568f965e5a0219489271eacfdf9ca83de5b356eb336bb4ca1543ac8e5549
+- `src/gc_notify.c` 64ca35f2f99c120e672a315d0c65d7f2def93f30c2a171909683268828691008
+- `src/gc_notify.h` c3767faa71bd15d812f035cba9526f896aaba6dc99afd06de824be661bbfeb68
+- `src/gc_power_guard.c` ebd52ceb7556e8c7e061aba1ab662f53eb374539db7a38925805908498f27682
+- `src/gc_power_guard.h` 409ddece864a5a944185ff218cfc2f7e1d6ca7defc3eae5d7adb7b3340e97c3c
+- `src/gc_shadowmount.c` 6b8e989bb920e4e4b8a2053e5c945e9a8fbe60cb2454f226d7d37ff3d63f7689
+- `src/gc_shadowmount.h` 4f950a60498f2eb87fce4a58f37ca46bd67c14fb304dca1a9cb28972ac5c3ac1
+- `src/gc_size_cache.c` bb1d33db166e77e1c88426c54339bddb3eb9e336871ac6b6baf587afc97a3890
+- `src/gc_size_cache.h` 45747228e4731c3b89c857eb7c1435957e447874edc105b8e761979934257ac5
+- `src/gc_websrv.c` d7631b45ede0f462577406f857788960c48a0017d346d6b33183e03ce89c1c0c
+- `src/miniz.h` 152150c008b3c17607d2e504cba0250c0ac2cfc64daf02c1ebd2becc4c61933e
+- `src/miniz_common.h` 029a909039f6fcffbfe4f44b667e5d94482a30204908dc2b2956c79c3207c192
+- `src/miniz_export.h` e90e12bb9b6ed37aa4725b9da70e2499dc48ca5cdcc0840c2f25bf8c1a5d04d5
+- `src/miniz_tinfl.c` c68ad108f28228e322e5d39dfc626c9b76cd88130a6c8260e16903bc750c987c
+- `src/miniz_tinfl.h` 42a6f6b4fef67cf321b44bbe13ed1310493356520443735797479114c50601a6
+- `src/pfs_ampr_hotswap.c` 80f0b777a0833a1637eb3cc0ae4e9f60b856e4c3a140012443cd1fd3f5d2e01f
+- `src/pfs_ampr_hotswap.h` a02b286e40dc8a95df12614298b74058b66c8c7064e0be8f4e620ff139567c32
+- `src/pfs_block_pipeline.c` ca468230635bf6fe19da384b0c6195969f883a569502e1bb1f98bb089c3975c3
+- `src/pfs_block_pipeline.h` 7a3aaedc1fb0d79bf7067da79bd3b032f6ab00408079893c5a380e2cbd718dae
+- `src/pfs_compress.c` 2339ff7fa9f88d72bb4e288030342c5becb1e37d8159e3516d5afe936861b383
+- `src/pfs_compress.h` bc77ceba4e92b222aa52b620a5f9096b9527a0a3835b1a633999c0959f91976b
+- `src/pfs_decompress.c` 627403d0b850f43f54b614bf7eeed22ce3df94a5deb04916bf14849af6124dbb
+- `src/pfs_fs_util.h` 6d1b09ad4868c241d1f2234bc389f008ad6369405ded8e09dc1391a77de429da
+- `src/pfs_io_policy.h` b6078e8cb882a58455df51aeaf8d3c8c7c51b1a57ee2f8a3889feb572cf13a4f
+- `src/pfs_job_util.h` da10eb7ca77b11d7740692d65a3499d8e27c44480cea3dc28b2e4cc9a67fa25d
+- `src/pfs_repair.c` ce9f4162610c818fd19e49fcfc3d300c648a6213388cc39b27a3bc1acde6b312
+- `src/pfs_repair.h` d9a3137e582cb6cd35a6c72e291f5e50089ddc213d4b105016d2c4b288324d0f
+- `src/pfs_validate_hash.c` 85955830de1debfe8a517fbd95af95d9e85e2212432ad202f81d559ff739457b
+- `src/pfs_validate_hash.h` 87c9ab7577d5d1b42f4c5466f22081234cb33252da83c3637ad7372d7bb0bd22
+- `src/stb_image.h` 594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3
+- `src/stb_image_resize2.h` 5de9c29faed66feb70d7f5a6e94a95ea30c6581a808c045fe56b84df4c949940
+- `src/stb_image_write.h` cbd5f0ad7a9cf4468affb36354a1d2338034f2c12473cf1a8e32053cb6914a05
+- `src/transfer_internal.h` 8dc4c8e7e82e6158a1e1b1bbd7f07f2d0a82dbe2e49837f383fae1cbba153dc6
+- `src/websrv.h` 1aed93dff80977f98676b349e39bf297a4d7e7deef487d8cebca50e3b048b115

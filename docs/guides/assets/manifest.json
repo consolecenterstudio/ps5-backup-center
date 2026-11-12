@@ -1,0 +1,82 @@
+[
+  {
+    "guide": "01-start",
+    "step": 2,
+    "file": "en-oled-home.png",
+    "locale": "en",
+    "version": "2.85.7",
+    "privacy": "Previously flattened anonymized derivative; visually reviewed for this selection",
+    "caption_en": "Home separates your current game, actions to take and recently played titles. Scroll down for the other shelves.",
+    "caption_fr": "L’accueil sépare jeu actuel, actions proposées et jeux récents. Faites défiler pour les autres rangées."
+  },
+  {
+    "guide": "01-start",
+    "step": 3,
+    "file": "web-library.en.png",
+    "locale": "en",
+    "version": "2.86.0",
+    "privacy": "Previously flattened anonymized derivative; visually reviewed for this selection",
+    "caption_en": "In the paired browser, Library offers content, emulator and location filters.",
+    "caption_fr": "Dans le navigateur associé, Bibliothèque propose les filtres de contenu, d’émulateur et d’emplacement."
+  },
+  {
+    "guide": "02-everyday",
+    "step": 3,
+    "file": "backup-versions.png",
+    "locale": "fr-CA",
+    "version": "2.85.5",
+    "privacy": "Previously flattened anonymized derivative; visually reviewed for this selection",
+    "caption_en": "Content A matches the console here; other letters distinguish stored contents. Read the protection badges before cleanup.",
+    "caption_fr": "Le contenu A correspond ici à celui de la console ; les autres lettres distinguent les contenus rangés. Regardez les protections avant nettoyage."
+  },
+  {
+    "guide": "03-destinations",
+    "step": 5,
+    "file": "en-oled-sync.png",
+    "locale": "en",
+    "version": "2.85.7",
+    "privacy": "Previously flattened anonymized derivative; visually reviewed for this selection",
+    "caption_en": "First choose the device at left, then the section. Saves are stored copies; Active progress is the save used to resume play. Whole games opens Transfers.",
+    "caption_fr": "Choisissez l’appareil à gauche, puis la section. Sauvegardes désigne les copies rangées ; Parties actives, la partie utilisée pour jouer. Jeux entiers ouvre Transferts."
+  },
+  {
+    "guide": "04-transfers",
+    "step": 1,
+    "file": "en-oled-transfers.png",
+    "locale": "en",
+    "version": "2.85.7",
+    "privacy": "Previously flattened anonymized derivative; visually reviewed for this selection",
+    "caption_en": "Read FROM and TO before choosing Copy, Move or Compress. The selected source and target are highlighted separately.",
+    "caption_fr": "Lisez DEPUIS et VERS avant de choisir Copier, Déplacer ou Compresser. Source et destination sont surlignées séparément."
+  },
+  {
+    "guide": "05-emulators",
+    "step": 3,
+    "file": "rom-details.png",
+    "locale": "fr-CA",
+    "version": "2.85.5",
+    "privacy": "Previously flattened anonymized derivative; visually reviewed for this selection",
+    "caption_en": "This ROM sheet offers the game component only. Available components depend on the detected emulator and files; a save or state is not implied.",
+    "caption_fr": "Cette fiche ROM propose uniquement le jeu. Les composants dépendent de l’émulateur et des fichiers détectés ; une partie ou un état ne sont pas implicites."
+  },
+  {
+    "guide": "06-settings",
+    "step": 1,
+    "file": "settings-themes.png",
+    "locale": "fr-CA",
+    "version": "2.85.5",
+    "privacy": "Previously flattened anonymized derivative; visually reviewed for this selection",
+    "caption_en": "The eight theme previews share one setting. Interface sounds, background music and volume are controlled separately.",
+    "caption_fr": "Les huit aperçus de thèmes sont réunis ici. Sons de l’interface, musique d’ambiance et volume se règlent séparément."
+  },
+  {
+    "guide": "06-settings",
+    "step": 3,
+    "file": "whats-new-settings-2860.en.png",
+    "locale": "en",
+    "version": "2.86.0",
+    "privacy": "Previously flattened anonymized derivative; visually reviewed for this selection",
+    "caption_en": "What’s new lets you reread version changes. This is the Settings page, not the installation confirmation.",
+    "caption_fr": "Nouveautés permet de relire les changements par version. Il s’agit de la page des paramètres, pas d’une confirmation d’installation."
+  }
+]

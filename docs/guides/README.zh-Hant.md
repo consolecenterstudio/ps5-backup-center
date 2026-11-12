@@ -1,0 +1,22 @@
+# PS5 Backup Center
+
+[PS5 Backup Center](../readme/README.zh-Hant.md) · [媒體](../media.md)
+
+1. [開始使用](01-start.zh-Hant.md)
+2. [日常備份與還原](02-everyday.zh-Hant.md)
+3. [目標位置與已配對主機](03-destinations.zh-Hant.md)
+4. [遊戲與傳輸](04-transfers.zh-Hant.md)
+5. [模擬器與ROM](05-emulators.zh-Hant.md)
+6. [設定與更新](06-settings.zh-Hant.md)
+7. [疑難排解](07-troubleshooting.zh-Hant.md)
+8. [開發者指南](08-developers.zh-Hant.md)
+9. [專案與支持](09-project.zh-Hant.md)
+10. [建立並檢查備份](10-first-backup.zh-Hant.md)
+11. [比較副本並清理重複項目](11-compare-cleanup.zh-Hant.md)
+12. [還原選定的存檔](12-restore.zh-Hant.md)
+13. [選擇正確的同步方式](13-sync.zh-Hant.md)
+14. [複製或移動完整遊戲](14-transfer-workflow.zh-Hant.md)
+15. [安排備份計畫](15-plans.zh-Hant.md)
+16. [使用瀏覽器和背景引擎](16-web-engine.zh-Hant.md)
+
+- [首頁與通知中心](17-home-notifications.zh-Hant.md)

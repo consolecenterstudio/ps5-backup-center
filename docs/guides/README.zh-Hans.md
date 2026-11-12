@@ -1,0 +1,22 @@
+# PS5 Backup Center
+
+[PS5 Backup Center](../readme/README.zh-Hans.md) · [媒体](../media.md)
+
+1. [开始使用](01-start.zh-Hans.md)
+2. [日常备份与恢复](02-everyday.zh-Hans.md)
+3. [目标位置与已配对主机](03-destinations.zh-Hans.md)
+4. [游戏与传输](04-transfers.zh-Hans.md)
+5. [模拟器与ROM](05-emulators.zh-Hans.md)
+6. [设置与更新](06-settings.zh-Hans.md)
+7. [故障排查](07-troubleshooting.zh-Hans.md)
+8. [开发者指南](08-developers.zh-Hans.md)
+9. [项目与支持](09-project.zh-Hans.md)
+10. [创建并检查备份](10-first-backup.zh-Hans.md)
+11. [比较副本并清理重复项](11-compare-cleanup.zh-Hans.md)
+12. [恢复选定的存档](12-restore.zh-Hans.md)
+13. [选择正确的同步方式](13-sync.zh-Hans.md)
+14. [复制或移动完整游戏](14-transfer-workflow.zh-Hans.md)
+15. [安排备份计划](15-plans.zh-Hans.md)
+16. [使用浏览器和后台引擎](16-web-engine.zh-Hans.md)
+
+- [主页与通知中心](17-home-notifications.zh-Hans.md)

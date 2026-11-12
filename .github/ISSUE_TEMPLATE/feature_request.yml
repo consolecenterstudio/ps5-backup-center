@@ -1,0 +1,35 @@
+name: Feature request
+description: Describe a workflow or an option that would help you.
+title: "[Idea] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read the README roadmap first. Describe the situation, the intended outcome and any relevant device or content type. Keep personal information out of examples and attachments.
+  - type: textarea
+    id: situation
+    attributes:
+      label: What are you trying to do?
+      description: Explain the workflow and what makes it difficult today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help?
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What would a successful result look like?
+      description: A concrete example helps us document and test the intended behaviour.
+  - type: dropdown
+    id: context
+    attributes:
+      label: Where would you use it?
+      options:
+        - TV and web
+        - Mainly on the TV
+        - Mainly in the browser
+        - Background engine or scheduled work
+        - Not sure

@@ -1,0 +1,140 @@
+{
+  "_doc": "Catalogue « où en est le joueur » : comment lire l'avancée dans le contenu des sauvegardes, jeu par jeu. Voir docs/ETUDE-catalogue-avancee.md. verified = vérifié sur une vraie sauvegarde PS5.",
+  "version": 1,
+  "games": [
+    {
+      "titleIds": [
+        "PPSA03169",
+        "CUSA18742",
+        "CUSA28863"
+      ],
+      "game": "ELDEN RING",
+      "verified": "2026-11-08",
+      "file": "memory.dat",
+      "reader": "slots",
+      "magic": "CB019C2C",
+      "slots": {
+        "active": "0x19019C4",
+        "base": "0x19019CE",
+        "stride": "0x24C",
+        "count": 10
+      },
+      "fields": [
+        {
+          "id": "name",
+          "offset": "0x00",
+          "type": "utf16le",
+          "len": 32
+        },
+        {
+          "id": "level",
+          "offset": "0x22",
+          "type": "u32"
+        },
+        {
+          "id": "play_time_seconds",
+          "offset": "0x26",
+          "type": "u32"
+        }
+      ],
+      "pick": "play_time_seconds",
+      "sources": [
+        "elden-ring-save-manager docs",
+        "ClayAmore/ER-Save-Editor (MIT/Apache-2.0)"
+      ]
+    },
+    {
+      "titleIds": [
+        "PPSA17599"
+      ],
+      "game": "Clair Obscur: Expedition 33",
+      "verified": "2026-11-08",
+      "file": "ue4savegame.dpx.sav",
+      "reader": "gvas",
+      "fields": [
+        {
+          "id": "play_time_seconds",
+          "property": "TimePlayed",
+          "type": "double"
+        },
+        {
+          "id": "place",
+          "property": "MapToLoad",
+          "type": "name"
+        }
+      ],
+      "sources": [
+        "Infarctus/CO-E33_Save_editor (GPL-3.0)",
+        "uesave (MIT)"
+      ]
+    },
+    {
+      "titleIds": [
+        "PPSA03974",
+        "CUSA16579",
+        "CUSA16596"
+      ],
+      "game": "Cyberpunk 2077",
+      "verified": "2026-11-08",
+      "file": "metadata.*.json",
+      "reader": "json",
+      "fields": [
+        {
+          "id": "play_time_seconds",
+          "path": "Data.metadata.playTime"
+        },
+        {
+          "id": "level",
+          "path": "Data.metadata.level"
+        },
+        {
+          "id": "street_cred",
+          "path": "Data.metadata.streetCred"
+        },
+        {
+          "id": "life_path",
+          "path": "Data.metadata.lifePath"
+        }
+      ],
+      "sources": [
+        "metadata.*.json en clair dans la sauvegarde (constaté)"
+      ]
+    },
+    {
+      "titleIds": [
+        "PPSA10737",
+        "CUSA30307"
+      ],
+      "game": "Little Nightmares Enhanced Edition",
+      "verified": "2026-11-08",
+      "file": "ue4savegame.dpx.sav",
+      "reader": "gvas",
+      "fields": [
+        {
+          "id": "place",
+          "property": "AtlasGameMode_PlayerStartLevel",
+          "type": "after"
+        }
+      ],
+      "sources": [
+        "sauvegarde PS5 lue (GVAS, état AtlasState)"
+      ]
+    },
+    {
+      "titleIds": [
+        "PPSA03355",
+        "CUSA21813"
+      ],
+      "game": "Hades",
+      "verified": "2026-11-08",
+      "file": "Profile*.sav",
+      "reader": "none",
+      "progress_files": [
+        "Profile*.sav"
+      ],
+      "sources": [
+        "Profile1.sjson = réglages seulement ; la partie est dans ProfileN.sav (constaté)"
+      ]
+    }
+  ]
+}

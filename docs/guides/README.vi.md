@@ -1,0 +1,22 @@
+# PS5 Backup Center
+
+[PS5 Backup Center](../readme/README.vi.md) · [Nội dung](../media.md)
+
+1. [Bắt đầu](01-start.vi.md)
+2. [Sao lưu và khôi phục hằng ngày](02-everyday.vi.md)
+3. [Đích và máy đã ghép đôi](03-destinations.vi.md)
+4. [Trò chơi và truyền dữ liệu](04-transfers.vi.md)
+5. [Trình giả lập và ROM](05-emulators.vi.md)
+6. [Cài đặt và cập nhật](06-settings.vi.md)
+7. [Khắc phục sự cố](07-troubleshooting.vi.md)
+8. [Dành cho nhà phát triển](08-developers.vi.md)
+9. [Dự án và hỗ trợ](09-project.vi.md)
+10. [Tạo và kiểm tra bản sao lưu](10-first-backup.vi.md)
+11. [So sánh bản sao và dọn bản trùng](11-compare-cleanup.vi.md)
+12. [Khôi phục bản lưu đã chọn](12-restore.vi.md)
+13. [Chọn đúng kiểu đồng bộ](13-sync.vi.md)
+14. [Sao chép hoặc di chuyển trò chơi đầy đủ](14-transfer-workflow.vi.md)
+15. [Lên lịch kế hoạch sao lưu](15-plans.vi.md)
+16. [Dùng trình duyệt và động cơ nền](16-web-engine.vi.md)
+
+- [Trang chủ và trung tâm thông báo](17-home-notifications.vi.md)

@@ -1,0 +1,4 @@
+out/
+engine/src/http/web_assets.gen.cpp
+.DS_Store
+__pycache__/

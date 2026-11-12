@@ -1,0 +1,526 @@
+/*
+ * ps5-native-app-boilerplate - CPU VideoOut demonstration implementation.
+ * Copyright (C) 2026 BlackBearReloaded
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * Provides the bounded drawing surface and PS5 presentation loop used by the
+ * editable starter application.
+ */
+
+#include "demo_renderer.hpp"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <memory>
+#include <new>
+#include <span>
+#include <string_view>
+#include <utility>
+
+extern "C"
+{
+    std::size_t sceKernelGetDirectMemorySize();
+    int sceKernelAllocateDirectMemory(std::int64_t search_start, std::int64_t search_end,
+                                      std::size_t length, std::size_t alignment, int memory_type,
+                                      std::int64_t *physical_address);
+    int sceKernelMapDirectMemory(void **address, std::size_t length, int protection, int flags,
+                                 std::int64_t physical_address, std::size_t alignment);
+    int sceKernelSendNotificationRequest(std::uint32_t device, void *request, std::size_t size,
+                                         int blocking);
+    int sceKernelUsleep(std::uint32_t microseconds);
+    std::uint64_t sceKernelGetProcessTime();
+    int sceKernelDebugOutText(int channel, const char *message);
+    int sceSystemServiceHideSplashScreen();
+    int open(const char *path, int flags, ...);
+    long read(int descriptor, void *buffer, std::size_t size);
+    int close(int descriptor);
+    int sceVideoOutOpen(std::int32_t user_id, std::int32_t bus_type, std::int32_t index,
+                        const void *param);
+    int sceVideoOutSetFlipRate(std::int32_t handle, std::int32_t rate);
+    int sceVideoOutSubmitFlip(std::int32_t handle, std::int32_t buffer_index,
+                              std::uint32_t flip_mode, std::int64_t flip_argument);
+    int sceVideoOutWaitVblank(std::int32_t handle);
+    bool ps5ObserveOwnedAllocation(const void *address) noexcept;
+}
+
+namespace ps5::demo
+{
+namespace
+{
+constexpr unsigned frame_width = 1920;
+constexpr unsigned frame_height = 1080;
+constexpr std::size_t frame_bytes = 0x1000000;
+constexpr std::size_t memory_bytes = frame_bytes * 2;
+constexpr std::size_t memory_alignment = 0x200000;
+constexpr int memory_type_wc_garlic = 3;
+constexpr int map_protection = 0x33;
+constexpr std::uint64_t pixel_format_rgba8_srgb = UINT64_C(0x8000000022000000);
+
+struct VideoBuffer
+{
+    void *data;
+    void *metadata;
+    void *reserved0;
+    void *reserved1;
+};
+
+struct VideoAttribute
+{
+    std::uint8_t reserved[80];
+};
+
+extern "C" void sceVideoOutSetBufferAttribute2(VideoAttribute *attribute,
+                                               std::uint64_t pixel_format,
+                                               std::uint32_t tiling_mode, std::uint32_t width,
+                                               std::uint32_t height, std::uint64_t option,
+                                               std::uint32_t dcc_control,
+                                               std::uint64_t dcc_clear_color);
+extern "C" int sceVideoOutRegisterBuffers2(std::int32_t handle, std::int32_t set_index,
+                                           std::int32_t buffer_index_start, VideoBuffer *buffers,
+                                           std::int32_t buffer_count, VideoAttribute *attribute,
+                                           std::int32_t category, void *option);
+
+struct NotificationRequest
+{
+    std::uint8_t reserved[45];
+    char message[3075];
+};
+
+struct Glyph
+{
+    char character;
+    std::array<std::uint8_t, 7> rows;
+};
+
+constexpr std::array<Glyph, 42> glyphs{{
+    {' ', {0, 0, 0, 0, 0, 0, 0}},        {'.', {0, 0, 0, 0, 0, 12, 12}},
+    {':', {0, 12, 12, 0, 12, 12, 0}},    {'-', {0, 0, 0, 31, 0, 0, 0}},
+    {'%', {24, 25, 2, 4, 8, 19, 3}},     {'/', {1, 1, 2, 4, 8, 16, 16}},
+    {'0', {14, 17, 19, 21, 25, 17, 14}}, {'1', {4, 12, 4, 4, 4, 4, 14}},
+    {'2', {14, 17, 1, 2, 4, 8, 31}},     {'3', {30, 1, 1, 14, 1, 1, 30}},
+    {'4', {2, 6, 10, 18, 31, 2, 2}},     {'5', {31, 16, 16, 30, 1, 1, 30}},
+    {'6', {14, 16, 16, 30, 17, 17, 14}}, {'7', {31, 1, 2, 4, 8, 8, 8}},
+    {'8', {14, 17, 17, 14, 17, 17, 14}}, {'9', {14, 17, 17, 15, 1, 1, 14}},
+    {'A', {14, 17, 17, 31, 17, 17, 17}}, {'B', {30, 17, 17, 30, 17, 17, 30}},
+    {'C', {14, 17, 16, 16, 16, 17, 14}}, {'D', {30, 17, 17, 17, 17, 17, 30}},
+    {'E', {31, 16, 16, 30, 16, 16, 31}}, {'F', {31, 16, 16, 30, 16, 16, 16}},
+    {'G', {14, 17, 16, 23, 17, 17, 14}}, {'H', {17, 17, 17, 31, 17, 17, 17}},
+    {'I', {31, 4, 4, 4, 4, 4, 31}},      {'J', {7, 2, 2, 2, 18, 18, 12}},
+    {'K', {17, 18, 20, 24, 20, 18, 17}}, {'L', {16, 16, 16, 16, 16, 16, 31}},
+    {'M', {17, 27, 21, 21, 17, 17, 17}}, {'N', {17, 25, 21, 19, 17, 17, 17}},
+    {'O', {14, 17, 17, 17, 17, 17, 14}}, {'P', {30, 17, 17, 30, 16, 16, 16}},
+    {'Q', {14, 17, 17, 17, 21, 18, 13}}, {'R', {30, 17, 17, 30, 20, 18, 17}},
+    {'S', {15, 16, 16, 14, 1, 1, 30}},   {'T', {31, 4, 4, 4, 4, 4, 4}},
+    {'U', {17, 17, 17, 17, 17, 17, 14}}, {'V', {17, 17, 17, 17, 17, 10, 4}},
+    {'W', {17, 17, 17, 21, 21, 21, 10}}, {'X', {17, 17, 10, 4, 10, 17, 17}},
+    {'Y', {17, 17, 10, 4, 4, 4, 4}},     {'Z', {31, 1, 2, 4, 8, 16, 31}},
+}};
+
+class File final
+{
+  public:
+    explicit File(int descriptor = -1) noexcept : descriptor_{descriptor}
+    {
+    }
+
+    ~File()
+    {
+        reset();
+    }
+
+    File(const File &) = delete;
+    File &operator=(const File &) = delete;
+
+    File(File &&other) noexcept : descriptor_{std::exchange(other.descriptor_, -1)}
+    {
+    }
+
+    File &operator=(File &&other) noexcept
+    {
+        if (this != &other)
+        {
+            reset();
+            descriptor_ = std::exchange(other.descriptor_, -1);
+        }
+        return *this;
+    }
+
+    [[nodiscard]] bool valid() const noexcept
+    {
+        return descriptor_ >= 0;
+    }
+
+    [[nodiscard]] int get() const noexcept
+    {
+        return descriptor_;
+    }
+
+  private:
+    void reset() noexcept
+    {
+        if (descriptor_ >= 0)
+        {
+            (void)close(descriptor_);
+            descriptor_ = -1;
+        }
+    }
+
+    int descriptor_;
+};
+
+class LifetimeProbe final
+{
+  public:
+    explicit LifetimeProbe(bool &destroyed) noexcept : destroyed_{&destroyed}
+    {
+    }
+
+    ~LifetimeProbe()
+    {
+        *destroyed_ = true;
+    }
+
+    LifetimeProbe(const LifetimeProbe &) = delete;
+    LifetimeProbe &operator=(const LifetimeProbe &) = delete;
+
+  private:
+    bool *destroyed_;
+};
+
+NotificationRequest notification{};
+
+void copy_message(std::span<char> destination, std::string_view source) noexcept
+{
+    if (destination.empty())
+        return;
+
+    const std::size_t count =
+        source.size() < destination.size() - 1 ? source.size() : destination.size() - 1;
+    for (std::size_t index = 0; index < count; ++index)
+        destination[index] = source[index];
+    destination[count] = '\0';
+}
+
+int notify(std::string_view message) noexcept
+{
+    if(message.empty()) return 0;
+    copy_message(std::span{notification.message}, message);
+    return sceKernelSendNotificationRequest(0, &notification, sizeof(notification), 0);
+}
+
+[[nodiscard]] bool verify_unique_ownership() noexcept
+{
+    bool destroyed = false;
+    {
+        std::unique_ptr<LifetimeProbe> probe{new (std::nothrow_t{}) LifetimeProbe{destroyed}};
+        if (!ps5ObserveOwnedAllocation(probe.get()))
+            return false;
+    }
+    return destroyed;
+}
+
+[[noreturn]] void halt(std::string_view message) noexcept
+{
+    std::array<char,256> diagnostic{};
+    std::snprintf(diagnostic.data(),diagnostic.size(),"PBCK video fatal: %.*s\n",
+                  static_cast<int>(message.size()),message.data());
+    (void)sceKernelDebugOutText(0,diagnostic.data());
+    notify(message);
+    for (;;)
+        (void)sceKernelUsleep(1000000);
+}
+
+void video_result(const char *stage, int result) noexcept
+{
+    std::array<char,128> message{};
+    std::snprintf(message.data(),message.size(),"PBCK video stage=%s rc=0x%08X value=%d\n",
+                  stage,static_cast<unsigned>(result),result);
+    (void)sceKernelDebugOutText(0,message.data());
+}
+
+[[noreturn]] void video_failure(const char *stage, int result) noexcept
+{
+    std::array<char,160> message{};
+    std::snprintf(message.data(),message.size(),"PS5 Backup Center: %s failed (0x%08X)",
+                  stage,static_cast<unsigned>(result));
+    halt(message.data());
+}
+
+[[nodiscard]] constexpr std::span<const std::uint8_t, 7> glyph_rows(char character) noexcept
+{
+    for (const auto &glyph : glyphs)
+    {
+        if (glyph.character == character)
+            return glyph.rows;
+    }
+    return glyphs.front().rows;
+}
+
+[[nodiscard]] constexpr std::size_t tiled_byte_offset(unsigned x, unsigned y) noexcept
+{
+    const std::uint32_t offset = ((y << 4) & 0x70U) ^ ((y << 5) & 0xf00U) ^ ((y << 9) & 0x1000U) ^
+                                 ((y << 8) & 0x4000U) ^ ((x << 2) & 0xcU) ^ ((x << 5) & 0x380U) ^
+                                 ((x << 4) & 0x400U) ^ ((x << 6) & 0x800U) ^ ((x << 9) & 0xa000U);
+    const std::uint32_t blocks_per_row = (frame_width + 127U) >> 7;
+    const std::uint32_t block_index = (y >> 7) * blocks_per_row + (x >> 7);
+
+    return (static_cast<std::size_t>(block_index) << 16) + offset;
+}
+
+void put_pixel_unchecked(std::uint32_t *pixels, unsigned x, unsigned y, Color color) noexcept
+{
+    auto *bytes = reinterpret_cast<std::uint8_t *>(pixels);
+    *reinterpret_cast<std::uint32_t *>(bytes + tiled_byte_offset(x, y)) =
+        static_cast<std::uint32_t>(color);
+}
+
+void fill_rect(std::uint32_t *pixels, unsigned x, unsigned y, unsigned width, unsigned height,
+               Color color) noexcept
+{
+    if (x >= frame_width || y >= frame_height)
+        return;
+
+    const unsigned right = width > frame_width - x ? frame_width : x + width;
+    const unsigned bottom = height > frame_height - y ? frame_height : y + height;
+    for (unsigned row = y; row < bottom; ++row)
+    {
+        for (unsigned column = x; column < right; ++column)
+            put_pixel_unchecked(pixels, column, row, color);
+    }
+}
+
+void fill_circle(std::uint32_t *pixels, unsigned center_x, unsigned center_y, unsigned radius,
+                 Color color) noexcept
+{
+    const int signed_radius = static_cast<int>(radius);
+    for (int y = -signed_radius; y <= signed_radius; ++y)
+    {
+        for (int x = -signed_radius; x <= signed_radius; ++x)
+        {
+            if (x * x + y * y <= signed_radius * signed_radius)
+            {
+                const int pixel_x = static_cast<int>(center_x) + x;
+                const int pixel_y = static_cast<int>(center_y) + y;
+                if (pixel_x >= 0 && pixel_y >= 0)
+                {
+                    const auto bounded_x = static_cast<unsigned>(pixel_x);
+                    const auto bounded_y = static_cast<unsigned>(pixel_y);
+                    if (bounded_x < frame_width && bounded_y < frame_height)
+                        put_pixel_unchecked(pixels, bounded_x, bounded_y, color);
+                }
+            }
+        }
+    }
+}
+
+void fill_triangle(std::uint32_t *pixels, unsigned center_x, unsigned top, unsigned half_width,
+                   unsigned height, Color color) noexcept
+{
+    if (height == 0 || center_x >= frame_width)
+        return;
+
+    for (unsigned row = 0; row < height; ++row)
+    {
+        const unsigned half = row * half_width / height;
+        const unsigned left = half > center_x ? 0 : center_x - half;
+        const unsigned right = half >= frame_width - center_x ? frame_width : center_x + half + 1;
+        fill_rect(pixels, left, top + row, right - left, 1, color);
+    }
+}
+
+void draw_text(std::uint32_t *pixels, unsigned x, unsigned y, std::string_view value,
+               unsigned scale, Color color) noexcept
+{
+    for (const char character : value)
+    {
+        const auto rows = glyph_rows(character);
+        for (unsigned row = 0; row < rows.size(); ++row)
+        {
+            for (unsigned column = 0; column < 5; ++column)
+            {
+                if ((rows[row] & (1U << (4 - column))) != 0)
+                    fill_rect(pixels, x + column * scale, y + row * scale, scale, scale, color);
+            }
+        }
+        x += 6 * scale;
+        if (x >= frame_width)
+            return;
+    }
+}
+
+void flush_range(void *address, std::size_t length) noexcept
+{
+    auto *at = static_cast<std::uint8_t *>(address);
+    const auto *end = at + length;
+
+    for (; at < end; at += 64)
+        __asm__ volatile("clflush (%0)" : : "r"(at) : "memory");
+    __asm__ volatile("mfence" ::: "memory");
+}
+} // namespace
+
+int show_notification(std::string_view message) noexcept
+{
+    return notify(message);
+}
+
+void Canvas::clear(Color color) noexcept
+{
+    fill_rect(pixels_, 0, 0, frame_width, frame_height, color);
+}
+
+bool Canvas::image(std::span<const std::uint32_t> rgba) noexcept
+{
+    if(rgba.size()!=frame_width*frame_height) return false;
+    for(unsigned y=0;y<frame_height;++y)
+        for(unsigned x=0;x<frame_width;++x)
+            put_pixel_unchecked(pixels_,x,y,static_cast<Color>(rgba[y*frame_width+x]));
+    return true;
+}
+
+void Canvas::rectangle(unsigned x, unsigned y, unsigned width, unsigned height,
+                       Color color) noexcept
+{
+    fill_rect(pixels_, x, y, width, height, color);
+}
+
+void Canvas::circle(unsigned center_x, unsigned center_y, unsigned radius, Color color) noexcept
+{
+    fill_circle(pixels_, center_x, center_y, radius, color);
+}
+
+void Canvas::triangle(unsigned center_x, unsigned top, unsigned half_width, unsigned height,
+                      Color color) noexcept
+{
+    fill_triangle(pixels_, center_x, top, half_width, height, color);
+}
+
+void Canvas::text(unsigned x, unsigned y, std::string_view value, unsigned scale,
+                  Color color) noexcept
+{
+    draw_text(pixels_, x, y, value, scale, color);
+}
+
+void read_asset_text(const char *path, std::span<char> destination,
+                     std::string_view fallback) noexcept
+{
+    copy_message(destination, fallback);
+    File descriptor{open(path, 0)};
+    if (!descriptor.valid() || destination.empty())
+        return;
+
+    const long count = read(descriptor.get(), destination.data(), destination.size() - 1);
+    if (count <= 0)
+        return;
+
+    std::size_t length = static_cast<std::size_t>(count);
+    while (length > 0 && (destination[length - 1] == '\r' || destination[length - 1] == '\n'))
+        --length;
+    destination[length] = '\0';
+}
+
+[[noreturn]] void run(DrawScene draw, std::string_view ready_message) noexcept
+{
+    detail::present(draw, ready_message, false);
+}
+
+[[noreturn]] void run_frames(DrawScene draw, std::string_view ready_message, FirstPresented first_presented) noexcept
+{
+    detail::present(draw, ready_message, true, first_presented);
+}
+
+[[noreturn]] void detail::present(DrawScene draw, std::string_view ready_message,
+                                  bool every_frame, FirstPresented first_presented) noexcept
+{
+    if (!verify_unique_ownership())
+        halt("PS5 Backup Center: unique ownership failed");
+    if (draw == nullptr)
+        halt("PS5 Backup Center: scene callback missing");
+
+    video_result("HIDE_SPLASH",sceSystemServiceHideSplashScreen());
+    const int video = sceVideoOutOpen(0xff, 0, 0, nullptr);
+    video_result("OPEN",video);
+    if (video < 0)
+        video_failure("sceVideoOutOpen",video);
+
+    const std::size_t pool_size = sceKernelGetDirectMemorySize();
+    if (pool_size < memory_bytes)
+        halt("PS5 Backup Center: insufficient direct memory");
+
+    std::int64_t physical_address = 0;
+    int result =
+        sceKernelAllocateDirectMemory(0, static_cast<std::int64_t>(pool_size), memory_bytes,
+                                      memory_alignment, memory_type_wc_garlic, &physical_address);
+    video_result("ALLOCATE",result);
+    if (result < 0)
+        video_failure("direct-memory allocation",result);
+
+    void *mapped = nullptr;
+    result = sceKernelMapDirectMemory(&mapped, memory_bytes, map_protection, 0, physical_address,
+                                      memory_alignment);
+    video_result("MAP",result);
+    if (result < 0)
+        video_failure("direct-memory mapping",result);
+
+    Canvas first{static_cast<std::uint32_t *>(mapped)};
+    auto *second_frame = static_cast<std::uint8_t *>(mapped) + frame_bytes;
+    Canvas second{reinterpret_cast<std::uint32_t *>(second_frame)};
+    draw(first);
+    draw(second);
+    flush_range(mapped, memory_bytes);
+
+    std::array<VideoBuffer, 2> buffers{{
+        {mapped, nullptr, nullptr, nullptr},
+        {second_frame, nullptr, nullptr, nullptr},
+    }};
+    VideoAttribute attribute{};
+    video_result("FLIP_RATE",sceVideoOutSetFlipRate(video, 0));
+    sceVideoOutSetBufferAttribute2(&attribute, pixel_format_rgba8_srgb, 0, frame_width,
+                                   frame_height, 0, 0, 0);
+
+    result = sceVideoOutRegisterBuffers2(video, 0, 0, buffers.data(),
+                                         static_cast<std::int32_t>(buffers.size()), &attribute, 0,
+                                         nullptr);
+    video_result("REGISTER_BUFFERS",result);
+    if (result < 0)
+        video_failure("buffer registration",result);
+    result=sceVideoOutSubmitFlip(video, 0, 1, 1);
+    video_result("FIRST_FLIP",result);
+    if (result < 0)
+        video_failure("initial flip",result);
+
+    result=sceVideoOutWaitVblank(video);
+    video_result("FIRST_VBLANK",result);
+    if(result<0)video_failure("initial vblank",result);
+    // API boundary only: successful submission/vblank is not pixel/hardware QA.
+    // Exactly once, outside the per-frame loop. Old callers have no callback.
+    if(first_presented)first_presented();
+    notify(ready_message);
+
+    // Each frame is drawn whole into the buffer that isn't on screen, then shown.
+    std::uint64_t last_diagnostic087=0;int last_flip_error087=0,last_vblank_error087=0;
+    if (every_frame)
+        for (std::int64_t frame = 2;; ++frame)
+        {
+            const std::size_t back = static_cast<std::size_t>(frame & 1) ^ 1U;
+            Canvas canvas{static_cast<std::uint32_t *>(buffers[back].data)};
+            draw(canvas);
+            flush_range(buffers[back].data, frame_bytes);
+            const int flip087=sceVideoOutSubmitFlip(video, static_cast<std::int32_t>(back), 1, frame);
+            if(flip087<0&&flip087!=last_flip_error087){std::array<char,180>message087{};std::snprintf(message087.data(),message087.size(),"PBCK video087 frame=%lld stage=submit_flip result=%d\n",static_cast<long long>(frame),flip087);(void)sceKernelDebugOutText(0,message087.data());last_flip_error087=flip087;}
+            if (flip087 < 0)
+                (void)sceKernelUsleep(4000); // Preserve the acquired handling; observation adds no retry.
+            const int vblank087=sceVideoOutWaitVblank(video);
+            const auto now087=sceKernelGetProcessTime();
+            if(!last_diagnostic087||now087-last_diagnostic087>=30000000||(flip087<0&&flip087!=last_flip_error087)||(vblank087<0&&vblank087!=last_vblank_error087)){
+                std::array<char,220>message087{};std::snprintf(message087.data(),message087.size(),"PBCK video087 frame=%lld submit_flip=%d wait_vblank=%d\n",static_cast<long long>(frame),flip087,vblank087);(void)sceKernelDebugOutText(0,message087.data());last_diagnostic087=now087;if(flip087<0)last_flip_error087=flip087;if(vblank087<0)last_vblank_error087=vblank087;
+            }
+        }
+
+    // Returning from main or calling exit crashes this launch context.
+    for (;;)
+        (void)sceKernelUsleep(1000000);
+}
+} // namespace ps5::demo
