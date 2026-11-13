@@ -339,7 +339,7 @@ Envoyez uniquement sur le réseau indiqué pour chaque adresse, sinon l'envoi es
 
 ### Cadeaux
 
-Vous préférez offrir autre chose ? Cartes cadeaux (PlayStation Store, Amazon, Steam), abonnement offert (outils d'IA, crédits d'API, services) ou matériel de test sont les bienvenus. Le contact du studio pour les cadeaux sera indiqué ici très bientôt. Ne partagez jamais un compte : c'est souvent interdit par le service et risqué pour vous.
+Vous préférez offrir autre chose ? Cartes cadeaux (PlayStation Store, Amazon, Steam), abonnement offert (outils d'IA, crédits d'API, services) ou matériel de test sont les bienvenus. Envoyez codes cadeaux, abonnements offerts ou un lien de liste d'envies au studio : **consolecenterstudio@gmail.com**. Ne partagez jamais un compte : c'est souvent interdit par le service et risqué pour vous.
 
 ### Projets à financer
 

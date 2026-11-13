@@ -338,7 +338,7 @@ Send only on the network listed for each address, otherwise the transfer is lost
 
 ### Gifts
 
-Rather give something else? Gift cards (PlayStation Store, Amazon, Steam), a gifted subscription (AI tools, API credits, services) or test hardware are welcome. The studio contact for gifts will be listed here shortly. Please never share an account: it is often against the service's rules and risky for you.
+Rather give something else? Gift cards (PlayStation Store, Amazon, Steam), a gifted subscription (AI tools, API credits, services) or test hardware are welcome. Send gift codes, gifted subscriptions or a wishlist link to the studio: **consolecenterstudio@gmail.com**. Please never share an account: it is often against the service's rules and risky for you.
 
 ### Projects to fund
 
