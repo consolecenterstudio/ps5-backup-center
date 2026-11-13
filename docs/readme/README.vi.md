@@ -30,6 +30,22 @@ Phần mềm tự do. Không cần thuê bao.
 
 Bản sao lưu được cất giữ khác với dữ liệu lưu đang dùng để chơi. Chọn bản sao cần duy trì giữa các PS5 hoặc với NAS. ID người dùng cục bộ có thể khác nhau nên tài khoản nhận rất quan trọng. Switch ↔ Eden / ProsperoEden sử dụng JKSV và ftpd trên Switch. Ứng dụng và thiết lập có quy tắc so sánh riêng. Toàn bộ trò chơi dùng mục Truyền dữ liệu.
 
+## Có gì mới ở 2.98
+
+- **Thư viện của PS5 còn lại**: xem từ đây game, ứng dụng và save của nó (TV và web) và sao lưu từ xa.
+- **Tệp**: sao chép, di chuyển hoặc xóa bất kỳ tệp nào giữa PS5 này, USB, NAS, Switch và PS5 còn lại; xóa cần nhiều lần xác nhận.
+- **Gỡ cài đặt game**, tại đây hoặc trên PS5 còn lại; save được sao lưu trước.
+- **SMB 2/3** (Windows, Synology, QNAP) bên cạnh FTP/FTPS; **Églantine** (Switch 2); khởi động lại máy từ ứng dụng.
+- **Kết nối Internet** tùy chọn, được mã hóa, tới một PS5 ở xa (cổng 52373); trong mạng nội bộ dùng cổng 52370.
+
+## Cài đặt
+
+1. Tải `PPSA99950.zip` từ [phiên bản mới nhất](https://github.com/consolecenterstudio/ps5-backup-center/releases/latest) và kiểm tra SHA-256 (`SHA256SUMS`).
+2. Giải nén và chép thư mục `PPSA99950` vào `/data/homebrew/` trên máy (FTP hoặc USB).
+3. Mở **PS5 Backup Center** từ trình khởi chạy homebrew: ứng dụng tự khởi động engine. Tùy chọn: tệp `…-engine.elf` trong bản phát hành chỉ khởi động engine qua trình nạp ELF (cổng 9021).
+
+Ứng dụng tự tìm phiên bản mới trong kho này, báo trên màn hình chính và có thể cài đặt, có thể quay lại phiên bản trước.
+
 ## TV / Web
 
 - **Trang chủ**

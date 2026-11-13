@@ -51,7 +51,7 @@ PS5 Backup Center en garde une copie datée et vérifiée — sur une clé USB, 
 Il fait partie de **[PS5 Center](../product-family.fr.md)**, une petite famille d'outils libres et gratuits construits sur le même moteur.
 
 > [!NOTE]
-> **État : avant-première.** L'app sert tous les jours sur la console du développeur. Tout ce qui est marqué *Disponible* fonctionne aujourd'hui ; ce qui est marqué *Prévu* n'est pas encore dans l'app. Les versions publiques commencent avec ce dépôt GitHub et la fiche ProsperoStore.
+> Tout ce qui est marqué *Disponible* fonctionne aujourd'hui ; ce qui est marqué *Prévu* n'est pas encore dans l'app.
 
 ## Fonctions
 
@@ -85,7 +85,9 @@ Il fait partie de **[PS5 Center](../product-family.fr.md)**, une petite famille 
 - **Jumelage avec un seul code à 6 chiffres** — confiance dans les deux sens ; l'autre console apparaît dans Appareils avec son nom, son IP, son système et ses disques.
 - **Envoyer une sauvegarde ou un jeu entier** — copié, vérifié et installé là-bas (ShadowMountPlus), dans le format que son système sait monter (`.ffpfsc`, `.exfat` ou tel quel), sauvegarde restaurée sur le compte choisi.
 - **Vérifier avant d'envoyer** — version du jeu, SDK de ses exécutables, système minimum déclaré, backport trouvé : un avertissement clair si l'autre console est trop ancienne.
-- **Tout voir des deux côtés** — disques, parties, backups et jeux installés de l'autre PS5, jusque sur l'Accueil.
+- **La bibliothèque de l'autre PS5** — parcourir d'ici ses jeux, applis et parties (télé et web), voir ce qui est *à jour ici / là-bas*, et sauvegarder à distance ses jeux et ses parties.
+- **Agir sur l'autre console** — y ouvrir l'app, y désinstaller un jeu (parties sauvegardées d'abord), voir la version qui y est installée.
+- **Par Internet aussi** — une liaison chiffrée, facultative, joint une PS5 loin de chez vous (port 52373, à rediriger sur la box).
 
 </td>
 <td valign="top">
@@ -107,6 +109,8 @@ Il fait partie de **[PS5 Center](../product-family.fr.md)**, une petite famille 
 - **Onglet Transferts** — *depuis* et *vers* (cette PS5, l'interne, l'USB, une Switch, le NAS, l'autre PS5), puis Copier, Déplacer, Compresser ou Synchroniser.
 - **Copier ou déplacer un jeu PS5** entre l'interne et un disque USB : relecture SHA-256, réinscription ; l'original n'est supprimé qu'après vérification.
 - **Outils d'image** — compresser en `.ffpfsc`, décompresser, créer ou extraire un `.exfat`, vérifier et réparer, lecture seule, test de vitesse, index AMPR. Avec le code de PS5 Game Compressor, dans notre moteur.
+- **Fichiers** — copier, déplacer ou supprimer n'importe quel fichier ou dossier entre cette PS5, l'USB, le NAS, une Switch et l'autre PS5 ; la suppression demande plusieurs confirmations.
+- **Désinstaller un jeu** — ici ou sur l'autre PS5 ; les parties sont sauvegardées d'abord et l'image du jeu est gardée par défaut.
 - **Un jeu en cours n'est jamais touché** — et les applis gardent leurs droits d'exécution quand elles voyagent.
 
 </td>
@@ -114,10 +118,11 @@ Il fait partie de **[PS5 Center](../product-family.fr.md)**, une petite famille 
 
 ### Bibliothèque, appareils, interface
 - **Une seule bibliothèque** — jeux PS5 et PS4, applications, ROM des émulateurs connus (plus la détection générique), noms et icônes officiels, même pour un jeu dont il ne reste que la sauvegarde ; chaque jeu montre son stockage et son vrai disque.
-- **Appareils** — disques USB, NAS (Synology, QNAP ou tout serveur FTP, **FTPS** quand il le propose), Switch, autres PS5. Se connecter, parcourir, choisir le dossier, tester, enregistrer.
+- **Appareils** — disques USB, NAS et PC (partages **SMB 2/3**, FTP, **FTPS** quand il est proposé), Switch, autres PS5. Se connecter, parcourir, choisir le dossier, tester, enregistrer.
 - **L'Accueil comme centre de notifications** — ce qu'il faut sauvegarder, les copies plus récentes, les doublons, l'état de la synchro, les tâches en cours avec le temps restant.
 - **Télé et web au même niveau** — téléphone ou ordinateur, associé par un code à 6 chiffres ; **19 langues**, 8 thèmes, sons.
-- **Mises à jour dans l'app** — seuls les fichiers modifiés, vérifiés, retour arrière en cas d'échec ; aussi depuis une clé USB, sans réseau.
+- **Mises à jour toutes seules** — recherchées automatiquement sur ce dépôt, annoncées à l'Accueil, installées automatiquement si vous le voulez ; seuls les fichiers modifiés, vérifiés, version précédente gardée pour revenir en arrière ; aussi depuis une clé USB, sans réseau.
+- **Alimentation** — redémarrer la PS5 depuis l'app (le mode repos n'est volontairement pas proposé).
 
 </td>
 </tr>
@@ -163,13 +168,13 @@ L’Accueil propose jeux à sauvegarder, copies plus récentes, doublons, compar
              │   ├─ Copie / restauration (un seul chemin, vérifié)            │
              │   ├─ Chiffrement et montage des sauvegardes (cœur Garlic)      │
              │   ├─ Images de jeux (.ffpfsc / .exfat — cœur Game Compressor)  │
-             │   └─ Connecteurs : USB · FTP/FTPS · Switch (ftpd) · HTTPS      │
+             │   └─ Connecteurs : USB · SMB · FTP/FTPS · Switch · autre PS5   │
              └───────────────────┬────────────────────────┬────────────────────┘
                                  ▼                        ▼
                       Disques USB (index témoin)    NAS · Switch · autre console
 ```
 
-- **Le moteur est le serveur.** Il sert l'API et les pages web sur un port fixe (52370). L'app télé n'est qu'un client, comme le navigateur : la fermer n'arrête ni le web ni une sauvegarde en cours.
+- **Le moteur est le serveur.** Il sert l'API et les pages web sur un port fixe du réseau local (52370). L'app télé n'est qu'un client, comme le navigateur : la fermer n'arrête ni le web ni une sauvegarde en cours. La liaison facultative par Internet entre deux PS5 a son propre port (52373), coupée par défaut.
 - **Aucun outil externe.** Le chiffrement et le montage des sauvegardes (Garlic SaveMgr / garlic-worker) et les images de jeux (PS5 Game Compressor) sont compilés dans le moteur. Rien d'autre à lancer, aucun autre port à ouvrir.
 - **Sources détectées, jamais codées en dur.** Les émulateurs sont décrits comme des données ; leurs propres fichiers de réglages disent où sont les jeux. Un émulateur qu'on vient d'installer apparaît au scan suivant.
 - **Tout laisse une trace sur disque.** Les tâches et leur progression sont journalisées : une sauvegarde interrompue reprend.
@@ -179,17 +184,17 @@ L’Accueil propose jeux à sauvegarder, copies plus récentes, doublons, compar
 > [!IMPORTANT]
 > PS5 Backup Center est un homebrew. Il faut une PS5 qui fait déjà tourner des applications homebrew et des payloads. Ce projet ne fournit, ne documente et ne prend en charge aucun moyen d'y arriver.
 
-### Par ProsperoStore — *prévu*
-Dès la première version publique, PS5 Backup Center (`PPSA99950`) sera proposé au catalogue communautaire [ps5-homebrew-catalog](https://github.com/darkxex/ps5-homebrew-catalog) qu'utilise ProsperoStore. Les mises à jour suivront ensuite chaque version GitHub.
+### Installation manuelle
+1. Téléchargez `PPSA99950.zip` depuis la [dernière version](https://github.com/consolecenterstudio/ps5-backup-center/releases/latest) et vérifiez son SHA-256 (dans `SHA256SUMS`).
+2. Décompressez-le et copiez le dossier `PPSA99950` dans `/data/homebrew/` sur la console (FTP ou USB).
+3. Lancez **PS5 Backup Center** depuis votre lanceur de homebrews. L'app démarre son moteur toute seule. Facultatif : `ps5-backup-center-<version>-engine.elf`, fourni avec la version, démarre le moteur seul depuis un chargeur d'ELF (port 9021).
 
-### Installation manuelle — *avec la première version publique*
-1. Téléchargez `PPSA99950.zip` depuis la dernière version dans l’onglet [Releases](https://github.com/consolecenterstudio/ps5-backup-center/releases) de ce dépôt et vérifiez son SHA-256 (publié avec la version).
-2. Copiez le dossier `PPSA99950` dans le dossier homebrew de la console et inscrivez-le avec votre installateur habituel.
-3. Lancez **PS5 Backup Center** depuis l'écran d'accueil. L'app démarre son moteur toute seule ; si vous utilisez un chargeur de payloads (Elf-Arsenal+, PS5 Payload Manager), le moteur peut aussi être lancé de là.
+### Par ProsperoStore — *bientôt proposé*
+PS5 Backup Center (`PPSA99950`) sera proposé au catalogue communautaire [ps5-homebrew-catalog](https://github.com/darkxex/ps5-homebrew-catalog) qu'utilise ProsperoStore, avec le même zip et le même SHA-256 que la version GitHub.
 4. Sur un téléphone ou un ordinateur du même réseau, ouvrez `http://<ip-de-la-ps5>:52370` et entrez le code à 6 chiffres affiché dans **Paramètres › Appareils**.
 
 ### Mises à jour
-**Paramètres › Mises à jour** vérifie, télécharge seulement les fichiers modifiés, les contrôle, puis redémarre le moteur et/ou l'app avec un compte à rebours. En cas d'échec, l'ancienne version est remise. Fonctionne aussi sans réseau, depuis une clé USB.
+L'app cherche toute seule les nouvelles versions sur ce dépôt et affiche une bulle à l'Accueil ; **Paramètres › Mises à jour** liste les versions disponibles, peut installer automatiquement et revenir à la version précédente. Seuls les fichiers modifiés sont téléchargés et contrôlés ; le moteur et/ou l'app redémarrent avec un compte à rebours. En cas d'échec, l'ancienne version est remise. Fonctionne aussi sans réseau, depuis une clé USB. Seules les versions testées sur nos propres consoles sont publiées ici.
 
 ## Compatibilité
 
@@ -200,10 +205,12 @@ Dès la première version publique, PS5 Backup Center (`PPSA99950`) sera propos�
 | Jeux PS5 (installé, `.ffpfsc`, `.exfat`, dossier) | ✅ Disponible | Copier / déplacer interne ↔ USB, outils d'image. Un jeu en cours n'est jamais touché. |
 | Jeux et sauvegardes PS4 sur PS5 | ✅ Listés et sauvegardés | Filtre PS4 dans la Bibliothèque. |
 | Sauvegarde complète de la PS5 | Sauvegarde · Restauration prévue | Restaurer, et vers une autre PS5 : feuille de route. |
-| **Switch** (réseau) | ✅ Disponible | ftpd sur la Switch + sauvegardes JKSV. Synchro Switch ↔ Eden / ProsperoEden, profil par profil. |
+| **Switch** (réseau) | ✅ Disponible | ftpd ou SMB sur la Switch + sauvegardes JKSV. Synchro Switch ↔ Eden / ProsperoEden, profil par profil. |
+| **Deux PS5** | ✅ Disponible | Association, bibliothèque à distance, sauvegarde à distance, envoi de jeux et de parties ; réseau local ou liaison facultative par Internet. |
+| **SMB** (partages Windows, Synology, QNAP) | ✅ Disponible | SMB 2/3. Sert aussi à joindre une Switch par le réseau. |
 | Switch en USB (Hekate UMS) | Prévu | Mode stockage de masse via Hekate ; le MTP (haze, DBI) n'est pas lisible par la PS5. |
 | **NAS / FTP** | ✅ Disponible | Synology, QNAP, tout serveur FTP. **FTPS** (TLS explicite) quand il est proposé ; certificats auto-signés du réseau local acceptés, empreinte notée. |
-| SFTP · SMB · NFS · rsync · WebDAV · cloud | 🗓 Prévu | Dans cet ordre (SFTP d'abord). |
+| SFTP · NFS · WebDAV · cloud | 🗓 Prévu | SFTP d'abord. |
 | Disques USB | ✅ Disponible | Reconnus par leur index témoin, même s'ils changent de port. |
 
 ### Émulateurs
@@ -220,6 +227,7 @@ D'après le catalogue du moteur (`engine/src/scan/emulators_catalog.cpp`) — RO
 | Mupen64Plus | Nintendo 64 | PSFlyCast | Dreamcast |
 | Genesis Plus GX | Mega Drive / Master System / Game Gear / Mega-CD | Porpoise | GameCube / Wii |
 | PS5X360 | Xbox 360 | PS5-ECAM | Wii U · 3DS · DS |
+| Églantine | Switch 2 | | |
 
 ## Technique
 
@@ -230,13 +238,13 @@ D'après le catalogue du moteur (`engine/src/scan/emulators_catalog.cpp`) — RO
 | Web | JavaScript, HTML et CSS sans framework ni étape de build, servis par le moteur. |
 | Sauvegardes | Cœur de Garlic SaveMgr / garlic-worker (chiffrement, montage, re-signature PS4/PS5) compilé dedans. |
 | Images de jeux | Cœur de PS5 Game Compressor (`.ffpfsc`, `.exfat`, validation / réparation) compilé dedans. |
-| Réseau | BearSSL (HTTPS, FTPS), client FTP maison (MLSD, passif, reprise de session TLS). |
+| Réseau | BearSSL (HTTPS, FTPS, liaison chiffrée entre PS5), client FTP maison (MLSD, passif, reprise de session TLS), libsmb2 (SMB 2/3). |
 | Images | libwebp, stb_image, zlib. |
 | Compilation | Reproductible : deux compilations depuis zéro donnent le même moteur, octet pour octet. |
 
 ## Feuille de route
 
-**En développement** : connexion SMB pour les partages Windows, Synology et QNAP.
+**En développement** : même progression des émulateurs sur les deux PS5 (ProsperoEden, Églantine) ; installer un jeu sur l'autre PS5 depuis sa bibliothèque ; réveil par le réseau (Wake-on-LAN).
 
 **À venir** : SFTP ; corbeille pour les copies du NAS ; mises à jour de toutes les consoles depuis une seule ; installation des DLC PS5 ; passerelles Orbit / PatchDL ; rangement, compression, déplacement et installation des jeux arrivés par Orbit ou BlackBox ; Switch ↔ Switch ; synchronisation automatique ; restauration complète guidée.
 
@@ -257,6 +265,7 @@ PS5 Backup Center est un logiciel libre sous **GPL-3.0-or-later**. Il repose sur
 | [Garlic SaveMgr](https://github.com/earthonion/garlic-savemgr) | earthonion | GPL-3.0 | Import, montage et export des sauvegardes PS5 |
 | [PS5 Game Compressor](https://github.com/juma-sayeh/PS5-Game-Compressor) | juma-sayeh | GPL-3.0 | Compression, déplacement et validation des jeux |
 | [BearSSL](https://bearssl.org) | Thomas Pornin | MIT | HTTPS et FTPS |
+| [libsmb2](https://github.com/sahlberg/libsmb2) | Ronnie Sahlberg et contributeurs | LGPL-2.1-or-later | Partages SMB 2/3 (Windows, Synology, QNAP) |
 | [libwebp](https://chromium.googlesource.com/webm/libwebp) | Google | BSD-3-Clause | Jaquettes WebP |
 | [zlib](https://zlib.net) | Jean-loup Gailly, Mark Adler | zlib | Compression des vignettes |
 | [stb_image](https://github.com/nothings/stb) | Sean Barrett | MIT / domaine public | Lecture des jaquettes |
@@ -297,7 +306,7 @@ Non. Les dossiers datés existants sont lus comme des versions et peuvent être 
 
 <details><summary><b>La Switch en USB ?</b></summary>
 
-Pas encore. Aujourd'hui la Switch passe par le réseau (ftpd + JKSV). L'USB via le mode stockage de masse de Hekate est prévu ; le MTP (haze, DBI) n'est pas lisible par la PS5.
+Pas encore. Aujourd'hui la Switch passe par le réseau (ftpd ou SMB, avec JKSV). L'USB via le mode stockage de masse de Hekate est prévu ; le MTP (haze, DBI) n'est pas lisible par la PS5.
 </details>
 
 <details><summary><b>C'est vraiment gratuit ?</b></summary>

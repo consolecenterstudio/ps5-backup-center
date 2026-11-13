@@ -30,6 +30,22 @@
 
 保存的備份副本與目前使用的遊戲存檔不同。選擇在兩台 PS5 之間或與 NAS 保持一致的副本。本機使用者 ID 可能不同，因此必須確認目標帳號。Switch ↔ Eden / ProsperoEden 在 Switch 端使用 JKSV 和 ftpd。應用程式與支援的設定有各自的比較規則。完整遊戲透過「傳輸」處理。
 
+## 2.98 新功能
+
+- **另一台 PS5 的遊戲庫**：在這裡瀏覽它的遊戲、應用程式和存檔（電視與網頁），並遠端備份。
+- **檔案**：在本機 PS5、USB、NAS、Switch 與另一台 PS5 之間複製、移動或刪除任何檔案；刪除需多次確認。
+- **解除安裝遊戲**，在本機或另一台 PS5 上；會先備份存檔。
+- 除 FTP/FTPS 外支援 **SMB 2/3**（Windows、Synology、QNAP）；**Églantine**（Switch 2）；從應用程式重新啟動主機。
+- 可選的加密**網際網路連線**，連到不在家中的 PS5（連接埠 52373）；區域網路使用連接埠 52370。
+
+## 安裝
+
+1. 從[最新版本](https://github.com/consolecenterstudio/ps5-backup-center/releases/latest)下載 `PPSA99950.zip`，並核對 SHA-256（`SHA256SUMS`）。
+2. 解壓縮後將 `PPSA99950` 資料夾複製到主機的 `/data/homebrew/`（FTP 或 USB）。
+3. 從你的自製軟體啟動器開啟 **PS5 Backup Center**：應用程式會自行啟動引擎。可選：版本附帶的 `…-engine.elf` 可透過 ELF 載入器（連接埠 9021）單獨啟動引擎。
+
+應用程式會自動在本儲存庫尋找新版本，在首頁提示並可安裝，也可退回上一版本。
+
 ## TV / Web
 
 - **首頁**

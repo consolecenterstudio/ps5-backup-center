@@ -84,7 +84,9 @@ It is part of **[PS5 Center](docs/product-family.md)**, a small family of free, 
 - **Pair with one 6-digit code** — trust both ways; the other console appears in Devices with its name, IP, system version and disks.
 - **Send a save or a whole game** — copied, verified and installed there (ShadowMountPlus), in the format its system can mount (`.ffpfsc`, `.exfat` or as is), save restored on the account you choose.
 - **Check before sending** — game version, SDK of its executables, declared minimum system, backport found: a clear warning when the other console is too old.
-- **See everything from either side** — the other PS5's disks, saves, backups and installed games, right on Home.
+- **The other PS5's library** — browse its games, apps and saves from here (TV and web), see what is *up to date here / there*, and back up its games and saves remotely.
+- **Act on the other console** — open the app there, uninstall a game there (saves backed up first), see the version installed there.
+- **Over the Internet too** — an optional encrypted link reaches a PS5 away from home (port 52373, to forward on your router).
 
 </td>
 <td valign="top">
@@ -106,6 +108,8 @@ It is part of **[PS5 Center](docs/product-family.md)**, a small family of free, 
 - **Transfers tab** — *from* and *to* (this PS5, internal, USB, Switch, NAS, other PS5), then Copy, Move, Compress or Sync.
 - **Copy or move a PS5 game** between internal storage and USB: SHA-256 re-read, re-registration; the original is removed only after verification.
 - **Image tools** — compress to `.ffpfsc`, decompress, create or extract `.exfat`, verify and repair, read-only flag, speed test, AMPR index. Built on the PS5 Game Compressor code, inside our engine.
+- **Files** — copy, move or delete any file or folder between this PS5, USB, the NAS, a Switch and the other PS5; deleting asks for several confirmations.
+- **Uninstall a game** — here or on the other PS5; saves are backed up first and the game image is kept by default.
 - **Never touches a running game** — and apps keep their execute permissions when they travel.
 
 </td>
@@ -113,10 +117,11 @@ It is part of **[PS5 Center](docs/product-family.md)**, a small family of free, 
 
 ### Library, devices, interface
 - **One library** — PS5 and PS4 games, apps, ROMs from known emulators (plus generic detection), official names and icons, even for games that only exist as a save; each game shows its storage and real disk.
-- **Devices** — USB drives, NAS (Synology, QNAP or any FTP server, **FTPS** when offered), Switch, other PS5s. Connect, browse, pick the folder, test, save.
+- **Devices** — USB drives, NAS and PCs (**SMB 2/3** shares, FTP, **FTPS** when offered), Switch, other PS5s. Connect, browse, pick the folder, test, save.
 - **Home as a notification centre** — what to back up, newer copies, duplicates, sync state, running tasks with time left.
 - **TV and web at parity** — phone or computer, paired with a 6-digit code; **19 languages**, 8 themes, sounds.
-- **In-app updates** — only changed files, verified, rolled back on failure; also from a USB key, offline.
+- **Updates by themselves** — checked automatically from this repository, announced on Home, installed automatically if you want; only changed files, verified, previous version kept for roll-back; also from a USB key, offline.
+- **Console power** — restart the PS5 from the app (rest mode is deliberately not offered).
 
 </td>
 </tr>
@@ -162,13 +167,13 @@ Home surfaces games to back up, newer copies, duplicates, comparisons and checks
              │   ├─ Copy / restore engine (one path, verified)                │
              │   ├─ Save crypto & mounting (Garlic core, built in)            │
              │   ├─ Game images (.ffpfsc / .exfat — Game Compressor core)     │
-             │   └─ Connectors: USB · FTP/FTPS · Switch (ftpd) · HTTPS        │
+             │   └─ Connectors: USB · SMB · FTP/FTPS · Switch · other PS5     │
              └───────────────────┬────────────────────────┬────────────────────┘
                                  ▼                        ▼
                       USB drives (witness index)    NAS · Switch · other console
 ```
 
-- **The engine is the server.** It serves both the API and the web pages on one fixed port (52370). The TV app is just a client, like your browser: closing it stops neither the web UI nor a running backup.
+- **The engine is the server.** It serves both the API and the web pages on one fixed port on your network (52370). The TV app is just a client, like your browser: closing it stops neither the web UI nor a running backup. The optional Internet link between two PS5s uses its own port (52373), off by default.
 - **No external tools.** Save encryption and mounting (from Garlic SaveMgr / garlic-worker) and game image handling (from PS5 Game Compressor) are compiled into the engine. Nothing else to launch, no other port to open.
 - **Sources are detected, never hard-coded.** Emulators are described as data; their own config files say where the games are. A newly installed emulator appears at the next scan.
 - **Everything leaves a trace on disk.** Tasks and progress are journaled, so an interrupted backup resumes.
@@ -178,17 +183,17 @@ Home surfaces games to back up, newer copies, duplicates, comparisons and checks
 > [!IMPORTANT]
 > PS5 Backup Center is homebrew. It needs a PS5 that can already run homebrew apps and payloads. This project does not provide, document or support any way to get there.
 
-### From ProsperoStore — *planned*
-Once the first public release is tagged, PS5 Backup Center (`PPSA99950`) will be submitted to the community [ps5-homebrew-catalog](https://github.com/darkxex/ps5-homebrew-catalog) used by ProsperoStore. Updates will then follow each GitHub release.
+### Manual install
+1. Download `PPSA99950.zip` from the [latest release](https://github.com/consolecenterstudio/ps5-backup-center/releases/latest) and check its SHA-256 (listed in `SHA256SUMS`).
+2. Extract it and copy the `PPSA99950` folder to `/data/homebrew/` on the console (FTP or USB).
+3. Launch **PS5 Backup Center** from your homebrew launcher. The app starts its engine on its own. Optional: `ps5-backup-center-<version>-engine.elf`, also in the release, starts the engine alone from an ELF loader (port 9021).
 
-### Manual install — *with the first public release*
-1. Download `PPSA99950.zip` from the latest release in the [Releases tab](https://github.com/consolecenterstudio/ps5-backup-center/releases) and check its SHA-256 (published with the release).
-2. Copy the `PPSA99950` folder to your console's homebrew folder and register it with your usual homebrew installer.
-3. Launch **PS5 Backup Center** from the home screen. The app starts its engine on its own; if your setup uses a payload loader (Elf-Arsenal+, PS5 Payload Manager), the engine can also be started from there.
+### From ProsperoStore — *submitted soon*
+PS5 Backup Center (`PPSA99950`) will be submitted to the community [ps5-homebrew-catalog](https://github.com/darkxex/ps5-homebrew-catalog) used by ProsperoStore, pointing to the same release zip and SHA-256.
 4. On a phone or computer on the same network, open `http://<your-ps5-ip>:52370` and enter the 6-digit code shown in **Settings › Devices**.
 
 ### Updates
-**Settings › Updates** checks, downloads only the changed files, verifies them and restarts the engine and/or the app with a countdown. If anything fails, the previous version is put back. Updates also work offline from a USB key.
+The app checks this repository for new versions by itself and shows a bubble on Home; **Settings › Updates** lists the available versions, can install automatically and can roll back to the previous one. Only changed files are downloaded and verified; the engine and/or the app restart with a countdown. If anything fails, the previous version is put back. Updates also work offline from a USB key. Only versions tested on our own consoles are published here.
 
 ## Compatibility
 
@@ -199,10 +204,12 @@ Once the first public release is tagged, PS5 Backup Center (`PPSA99950`) will be
 | PS5 games (installed, `.ffpfsc`, `.exfat`, folder) | ✅ Available | Copy / move internal ↔ USB, image tools. Running games are never touched. |
 | PS4 games and saves on PS5 | ✅ Listed and backed up | PS4 filter in the Library. |
 | Full PS5 backup | Backup · Restore planned | Restore and restore-to-another-PS5 are on the roadmap. |
-| **Switch** (network) | ✅ Available | ftpd on the Switch + JKSV backups. Switch ↔ Eden / ProsperoEden sync, profile by profile. |
+| **Switch** (network) | ✅ Available | ftpd or SMB on the Switch + JKSV backups. Switch ↔ Eden / ProsperoEden sync, profile by profile. |
+| **Two PS5s** | ✅ Available | Pairing, remote library, remote backup, game and save transfer; local network or optional Internet link. |
+| **SMB** (Windows, Synology, QNAP shares) | ✅ Available | SMB 2/3. Also used to reach a Switch over the network. |
 | Switch over USB (Hekate UMS) | Planned | Mass-storage mode via Hekate; MTP (haze, DBI) is not readable by the PS5. |
 | **NAS / FTP** | ✅ Available | Synology, QNAP, any FTP server. **FTPS** (explicit TLS) when offered; self-signed LAN certificates accepted, fingerprint logged. |
-| SFTP · SMB · NFS · rsync · WebDAV · cloud | 🗓 Planned | In this order (SFTP first). |
+| SFTP · NFS · WebDAV · cloud | 🗓 Planned | SFTP first. |
 | USB drives | ✅ Available | Recognised by their witness index, even when they change port. |
 
 ### Emulators
@@ -219,6 +226,7 @@ Detected from the engine catalogue (`engine/src/scan/emulators_catalog.cpp`) —
 | Mupen64Plus | Nintendo 64 | PSFlyCast | Dreamcast |
 | Genesis Plus GX | Mega Drive / Master System / Game Gear / Mega-CD | Porpoise | GameCube / Wii |
 | PS5X360 | Xbox 360 | PS5-ECAM | Wii U · 3DS · DS |
+| Églantine | Switch 2 | | |
 
 ## Tech stack
 
@@ -229,13 +237,13 @@ Detected from the engine catalogue (`engine/src/scan/emulators_catalog.cpp`) —
 | Web UI | Vanilla JavaScript, HTML and CSS — no framework, no build step, served by the engine. |
 | Saves | Garlic SaveMgr / garlic-worker core (PS4/PS5 save crypto, mount, re-sign) compiled in. |
 | Game images | PS5 Game Compressor core (`.ffpfsc`, `.exfat`, validate / repair) compiled in. |
-| Network | BearSSL (HTTPS, FTPS), own FTP client (MLSD, passive, TLS session resumption). |
+| Network | BearSSL (HTTPS, FTPS, encrypted PS5 link), own FTP client (MLSD, passive, TLS session resumption), libsmb2 (SMB 2/3). |
 | Images | libwebp, stb_image, zlib. |
 | Build | Reproducible: two clean builds produce the same engine byte for byte. |
 
 ## Roadmap
 
-**In development**: SMB connections for Windows, Synology and QNAP shares.
+**In development**: same emulator progress on both PS5s (ProsperoEden, Églantine); installing a game on the other PS5 from its library; Wake-on-LAN.
 
 **Coming next**: SFTP; trash for NAS copies; updating every paired console from one console; PS5 DLC installation; Orbit / PatchDL bridges; organising, compressing, moving and installing games arriving through Orbit or BlackBox; Switch-to-Switch sync; automatic sync; a guided full-backup restore.
 
@@ -256,6 +264,7 @@ PS5 Backup Center is free software under **GPL-3.0-or-later**. It stands on the 
 | [Garlic SaveMgr](https://github.com/earthonion/garlic-savemgr) | earthonion | GPL-3.0 | PS5 save import, mount and export |
 | [PS5 Game Compressor](https://github.com/juma-sayeh/PS5-Game-Compressor) | juma-sayeh | GPL-3.0 | Game compression, moves and validation |
 | [BearSSL](https://bearssl.org) | Thomas Pornin | MIT | HTTPS and FTPS |
+| [libsmb2](https://github.com/sahlberg/libsmb2) | Ronnie Sahlberg and contributors | LGPL-2.1-or-later | SMB 2/3 shares (Windows, Synology, QNAP) |
 | [libwebp](https://chromium.googlesource.com/webm/libwebp) | Google | BSD-3-Clause | WebP covers |
 | [zlib](https://zlib.net) | Jean-loup Gailly, Mark Adler | zlib | Thumbnail compression |
 | [stb_image](https://github.com/nothings/stb) | Sean Barrett | MIT / public domain | Cover decoding |
@@ -296,7 +305,7 @@ No. Existing dated folders are read as versions and can be restored. *Move under
 
 <details><summary><b>Does it read the Switch over USB?</b></summary>
 
-Not yet. Today the Switch is reached over the network (ftpd + JKSV). USB via Hekate's mass-storage mode is planned; MTP (haze, DBI) cannot be read by the PS5.
+Not yet. Today the Switch is reached over the network (ftpd or SMB, with JKSV). USB via Hekate's mass-storage mode is planned; MTP (haze, DBI) cannot be read by the PS5.
 </details>
 
 <details><summary><b>Is it really free?</b></summary>

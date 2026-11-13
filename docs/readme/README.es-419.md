@@ -30,6 +30,22 @@ Software libre. Sin suscripción.
 
 Las copias almacenadas y las partidas activas son distintas. Elige qué copias mantener entre PS5 o con un NAS. Los identificadores locales pueden cambiar entre consolas: importa la cuenta de destino. Switch ↔ Eden / ProsperoEden usa JKSV y ftpd en Switch. Aplicaciones y ajustes compatibles tienen reglas propias. Los juegos completos pasan por Transferencias.
 
+## Novedades en 2.98
+
+- **La biblioteca de la otra PS5**: explora desde aquí sus juegos, apps y partidas (TV y web) y respáldalos a distancia.
+- **Archivos**: copia, mueve o elimina cualquier archivo entre esta PS5, USB, el NAS, una Switch y la otra PS5; eliminar pide varias confirmaciones.
+- **Desinstalar un juego**, aquí o en la otra PS5; las partidas se respaldan antes.
+- **SMB 2/3** (Windows, Synology, QNAP), además de FTP/FTPS; **Églantine** (Switch 2); reiniciar la consola desde la app.
+- **Enlace por Internet** opcional y cifrado con una PS5 lejos de casa (puerto 52373); en la red local, puerto 52370.
+
+## Instalación
+
+1. Descarga `PPSA99950.zip` de la [última versión](https://github.com/consolecenterstudio/ps5-backup-center/releases/latest) y verifica su SHA-256 (`SHA256SUMS`).
+2. Descomprímelo y copia la carpeta `PPSA99950` en `/data/homebrew/` de la consola (FTP o USB).
+3. Abre **PS5 Backup Center** desde tu lanzador de homebrew: la app inicia su motor sola. Opcional: el `…-engine.elf` de la versión inicia solo el motor desde un cargador de ELF (puerto 9021).
+
+La app busca sola las nuevas versiones en este repositorio, las anuncia en Inicio y puede instalarlas, con regreso a la versión anterior.
+
 ## TV / Web
 
 - **Inicio**
