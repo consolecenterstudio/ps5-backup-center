@@ -1,0 +1,18 @@
+[
+ {
+  "version": "2.99.5",
+  "date": "2026-11-13",
+  "title": "Plusieurs jeux d'un coup sur l'autre PS5",
+  "tested": true,
+  "channel": "stable",
+  "manifest": "2.99.5/manifest.json"
+ },
+ {
+  "version": "2.98.4",
+  "date": "2026-11-12",
+  "title": "Fenêtres de démarrage dans le bon ordre",
+  "tested": true,
+  "channel": "stable",
+  "manifest": "2.98.4/manifest.json"
+ }
+]

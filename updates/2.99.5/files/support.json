@@ -1,0 +1,54 @@
+{
+ "version": 1,
+ "links": [
+  {
+   "id": "kofi",
+   "name": "Ko-fi",
+   "detail": "carte, PayPal",
+   "url": "https://ko-fi.com/consolecenterstudio",
+   "active": false
+  },
+  {
+   "id": "patreon",
+   "name": "Patreon",
+   "detail": "",
+   "url": "",
+   "active": false
+  },
+  {
+   "id": "gift",
+   "name": "Offrir un cadeau",
+   "detail": "cartes cadeaux, abonnements, matériel",
+   "url": "https://github.com/consolecenterstudio/ps5-backup-center#gifts",
+   "active": true
+  }
+ ],
+ "crypto": [
+  {
+   "coin": "BTC",
+   "network": "Bitcoin",
+   "address": "16J2KqxzzAwqrbdtsBAXLcfXySH3WEqvas",
+   "uri": "bitcoin:16J2KqxzzAwqrbdtsBAXLcfXySH3WEqvas"
+  },
+  {
+   "coin": "ETH",
+   "network": "Ethereum (ERC20)",
+   "address": "0xc8bdccce6d52570e059f58f0f4c5c6199bee298d",
+   "uri": "ethereum:0xc8bdccce6d52570e059f58f0f4c5c6199bee298d@1"
+  },
+  {
+   "coin": "BNB",
+   "network": "BNB Smart Chain (BEP20)",
+   "address": "0xc8bdccce6d52570e059f58f0f4c5c6199bee298d",
+   "uri": "ethereum:0xc8bdccce6d52570e059f58f0f4c5c6199bee298d@56"
+  },
+  {
+   "coin": "SOL",
+   "network": "Solana",
+   "address": "EyiGLmxw1b1AZxhVmpfP4cXYGTDuYJaWXonvKww2hDaD",
+   "uri": "solana:EyiGLmxw1b1AZxhVmpfP4cXYGTDuYJaWXonvKww2hDaD"
+  }
+ ],
+ "supporters": [],
+ "goals": []
+}
