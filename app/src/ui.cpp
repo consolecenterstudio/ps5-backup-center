@@ -28,8 +28,10 @@ const PlanPreset plan_presets[] = {
     {N_("Tous mes jeux, à la demande"), "{\"name\":\"Tous mes jeux\",\"timing\":\"manual\",\"rule\":\"all_games\",\"keep\":1"},
 };
 // Sections des Paramètres, dans l'ordre affiché (« Nouveautés » en premier, comme BlackBox).
-enum Section { sec_general, sec_news, sec_sources, sec_ignored, sec_accounts, sec_devices, sec_updates, sec_diag, sec_thanks, section_count };
-const char* section_names[] = {N_("Général"), N_("Nouveautés"), N_("Sources et émulateurs"), N_("Éléments ignorés"), N_("Utilisateurs"), N_("Appareils"), N_("Mises à jour et démarrage"), N_("Diagnostic et à propos"), N_("Remerciements")};
+// Textes de support.json (liste en ligne) traduits à l'affichage
+[[maybe_unused]] const char* support_names[] = {N_("Offrir un cadeau"), N_("cartes cadeaux, abonnements, matériel"), N_("carte, PayPal")};
+enum Section { sec_general, sec_news, sec_sources, sec_ignored, sec_accounts, sec_devices, sec_updates, sec_diag, sec_thanks, sec_report, sec_goals, sec_support, section_count };
+const char* section_names[] = {N_("Général"), N_("Nouveautés"), N_("Sources et émulateurs"), N_("Éléments ignorés"), N_("Utilisateurs"), N_("Appareils"), N_("Mises à jour et démarrage"), N_("Diagnostic et à propos"), N_("Remerciements"), N_("Signaler un problème"), N_("Projets à financer"), N_("Soutenir le projet")};
 // Texte de recherche : minuscules, sans accents (é → e, ç → c…), pour « pokemon » = « Pokémon ».
 std::string fold(const std::string& in) {
     static const char* from[] = {"à", "â", "ä", "á", "ã", "é", "è", "ê", "ë", "î", "ï", "í", "ô", "ö", "ó", "õ", "ù", "û", "ü", "ú", "ç", "ñ",
@@ -203,6 +205,8 @@ bool Ui::update(const InputState& in, std::uint64_t now) {
             for (const auto& g : tk_["games"].items()) if (g["suggest"].as_bool() && !g["running"].as_bool()) tk_sel_.insert(g["title_id"].as_string());
         }
         if (has_pending_credits_) { credits_ = std::move(pending_credits_); has_pending_credits_ = false; dirty = true; }
+        if (has_pending_support_) { support_ = std::move(pending_support_); has_pending_support_ = false; dirty = true; }
+        if (has_pending_status_) { status_info_ = std::move(pending_status_); has_pending_status_ = false; dirty = true; }
         if (has_pending_peer_games_) { peer_games_ = std::move(pending_peer_games_); has_pending_peer_games_ = false; dirty = true; }
         if (has_pending_mg_sum_) {
             if (pending_mg_sum_error_.empty()) mg_sum_ = std::move(pending_mg_sum_);  // en cas d'échec, l'ancien résumé reste affiché
@@ -439,15 +443,22 @@ bool Ui::update(const InputState& in, std::uint64_t now) {
     if (mg_preview_ || mg_ign_open_) { input_manage(k); return true; }  // aperçu avant la corbeille, ignorer (Gérer les backups, fiche, Bibliothèque)
     if (sheet_) { input_sheet(k); return true; }
     if (rsheet_) { input_remote_sheet(k); return true; }
-    // La loupe fait partie du parcours L1 / R1, entre Tâches et la roue des Paramètres : Croix ouvre la recherche.
+    // Le cœur et la loupe font partie du parcours L1 / R1, entre Tâches et la roue des Paramètres.
+    if (heart_) {  // Croix : Paramètres › Soutenir le projet
+        if (k & key::r1) { heart_ = false; loupe_ = true; }
+        else if (k & key::l1) heart_ = false;  // retour sur Tâches
+        else if (k & key::cross) { heart_ = false; tab_ = settings; set_section_ = sec_support; set_zone_ = 1; set_row_ = 0; support_big_ = false; }
+        else if (k & (key::circle | key::down)) heart_ = false;
+        return true;
+    }
     if (loupe_) {
         if (k & key::r1) { loupe_ = false; tab_ = settings; }
-        else if (k & key::l1) loupe_ = false;  // retour sur Tâches
+        else if (k & key::l1) { loupe_ = false; heart_ = true; }  // retour sur le cœur
         else if (k & key::cross) { loupe_ = false; tab_ = library; lib_zone_ = 1; input_library(key::triangle); }
         else if (k & (key::circle | key::down)) loupe_ = false;
         return true;
     }
-    if ((k & key::r1) && tab_ == tasks) { loupe_ = true; bar_ = false; return true; }
+    if ((k & key::r1) && tab_ == tasks) { heart_ = true; bar_ = false; return true; }
     if ((k & key::l1) && tab_ == settings) { loupe_ = true; tab_ = tasks; bar_ = false; return true; }
     if (k & key::l1) { tab_ = static_cast<Tab>((tab_ + tab_count - 1) % tab_count); bar_ = false; return true; }
     if (k & key::r1) { tab_ = static_cast<Tab>((tab_ + 1) % tab_count); bar_ = false; return true; }
@@ -505,7 +516,7 @@ void Ui::input_library(std::uint32_t k) {
         if (k & key::left) col = std::max(0, col - 1);
         if (k & key::right) col = std::min(n - 1, col + 1);
         if (k & key::r2) col = std::min(n - 1, col + 7);
-        if ((k & key::l2) && col < n && lib_peer_.empty()) {  // marquer / démarquer (pour « Ignorer la sélection »)
+        if ((k & key::l2) && col < n) {  // marquer / démarquer (ici : « Ignorer » ; autre PS5 : actions groupées)
             const std::string& key2 = shelves[static_cast<std::size_t>(lib_row_)].items[static_cast<std::size_t>(col)]->key;
             if (!lib_marks_.erase(key2)) lib_marks_.insert(key2);
         }
@@ -520,7 +531,52 @@ void Ui::input_library(std::uint32_t k) {
             sheet_ = true; sheet_key_ = shelves[static_cast<std::size_t>(lib_row_)].items[static_cast<std::size_t>(col)]->key; sheet_focus_ = 0; unchecked_.clear(); dest_ = 0;
         }
     }
-    if ((k & key::options) && !lib_peer_.empty()) {  // autre console : la fiche distante (ses actions)
+    if ((k & key::options) && !lib_peer_.empty() && !lib_marks_.empty()) {  // autre console, jeux cochés : une action pour tous
+        std::vector<Json> picked;
+        for (std::size_t i = 0; i < remote_items_.size() && i < remote_meta_.size(); ++i)
+            if (lib_marks_.count(remote_items_[i].key)) picked.push_back(remote_meta_[i]);
+        const std::string inst = lib_peer_, name = lib_peer_name_;
+        if (!lib_peer_online_) { toast(trf("%s est hors ligne : les actions reviendront quand elle sera allumée.", name.c_str())); return; }
+        int with_save = 0, full = 0, newer_there = 0;
+        Json tids = Json::array();
+        for (const auto& m : picked) {
+            const bool so = m["key"].as_string().rfind("save:", 0) == 0;  // sauvegarde sans le jeu
+            bool has_save = so;
+            for (const auto& c : m["components"].items()) if (c["part"].as_string() == "save") has_save = true;
+            with_save += has_save;
+            full += !so && !m["components"].items().empty();
+            if (m["save"].as_string() == "there" && !m["title_id"].as_string().empty()) { ++newer_there; tids.push(m["title_id"]); }
+        }
+        auto each = [this, inst, name, picked](const char* action, bool need_save) {
+            int sent = 0;
+            for (const auto& m : picked) {
+                const bool so = m["key"].as_string().rfind("save:", 0) == 0;
+                bool has_save = so;
+                for (const auto& c : m["components"].items()) if (c["part"].as_string() == "save") has_save = true;
+                if (need_save ? !has_save : (so || m["components"].items().empty())) continue;
+                Json b = Json::object();
+                b.set("instance", inst); b.set("action", action); b.set("item", m["key"]);
+                model_.command("POST", "/api/v2/link/peer-action", b.dump(), [this](const std::string& e, const std::string&) { if (!e.empty()) post_toast(e); });
+                ++sent;
+            }
+            toast(trf("%s : %d sauvegarde(s) lancée(s) là-bas (onglet Tâches)", name.c_str(), sent));
+            lib_marks_.clear();
+        };
+        std::vector<std::pair<std::string, std::function<void()>>> acts;
+        if (with_save) acts.push_back({trf("Sauvegarder leurs parties là-bas (%d)", with_save), [each] { each("backup_saves", true); }});
+        if (full) acts.push_back({trf("Faire un backup complet là-bas (%d)", full), [each] { each("backup", false); }});
+        if (newer_there) acts.push_back({trf("Prendre ici les parties plus récentes là-bas (%d)", newer_there), [this, inst, tids] {
+            Json b = Json::object();
+            b.set("peer", inst); b.set("title_ids", tids); b.set("one", true);
+            model_.command("POST", "/api/v2/sync/parties/start", b.dump(), [this](const std::string& e, const std::string&) {
+                post_toast(!e.empty() ? e : std::string(tr("Parties : mise à niveau lancée (l'ancienne est sauvegardée d'abord)")));
+            });
+            lib_marks_.clear();
+        }});
+        acts.push_back({tr("Tout décocher"), [this] { lib_marks_.clear(); }});
+        acts.push_back({tr("Annuler"), [] {}});
+        open_actions(trf("%d élément(s) coché(s) sur %s", static_cast<int>(picked.size()), name.c_str()), std::move(acts));
+    } else if ((k & key::options) && !lib_peer_.empty()) {  // autre console : la fiche distante (ses actions)
         if (!shelves.empty()) {
             const auto& sh = shelves[static_cast<std::size_t>(lib_row_)];
             const int c = lib_cols_[static_cast<std::size_t>(lib_row_)];
@@ -1155,6 +1211,18 @@ void Ui::input_tasks(std::uint32_t k) {
     if (k & key::left) tasks_action_ = std::max(0, tasks_action_ - 1);
     if (k & key::right) tasks_action_ = std::min(1, tasks_action_ + 1);
     if ((k & key::triangle) && tasks_group_ >= 1 && tasks_group_ <= 3 && n > 0) { clear_tasks(tasks_group_); return; }
+    if ((k & key::options) && tasks_row_ < n) {  // Options : retirer cette tâche de la liste (terminée, en échec ou annulée)
+        const Task& t = *list[static_cast<std::size_t>(tasks_row_)];
+        if (t.state == "done" || t.state == "failed" || t.state == "cancelled") {
+            const std::string id = t.id;
+            open_actions(tr("Retirer cette tâche de la liste ?"), {
+                {tr("Retirer"), [this, id] { model_.command("POST", "/api/v2/tasks/" + id + "/remove", "{}", [this](const std::string& e, const std::string&) { post_toast(e.empty() ? std::string(tr("Retirée de la liste")) : e); }); }},
+                {tr("Annuler"), [] {}},
+            });
+            popup_note_ = tr("Seulement la liste : rien n'est retiré des disques.");
+        }
+        return;
+    }
     if ((k & key::cross) && tasks_row_ < n) {
         const Task& t = *list[static_cast<std::size_t>(tasks_row_)];
         if ((t.type == "files_copy" || t.type == "files_move") && (t.state == "cancelled" || t.state == "failed")) { files_task_menu(t); return; }
@@ -1213,6 +1281,7 @@ void Ui::input_plans(std::uint32_t k) {
 }
 
 void Ui::input_settings(std::uint32_t k) {
+    if (support_big_) { if (k & (key::circle | key::cross)) support_big_ = false; return; }  // code QR agrandi : n'importe quel retour le ferme
     if (set_zone_ == 0) {
         if (k & key::up) set_section_ = std::max(0, set_section_ - 1);
         if (k & key::down) set_section_ = std::min(section_count - 1, set_section_ + 1);
@@ -1329,6 +1398,18 @@ void Ui::input_settings(std::uint32_t k) {
         if (k & key::down) set_row_ = std::min(std::max(0, static_cast<int>(news_.size()) - 1), set_row_ + 1);
     }
     if (set_section_ == sec_devices && (k & key::cross)) { tab_ = destinations; set_zone_ = 0; return; }  // réglages des appareils : onglet Appareils
+    if (set_section_ == sec_report || set_section_ == sec_goals) { if (k & key::left) set_zone_ = 0; return; }
+    if (set_section_ == sec_support) {  // soutenir : une carte par moyen, Croix agrandit son code QR
+        const int n = static_cast<int>(support_["links"].items().size() + support_["crypto"].items().size());
+        if (k & key::left) { if (set_row_ == 0) set_zone_ = 0; else set_row_ = set_row_ - 1; return; }
+        if (k & key::right) set_row_ = std::min(std::max(0, n - 1), set_row_ + 1);
+        if ((k & key::cross) && n > 0) {
+            const auto& li = support_["links"].items();
+            const Json& c = set_row_ < static_cast<int>(li.size()) ? li[static_cast<std::size_t>(set_row_)] : support_["crypto"].items()[static_cast<std::size_t>(set_row_) - li.size()];
+            if (c["qr"].items().empty()) toast(tr("Bientôt disponible.")); else support_big_ = true;
+        }
+        return;
+    }
     if (set_section_ == sec_thanks) {  // remerciements : défilement
         if (k & key::up) set_row_ = std::max(0, set_row_ - 1);
         if (k & key::down) set_row_ = std::min(credits_rows_ - 1, set_row_ + 1);
@@ -1379,6 +1460,7 @@ std::vector<int> Ui::update_actions() const {
     if (!u.installed.empty() && u.installed != app_version) a.push_back(3);
     a.push_back(4);
     a.push_back(6);  // installer automatiquement
+    a.push_back(10);  // canal : stable ou bêta
     a.push_back(5);
     if (!u.previous.empty() && u.state != "downloading" && u.state != "installing" && u.state != "checking") a.push_back(8);  // revenir à la version d'avant
     a.push_back(9);  // versions disponibles (dépôt de versions)
@@ -1414,6 +1496,17 @@ void Ui::run_update_action(int action) {
                 {tr("Annuler"), [] {}},
             });
             popup_note_ = tr("La version d'avant est réinstallée (fichiers vérifiés), puis le moteur redémarre. La version actuelle ne sera plus proposée automatiquement ; une recherche à la main la montre toujours.");
+            break;
+        }
+        case 10: {
+            const bool to_beta = snap_->update_channel != "beta";
+            auto apply = [this, to_beta] {
+                model_.command("POST", "/api/v2/settings", std::string("{\"update_channel\":\"") + (to_beta ? "beta" : "stable") + "\"}",
+                               [this](const std::string& e, const std::string&) { post_toast(e.empty() ? tr("Réglage enregistré") : e); });
+            };
+            if (!to_beta) { apply(); break; }
+            open_actions(tr("Recevoir les versions bêta ?"), {{tr("Passer en bêta"), apply}, {tr("Annuler"), [] {}}});
+            popup_note_ = tr("Les bêtas arrivent avant les versions stables, pour les essayer. Elles peuvent contenir des défauts ; « Revenir à la version d'avant » reste possible. Repassez en Stable à tout moment.");
             break;
         }
         case 6:
@@ -1477,7 +1570,7 @@ void Ui::open_versions_menu() {
             for (const auto& v : j["versions"].items()) {
                 if (++n > 10) break;
                 const std::string ver = v["version"].as_string(), title = v["title"].as_string();
-                std::string tag = ver == inst ? tr("installée") : ver == rec ? tr("recommandée") : !v["tested"].as_bool() ? tr("test") : "";
+                std::string tag = ver == inst ? tr("installée") : ver == rec ? tr("recommandée") : v["channel"].as_string() == "beta" ? tr("bêta") : !v["tested"].as_bool() ? tr("test") : "";
                 std::string label = ver + "  ·  " + v["date"].as_string();
                 if (!title.empty()) label += std::string("  ·  ") + tr(title.c_str());
                 if (!tag.empty()) label += "  ·  " + tag;
@@ -1697,9 +1790,9 @@ void Ui::draw_header(Surface& s) {
     // État du moteur (point + version) : sur une ligne, juste à gauche de la loupe.
     const bool ok = snap_->connected;
     const std::string label = ok ? (snap_->scanning ? tr("Actualisation…") : "v" + snap_->version) : snap_->ever_connected ? (engine_choice_needed() ? tr("Moteur injoignable") : tr("Reconnexion…")) : tr("Connexion au moteur…");
-    const int lx0_search = 1920 - margin - 56 - 70;
+    const int lx0_search = 1920 - margin - 56 - 70, hx0 = lx0_search - 70;  // cœur, loupe, roue
     const int lab_w = std::min(Surface::measure(label, small), 230);
-    const int st_right = lx0_search - 18, st_left = st_right - lab_w - 22;
+    const int st_right = hx0 - 18, st_left = st_right - lab_w - 22;
     s.rect(st_left, 56, 12, 12, ok ? color::ok : snap_->ever_connected ? color::bad : color::warn, 6);
     s.text(font_, st_left + 22, 49, label, small, color::muted, lab_w);
     // Onglets : une pastille de largeur fixe entre la marque et l'état ; s'ils ne tiennent pas tous, elle défile (L1 / R1)
@@ -1756,6 +1849,24 @@ void Ui::draw_header(Surface& s) {
     }
     if (hdr_first_ > 0) s.text(font_, a0 - 20, 44, "‹", body, color::accent);   // d'autres onglets à gauche
     if (last < nt - 1) s.text(font_, a1 + 6, 44, "›", body, color::accent);     // et à droite
+    // Soutenir le projet : un petit cœur, juste avant la loupe.
+    {
+        const int hx = 1920 - margin - 56 - 140, hy = 34, cx = hx + 28, cy = hy + 30;
+        if (heart_) for (int g = 3; g >= 1; --g) s.rect(hx - g * 4, hy - g * 4, 56 + g * 8, 56 + g * 8, rgb(255, 94, 91, 26), 28 + g * 4);
+        s.rect(hx, hy, 56, 56, heart_ ? rgb(255, 255, 255, 40) : rgb(255, 255, 255, 16), 28);
+        s.outline(hx, hy, 56, 56, heart_ ? rgb(255, 94, 91) : rgb(255, 255, 255, 30), 28, heart_ ? 3 : 1);
+        const std::uint32_t c = rgb(255, 94, 91);
+        s.rect(cx - 13, cy - 13, 15, 15, c, 7);   // lobe gauche
+        s.rect(cx - 2, cy - 13, 15, 15, c, 7);    // lobe droit
+        for (int i = 0; i < 12; ++i) s.rect(cx - 12 + i, cy - 5 + i, 25 - 2 * i, 2, c, 0);  // pointe
+        if (heart_) {
+            const char* t = tr("Soutenir le projet");
+            const int tw = 36 + Surface::measure(t, small), tx = std::min(hx + 28 - tw / 2, 1920 - margin - tw);
+            s.rect(tx - 14, hy + 66, tw + 28, 44, color::panel2, 22);
+            icon(s, 0, tx, hy + 74, color::accent);
+            s.text(font_, tx + 36, hy + 72, t, small, color::text);
+        }
+    }
     // Recherche : une loupe (Triangle, depuis l'Accueil ou la Bibliothèque).
     {
         const int lx0 = 1920 - margin - 56 - 70, ly0 = 34, cx = lx0 + 28, cy = ly0 + 28;
@@ -2243,7 +2354,7 @@ void Ui::load_sync_plans() {
     bool has_nas = false;
     for (const auto& pl : snap_->places) has_nas = has_nas || pl.type == "ftp";
     bool failed = false;  // une section n'a pas eu de réponse : nouvel essai au bout de 20 s au lieu d'une minute
-    for (const auto* v : {&parties_plans_, &apps_plans_, &dlc_plans_}) for (const auto& [n, pl] : *v) failed = failed || pl.has("error");
+    for (const auto* v : {&parties_plans_, &apps_plans_, &dlc_plans_, &emu_plans_}) for (const auto& [n, pl] : *v) failed = failed || pl.has("error");
     if ((peer_games_.size() || has_nas) && (!sync_plans_at_ || now_ - sync_plans_at_ > (failed ? 10000u : 15000u)  /* le moteur prépare les plans d'avance : relire souvent ne coûte rien */)) {  // PS5 jumelées et NAS
         sync_plans_at_ = now_ ? now_ : 1;
         for (const auto& pl : snap_->places) {
@@ -2303,6 +2414,14 @@ void Ui::load_sync_plans() {
                 post_ui([this, name, j] {
                     for (auto& [n, pl] : apps_plans_) if (pl["peer"].as_string() == j["peer"].as_string()) { n = name; pl = j; return; }
                     apps_plans_.push_back({name, j});
+                });
+            });
+            model_.command("GET", "/api/v2/sync/emu/plan?peer=" + inst, "", [this, name, inst](const std::string& e, const std::string& body) {
+                Json j;
+                if (!e.empty() || !Json::parse(body, j) || !j.is_object()) { j = Json::object(); j.set("peer", inst); j.set("error", e.empty() ? std::string(tr("réponse illisible")) : e); }
+                post_ui([this, name, j] {
+                    for (auto& [n, pl] : emu_plans_) if (pl["peer"].as_string() == j["peer"].as_string()) { n = name; pl = j; return; }
+                    emu_plans_.push_back({name, j});
                 });
             });
             model_.command("GET", "/api/v2/sync/dlc/plan?peer=" + inst, "", [this, name, inst](const std::string& e, const std::string& body) {
@@ -2720,7 +2839,7 @@ void Ui::draw_library(Surface& s) {
     s.pop_clip();
     if (items.empty()) s.text(font_, margin, 420, snap_->connected ? tr("Aucun élément ne correspond à ces filtres.") : tr("La bibliothèque s'affichera dès que le moteur répondra."), large, color::muted);
     if (!lib_marks_.empty() && !sheet_) draw_checked(s, static_cast<int>(lib_marks_.size()));
-    if (!sheet_ && !rsheet_ && !lib_peer_.empty()) draw_footer(s, {{0, tr("Fiche et actions")}, {2, trf("Voir : %s", chips[(kind_ + 1) % kind_count].c_str()).c_str()}, {3, tr("Rechercher")}});
+    if (!sheet_ && !rsheet_ && !lib_peer_.empty()) draw_footer(s, {{0, tr("Fiche et actions")}, {-1, tr("L2 : cocher")}, {-1, lib_marks_.empty() ? "" : tr("Options : actions")}, {2, trf("Voir : %s", chips[(kind_ + 1) % kind_count].c_str()).c_str()}, {3, tr("Rechercher")}});
     else if (!sheet_ && !rsheet_) draw_footer(s, {{0, tr("Ouvrir")}, {-1, tr("L2 : cocher")}, {-1, tr("Options : actions")}, {2, trf("Voir : %s", chips[(kind_ + 1) % kind_count].c_str()).c_str()}, {3, tr("Rechercher")}});
 }
 
@@ -5027,6 +5146,14 @@ void Ui::draw_tasks(Surface& s) {
         s.text(font_, x + 18, 206, label, body, g == tasks_group_ ? color::bg : color::muted);
         x += w + 8;
     }
+    if (tasks_group_ >= 1 && tasks_group_ <= 3 && counts[tasks_group_] > 0) {  // le bouton se voit, pas seulement dans le pied de page
+        const std::string t = tr("Vider la liste");
+        const int bw = Surface::measure(t, body) + 80, bx = 1920 - margin - bw;
+        s.rect(bx, 200, bw, 44, color::panel2, 22);
+        s.outline(bx, 200, bw, 44, color::line, 22, 1);
+        icon(s, 3, bx + 16, 210, color::accent);
+        s.text(font_, bx + 52, 206, t, body, color::text);
+    }
     if (!plans_loaded_ || now_ - plans_loaded_ > 10000) load_plans();
     if (tasks_group_ == 4) { draw_plans(s); return; }
     std::vector<const Task*> list;
@@ -5102,7 +5229,8 @@ void Ui::draw_tasks(Surface& s) {
     }
     if (list.empty()) s.text(font_, margin, 320, tr("Rien ici. Choisissez un élément dans la bibliothèque pour lancer une sauvegarde."), large, color::muted);
     draw_footer(s, {{0, tr("Action")}, {2, trf("Voir : %s", tr(group_names[(tasks_group_ + 1) % 5])).c_str()},
-                    {3, tasks_group_ >= 1 && tasks_group_ <= 3 && !list.empty() ? tr("Vider la liste") : ""}, {1, tr("Maintenir 2 s : quitter")}});
+                    {3, tasks_group_ >= 1 && tasks_group_ <= 3 && !list.empty() ? tr("Vider la liste") : ""},
+                    {-1, tasks_group_ >= 1 && tasks_group_ <= 3 && !list.empty() ? tr("Options : retirer") : ""}, {1, tr("Maintenir 2 s : quitter")}});
 }
 
 namespace {
@@ -5162,6 +5290,12 @@ void Ui::clear_tasks(int group) {
                 if (j["kept"].as_int() > 0) msg += " · " + trf("%d copie(s) gardée(s) : fichiers copiés encore à retirer", static_cast<int>(j["kept"].as_int()));
                 post_toast(msg);
             });
+            tasks_row_ = 0;
+        }},
+        {tr("Tout vider : Terminées, Échecs et Annulées"), [this] {
+            for (const char* s2 : {"done", "failed", "cancelled"})
+                model_.command("POST", "/api/v2/tasks/clear", std::string("{\"state\":\"") + s2 + "\"}", [this](const std::string& e, const std::string&) { if (!e.empty()) post_toast(e); });
+            post_toast(tr("Listes vidées : Terminées, Échecs et Annulées"));
             tasks_row_ = 0;
         }},
         {tr("Annuler"), [] {}},
@@ -5474,7 +5608,11 @@ void Ui::draw_settings(Surface& s) {
                 y += 80;
             }
             const auto acts = update_actions();
-            for (std::size_t i = 0; i < acts.size(); ++i) {
+            const int fit = std::max(1, (990 - y) / 72);  // lignes qui tiennent au-dessus du bas de l'écran
+            const int first = std::clamp(set_zone_ == 1 ? set_row_ - fit + 1 : 0, 0, std::max(0, static_cast<int>(acts.size()) - fit));
+            if (first > 0) s.text(font_, x + w - 40, y - 34, "▲", small, color::accent);
+            for (std::size_t i = static_cast<std::size_t>(first); i < acts.size(); ++i) {
+                if (y + 60 > 990) { s.text(font_, x + w - 40, y - 8, "▼", small, color::accent); break; }
                 const int act = acts[i];
                 const bool focus = set_zone_ == 1 && set_row_ == static_cast<int>(i);
                 s.rect(x, y, w, 60, focus ? color::panel2 : color::panel, 16);
@@ -5489,6 +5627,7 @@ void Ui::draw_settings(Surface& s) {
                     case 8: label = trf("Revenir à la version %s", u.previous.c_str()); detail = tr("si la version actuelle pose problème"); break;
                     case 9: label = tr("Versions disponibles"); detail = tr("choisir une version à installer"); break;
                     case 7: label = tr("Alimentation de la console"); detail = tr("redémarrer, éteindre"); break;
+                    case 10: label = tr("Canal des mises à jour"); detail = snap_->update_channel == "beta" ? tr("Bêta") : tr("Stable (recommandé)"); break;
                     case 6: label = tr("Installer automatiquement (jamais pendant une partie)"); detail = snap_->update_auto_install ? tr("Oui") : tr("Non"); break;
                     default: label = tr("Rechercher automatiquement"); detail = snap_->update_auto_check ? tr("Oui") : tr("Non"); break;
                 }
@@ -5500,6 +5639,140 @@ void Ui::draw_settings(Surface& s) {
                 s.text(font_, x, y + 6, tr("Ce qu'apporte cette mise à jour"), body, color::text);
                 y += 48;
                 draw_changelog(s, u.changelog, x, y, w, 975);
+            }
+            break;
+        }
+        case sec_report: {  // un code QR vers le formulaire GitHub, et ce qu'il faut y recopier
+            if (!status_requested_) {
+                status_requested_ = true;
+                model_.command("GET", "/api/v2/status", "", [this](const std::string& e, const std::string& body) {
+                    Json j;
+                    if (e.empty() && Json::parse(body, j)) { std::lock_guard<std::mutex> l(async_mu_); pending_status_ = j; has_pending_status_ = true; }
+                    else status_requested_ = false;
+                });
+            }
+            heading(tr("Signaler un problème"), tr("Un bug, une idée ? Scannez le code avec votre téléphone : le formulaire s'ouvre sur GitHub."));
+            const int qs = 300;
+            static const Json qr = [] {  // https://github.com/consolecenterstudio/ps5-backup-center/issues/new/choose
+                Json j;
+                Json::parse(R"QR(["1111111010110011110110101100001111111", "1000001011010000100100100010101000001", "1011101010100111001101110111101011101", "1011101001101001110001001101101011101", "1011101010000010000100000010101011101", "1000001000010100100011010100101000001", "1111111010101010101010101010101111111", "0000000001011000111010110101100000000", "1001111110001101000100010010110010111", "1010110001011110101000110101000110110", "0100101000101011110111110101101100001", "1000000000011010110110010011000001111", "1001001110001001000000011000101101001", "1001110111111011001000010111000011000", "0010111101010111001100100001111011111", "0001110011001001100110011001111101100", "0111011001100011011010111101001000111", "0001010011001100010000100111110100100", "0011001010000010110100111101110010001", "1100000110101101101100110101011001001", "0100001101001110010110010001111111000", "0010110011011111011101110011010010100", "1011011110101101000001011001100101001", "0110010100001100101010100010010111101", "1000011101101111010110001001001100000", "1011110100000010011000010011110110100", "1110011110110101001111000011011100011", "1010100001000010100110010000001011100", "1001101000110011100010101101111110110", "0000000010101101011111100001100010110", "1111111011111111011110010100101010011", "1000001011101111100100110101100010011", "1011101011000000101110011011111110011", "1011101011001110010101111000111001101", "1011101000011010000000110111110010001", "1000001001110001010110101010001011111", "1111111011101100101000011000111100001"])QR", j);
+                return j;
+            }();
+            s.exact_colors(true);
+            s.rect(x, y, qs, qs, rgb(255, 255, 255), 14);
+            const int m = static_cast<int>(qr.items().size()), cell = m ? qs / (m + 4) : 1, off = (qs - cell * m) / 2;
+            for (int r = 0; r < m; ++r) {
+                const std::string& line = qr.items()[static_cast<std::size_t>(r)].as_string();
+                for (int c = 0; c < m && c < static_cast<int>(line.size()); ++c)
+                    if (line[static_cast<std::size_t>(c)] == '1') s.rect(x + off + c * cell, y + off + r * cell, cell, cell, rgb(0, 0, 0), 0);
+            }
+            s.exact_colors(false);
+            const int tx = x + qs + 40, tw = w - qs - 40;
+            s.text(font_, tx, y + 4, tr("À recopier dans votre message"), body, color::text, tw);
+            auto line = [&](const std::string& k, const std::string& v, int yy) {
+                s.text(font_, tx, yy, k, small, color::muted, tw / 2);
+                s.text(font_, tx + tw / 2, yy, v, small, color::text, tw / 2);
+            };
+            line(tr("Version de l'appli"), PBC_VERSION, y + 60);
+            line(tr("Moteur"), snap_->version.empty() ? std::string(tr("non connecté")) : snap_->version, y + 100);
+            line(tr("Système de la console"), status_info_["firmware"].as_string().empty() ? std::string("—") : status_info_["firmware"].as_string(), y + 140);
+            s.text(font_, tx, y + 196, "github.com/consolecenterstudio/ps5-backup-center/issues", small, color::accent, tw);
+            para(s, font_, tx, y + 240, tr("Questions, idées et remerciements : l'onglet Discussions du même dépôt."), small, color::muted, tw, 2, 30);
+            break;
+        }
+        case sec_goals:
+        case sec_support: {
+            if (!support_requested_) {
+                support_requested_ = true;
+                model_.command("GET", "/api/v2/support", "", [this](const std::string& e, const std::string& body) {
+                    Json j;
+                    if (e.empty() && Json::parse(body, j)) { std::lock_guard<std::mutex> l(async_mu_); pending_support_ = j; has_pending_support_ = true; }
+                    else support_requested_ = false;
+                });
+            }
+            if (set_section_ == sec_goals) {  // une carte par produit : points forts, jauge en dollars US
+                heading(tr("Projets à financer"), tr("Aidez à faire naître les prochaines applis. Pour contribuer : Soutenir le projet, en précisant le produit."));
+                const auto& goals = support_["goals"].items();
+                if (goals.empty()) { para(s, font_, x, y, tr("Bientôt : PS5 Center et PS5 Connector, avec leurs objectifs et une jauge pour suivre la cagnotte."), body, color::muted, w, 3, 40); break; }
+                for (const auto& g : goals) {
+                    if (y > 990 - 250) break;
+                    const int ch = 236;
+                    s.rect(x, y, w, ch, color::panel, 22);
+                    s.outline(x, y, w, ch, color::line, 22, 2);
+                    s.text(font_, x + 28, y + 20, g["name"].as_string(), large, color::text, w / 2);
+                    s.text(font_, x + 28, y + 74, g["pitch"].as_string(), small, color::accent, w - 56);
+                    int fy = y + 112;
+                    for (const auto& f : g["features"].items()) { if (fy > y + 150) break; s.text(font_, x + 28, fy, "•  " + f.as_string(), small, color::muted, w - 56); fy += 34; }
+                    const std::int64_t tg = std::max<std::int64_t>(1, g["target"].as_int()), rs = g["raised"].as_int();
+                    const int gw = w - 56, gy = y + ch - 52, fill = static_cast<int>(std::min<std::int64_t>(gw, gw * rs / tg));
+                    s.rect(x + 28, gy, gw, 16, rgb(255, 255, 255, 30), 8);
+                    if (fill > 0) s.rect(x + 28, gy, std::max(16, fill), 16, color::ok, 8);
+                    const std::string nums = "$" + std::to_string(rs) + " / $" + std::to_string(tg) + "  ·  " + std::to_string(rs * 100 / tg) + " %" +
+                                             (g["supporters"].as_int() ? "  ·  " + trf("%lld soutien(s)", static_cast<long long>(g["supporters"].as_int())) : std::string());
+                    s.text(font_, x + w - 28 - Surface::measure(nums, small), y + 26, nums, small, color::text);
+                    y += ch + 18;
+                }
+                break;
+            }
+            heading(tr("Merci d'utiliser PS5 Backup Center"), nullptr);
+            y += para(s, font_, x, y, tr("L'appli est gratuite et le restera : rien n'est bloqué, tout le monde a les mêmes fonctions et les mêmes mises à jour. Elle est faite par un développeur indépendant, sur son temps libre et ses propres consoles. Si elle a déjà sauvé une de vos parties, un petit coup de pouce aide à payer les consoles de test, les disques et les outils. Merci, vraiment."), small, color::muted, w, 4, 30) + 18;
+            std::vector<const Json*> all;
+            for (const auto& l : support_["links"].items()) all.push_back(&l);
+            for (const auto& c : support_["crypto"].items()) all.push_back(&c);
+            const int n = static_cast<int>(all.size()), gap = 16;
+            if (!n) { s.text(font_, x, y, tr("Chargement…"), small, color::muted); break; }
+            const int cw = (w - gap * (n - 1)) / n, qs = cw - 32;
+            auto draw_qr = [&](const Json& q, int qx, int qy, int size) {
+                const auto& rows = q.items();
+                const int m = static_cast<int>(rows.size());
+                s.rect(qx, qy, size, size, rgb(255, 255, 255), 10);
+                if (!m) return;
+                const int cell = size / (m + 4), off = (size - cell * m) / 2;
+                s.exact_colors(true);  // le thème ne doit pas éclaircir le noir : un code QR se scanne en noir sur blanc
+                s.rect(qx, qy, size, size, rgb(255, 255, 255), 10);
+                for (int r = 0; r < m; ++r) {
+                    const std::string& line = rows[static_cast<std::size_t>(r)].as_string();
+                    for (int c = 0; c < m && c < static_cast<int>(line.size()); ++c)
+                        if (line[static_cast<std::size_t>(c)] == '1') s.rect(qx + off + c * cell, qy + off + r * cell, cell, cell, rgb(0, 0, 0), 0);
+                }
+                s.exact_colors(false);
+            };
+            const int ch = qs + 172;
+            for (int i = 0; i < n; ++i) {
+                const Json& it = *all[static_cast<std::size_t>(i)];
+                const int cx = x + i * (cw + gap);
+                const bool f = set_zone_ == 1 && set_row_ == i, link = it.has("name");
+                s.rect(cx, y, cw, ch, f ? color::panel2 : color::panel, 18);
+                s.outline(cx, y, cw, ch, f ? color::accent : color::line, 18, f ? 3 : 1);
+                if (!it["qr"].items().empty()) draw_qr(it["qr"], cx + 16, y + 16, qs);
+                else { s.rect(cx + 16, y + 16, qs, qs, color::line, 10); const std::string b = tr("bientôt"); s.text(font_, cx + 16 + (qs - Surface::measure(b, small)) / 2, y + 16 + qs / 2 - 14, b, small, color::warn); }
+                const std::string name = link ? std::string(tr(it["name"].as_string().c_str())) : it["coin"].as_string();
+                const std::string sub = link ? std::string(tr(it["detail"].as_string().c_str())) : it["network"].as_string();
+                s.text(font_, cx + 16, y + qs + 28, name, body, color::text, cw - 32);
+                para(s, font_, cx + 16, y + qs + 70, sub, small, link ? color::muted : color::accent, cw - 32, 2, 28);
+                const std::string a = link ? (it["active"].as_bool() ? it["url"].as_string() : std::string()) : it["address"].as_string();
+                if (!a.empty()) s.text(font_, cx + 16, y + qs + 128, a.size() > 18 ? a.substr(0, 8) + "…" + a.substr(a.size() - 6) : a, small, color::muted, cw - 32);
+            }
+            y += ch + 18;
+            s.text(font_, x, y, tr("Crypto : envoyez uniquement sur le réseau indiqué sous chaque code, sinon l'envoi est perdu."), small, color::warn, w);
+            y += 52;
+            s.text(font_, x, y, tr("Merci à nos soutiens"), body, color::accent);
+            y += 46;
+            const auto& wall = support_["supporters"].items();
+            if (wall.empty()) s.text(font_, x, y, tr("Les premiers soutiens apparaîtront ici, avec le pseudo et le petit mot de leur choix."), small, color::muted, w);
+            for (std::size_t i = 0; i < wall.size() && y < 990 - 40; ++i) {
+                const std::string line = wall[i]["name"].as_string() + (wall[i]["message"].as_string().empty() ? std::string() : "  ·  « " + wall[i]["message"].as_string() + " »");
+                s.text(font_, x, y, line, small, color::text, w);
+                y += 40;
+            }
+            if (support_big_ && set_row_ < n && !(*all[static_cast<std::size_t>(set_row_)])["qr"].items().empty()) {  // code agrandi, à scanner de loin
+                const Json& it = *all[static_cast<std::size_t>(set_row_)];
+                s.rect(0, 0, 1920, 1080, rgb(4, 10, 20, 235), 0);
+                draw_qr(it["qr"], (1920 - 720) / 2, 120, 720);
+                const std::string t = it.has("name") ? it["name"].as_string() : it["coin"].as_string() + "  ·  " + it["network"].as_string();
+                s.text(font_, (1920 - Surface::measure(t, large)) / 2, 870, t, large, color::text);
+                const std::string a = it.has("name") ? it["url"].as_string() : it["address"].as_string();
+                s.text(font_, (1920 - Surface::measure(a, small)) / 2, 936, a, small, color::muted);
             }
             break;
         }
@@ -5625,7 +5898,10 @@ void Ui::draw_whats_new(Surface& s) {
     s.outline(x, top, w, h, color::line, 28, 2);
     s.text(font_, x + 48, top + 36, tr("Quoi de neuf"), title, color::text);
     int y = top + 140;
-    draw_changelog(s, whats_new_, x + 48, y, w - 96, top + h - 90);
+    draw_changelog(s, whats_new_, x + 48, y, w - 96, top + h - 176);
+    // Une seule ligne, jamais une fenêtre de plus : le soutien est dans Paramètres.
+    s.text(font_, x + 48, top + h - 158, "♥", small, rgb(255, 94, 91));
+    para(s, font_, x + 82, top + h - 158, tr("PS5 Backup Center reste gratuit. Si l'appli vous aide, vous pouvez soutenir son développement : Paramètres › Soutenir le projet."), small, color::muted, w - 130, 2, 30);
     const int cw = std::max(220, Surface::measure(tr("Compris"), body) + 64);
     s.rect(x + 48, top + h - 76, cw, 52, color::accent2, 26);
     s.text(font_, x + 80, top + h - 66, tr("Compris"), body, color::text);
@@ -5751,6 +6027,7 @@ void Ui::cycle_lib_console() {
     for (std::size_t n = 0; n < list.size(); ++n) if (list[n].first == lib_peer_) i = n;
     i = (i + 1) % list.size();
     lib_peer_ = list[i].first;
+    lib_marks_.clear();  // les coches valent pour une seule console
     lib_peer_name_ = list[i].second;
     lib_peer_online_ = online[i];
     lib_peer_read_at_ = 0;

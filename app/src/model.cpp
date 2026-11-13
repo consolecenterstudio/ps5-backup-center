@@ -222,7 +222,7 @@ bool Model::refresh(bool force) {
             next->emulators.push_back(std::move(e));
         }
     }
-    if (http(ep_, "GET", "/api/v2/settings", "", body) == 200 && Json::parse(body, j)) { next->default_place = j["default_place"].as_string(); next->update_auto_check = j["update_auto_check"].as_bool(true); next->update_auto_install = j["update_auto_install"].as_bool(false); next->tv_seen_version = j["tv_seen_version"].as_string(); next->theme = j["theme"].as_string();
+    if (http(ep_, "GET", "/api/v2/settings", "", body) == 200 && Json::parse(body, j)) { next->default_place = j["default_place"].as_string(); next->update_auto_check = j["update_auto_check"].as_bool(true); next->update_auto_install = j["update_auto_install"].as_bool(false); next->update_channel = j["update_channel"].as_string() == "beta" ? "beta" : "stable"; next->tv_seen_version = j["tv_seen_version"].as_string(); next->theme = j["theme"].as_string();
         next->sound_ui = j["sound_ui"].as_bool(true); next->music = j["music"].as_bool(false); next->volume = static_cast<int>(j["volume"].as_int(70)); if (!j["language"].as_string().empty()) next->language = j["language"].as_string(); next->system_language = j["system_language"].as_string(); next->settings_loaded = true;
         for (const auto& t : j["ignored"].items()) next->ignored.push_back(t.as_string()); }
     if (http(ep_, "GET", "/api/v2/pair-code", "", body) == 200 && Json::parse(body, j)) next->pair_code = j["code"].as_string();

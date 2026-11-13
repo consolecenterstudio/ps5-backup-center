@@ -649,14 +649,16 @@ function synchroDraw() {
     const soon = [[T("Parties actives"), T("Reprenez votre partie sur l'autre PS5 : la plus récente arrive, l'ancienne est gardée."), "#5fb2ff", T("Bientôt : reprenez votre partie sur l'autre PS5 ; la plus récente arrive, l'ancienne est gardée.")],
       [T("Applis"), T("Une appli mise à jour ici l'est aussi là-bas. Jamais de retour en arrière."), "#9b7cff", T("Bientôt : une appli mise à jour ici l'est aussi là-bas, jamais de retour en arrière.")],
       [T("DLC"), T("Seulement les extensions qui manquent de l'autre côté, rien d'autre."), "#ffb44d", T("Bientôt : seulement les extensions qui manquent de l'autre côté.")],
-      [T("Réglages"), T("La configuration de certaines applis, au cas par cas."), "#aab9cd", T("Bientôt : la configuration de certaines applis, au cas par cas.")]];
+      [T("Réglages"), T("La configuration de certaines applis, au cas par cas."), "#aab9cd", T("Bientôt : la configuration de certaines applis, au cas par cas.")],
+      [T("Émulateurs"), T("La progression la plus récente de ProsperoEden et d'Églantine arrive sur l'autre PS5."), "#4fd1be", ""]];
+    const order = [0, 4, 1, 3, 2];  // ligne 1 : Parties, Émulateurs ; ligne 2 : Applis, Réglages ; ligne 3 : DLC (toute la largeur)
     secs = `<div class="sy-grid"><button class="sy-card big" id="sy-saves"><div class="sy-h"><i style="--c:var(--ok)"></i><b>${esc(T("Sauvegardes"))}</b>${chip}</div>
         <p class="hint">${esc((d.kind === "nas" ? T("Des copies de vos parties (onglet Sauvegardes), gardées sur cette PS5 et sur le NAS. Pas jouables telles quelles : on en restaure une pour jouer.") : T("Des copies de vos parties (onglet Sauvegardes), rangées sur les deux PS5. Pas jouables telles quelles : on en restaure une pour jouer. Ne touche pas aux parties actives.")))}</p>
         <div class="sy-covers">${shown.slice(0, 6).map((t) => `<span>${mgCover({ item: "title:" + t.title_id, title_id: t.title_id, title: t.title, kind: t.kind })}${badge(t)}</span>`).join("")}${shown.length > 6 ? `<span class="more">+${shown.length - 6}</span>` : ""}${pl && !shown.length ? `<span class="hint">${esc(T("Aucun jeu choisi pour l'instant."))}</span>` : ""}</div>
         <div class="sy-row"><span class="sy-chip info">${esc(T("%d jeu(x) choisi(s)", c.chosen))}</span><span class="sy-link">${esc(T("Choisir les jeux ›"))}</span></div>
         <p class="hint small">${esc((d.kind === "nas" ? T("↑ part vers le NAS · ↓ arrive ici · ✓ déjà au même niveau") : T("↑ part vers l'autre PS5 · ↓ arrive ici · ✓ déjà au même niveau")))}</p></button>
-      ${soon.map(([n, txt, col, msg], i) => d.kind === "nas" && i >= 2 ? `<div class="sy-card soon" data-soon="${esc(T("Cette section se synchronise avec une autre PS5, pas avec un NAS."))}"><div class="sy-h"><i style="--c:${col}"></i><b>${esc(n)}</b><span class="sy-chip">${esc(T("Entre deux PS5"))}</span></div><p class="hint">${esc(T("Cette section se synchronise avec une autre PS5, pas avec un NAS."))}</p></div>`
-        : i === 3 ? configCard(d, n, col) : i === 2 ? dlcCard(d, n, col) : i <= 1 ? partiesCard(d, n, col, i) : `<div class="sy-card soon" data-soon="${esc(msg)}"><div class="sy-h"><i style="--c:${col}"></i><b>${esc(n)}</b><span class="sy-chip">${esc(T("Bientôt"))}</span></div><p class="hint">${esc(txt)}</p></div>`).join("")}</div>`;
+      ${order.map((i) => [...soon[i], i]).map(([n, txt, col, msg, i]) => d.kind === "nas" && i >= 2 ? `<div class="sy-card soon" data-soon="${esc(T("Cette section se synchronise avec une autre PS5, pas avec un NAS."))}"><div class="sy-h"><i style="--c:${col}"></i><b>${esc(n)}</b><span class="sy-chip">${esc(T("Entre deux PS5"))}</span></div><p class="hint">${esc(T("Cette section se synchronise avec une autre PS5, pas avec un NAS."))}</p></div>`
+        : i === 4 ? partiesCard(d, n, col, 3) : i === 3 ? configCard(d, n, col) : i === 2 ? dlcCard(d, n, col) : i <= 1 ? partiesCard(d, n, col, i) : `<div class="sy-card soon" data-soon="${esc(msg)}"><div class="sy-h"><i style="--c:${col}"></i><b>${esc(n)}</b><span class="sy-chip">${esc(T("Bientôt"))}</span></div><p class="hint">${esc(txt)}</p></div>`).join("")}</div>`;
   }
   $("#view").innerHTML = head + `<div class="sy-page"><div class="sy-devs">${list}</div><div class="sy-main">${hero}${secs}</div></div>`;
   $$("[data-sy]").forEach((b) => b.onclick = () => { SY.dev = b.dataset.sy; SY.pick = null; synchroDraw(); });
@@ -665,8 +667,9 @@ function synchroDraw() {
   if ($("#sy-parties")) $("#sy-parties").onclick = () => partiesOpen(d.id, 0);
   if ($("#sy-apps")) $("#sy-apps").onclick = () => partiesOpen(d.id, 1);
   if ($("#sy-dlc")) $("#sy-dlc").onclick = () => partiesOpen(d.id, 2);
+  if ($("#sy-emu")) $("#sy-emu").onclick = () => partiesOpen(d.id, 3);
   if ($("#sy-config")) $("#sy-config").onclick = () => { SY.pf = 6; partiesOpen(d.id, 1, true); };
-  const pErr = ["parties", "apps", "dlc"].some((k) => ((SY[k] || {})[d.id] || {}).error);  // pas de réponse : nouvel essai au bout de 20 s
+  const pErr = ["parties", "apps", "dlc", "emu"].some((k) => ((SY[k] || {})[d.id] || {}).error);  // pas de réponse : nouvel essai au bout de 20 s
   if ((d.kind === "ps5" || d.kind === "nas") && (!(SY.parties || {})[d.id] || (pErr && Date.now() - (SY.partiesAt || 0) > 20000))) loadParties(d.id, d.kind === "nas");
   if ($("#sy-main")) $("#sy-main").onclick = () => {
     if (d.kind === "switch") { state.party.player = "switch:" + d.id; setTab("saves"); return; }
@@ -702,6 +705,8 @@ async function loadParties(peer, nas) {
   try { SY.apps[peer] = await api(`/sync/apps/plan?peer=${encodeURIComponent(peer)}`); } catch (e) { SY.apps[peer] = { error: e.message }; }
   SY.dlc = SY.dlc || {};
   if (!nas) try { SY.dlc[peer] = await api(`/sync/dlc/plan?peer=${encodeURIComponent(peer)}`); } catch (e) { SY.dlc[peer] = { error: e.message }; }  // DLC : entre deux PS5
+  SY.emu = SY.emu || {};
+  if (!nas) try { SY.emu[peer] = await api(`/sync/emu/plan?peer=${encodeURIComponent(peer)}`); } catch (e) { SY.emu[peer] = { error: e.message }; }  // émulateurs : entre deux PS5
   try { SY.pstatus = await api("/sync/parties/status"); } catch (e) { /* rien */ }
   if (state.tab === "synchro" && !SY.pick && !SY.pp) synchroDraw();
 }
@@ -767,11 +772,13 @@ function dlcDraw() {
   };
 }
 function partiesCard(d, n, col, sec) {
-  const pp = (sec ? SY.apps || {} : SY.parties || {})[d.id], ps = SY.pstatus || {};
+  const pp = (sec === 3 ? SY.emu || {} : sec ? SY.apps || {} : SY.parties || {})[d.id], ps = SY.pstatus || {};
   let line = T("lecture…"), tone = "";
-  if (ps.state === "running" && ps.peer === d.id && (ps.section === "apps") === !!sec) { line = T("En cours : %lld / %lld", ps.done || 0, ps.total || 0); tone = "info"; }
+  if (ps.state === "running" && ps.peer === d.id && (ps.section || "") === (sec === 3 ? "emu" : sec ? "apps" : "")) { line = T("En cours : %lld / %lld", ps.done || 0, ps.total || 0); tone = "info"; }
   else if (pp && pp.error) { line = d.kind === "nas" ? T("NAS injoignable") : T("autre PS5 injoignable"); tone = "warn"; }
   else if (pp && !pp.loading) { line = !pp.chosen ? (sec ? T("aucune appli choisie") : T("aucun jeu choisi")) : pp.need ? T("%lld à mettre à niveau", pp.need) : T("au même niveau"); tone = !pp.chosen ? "" : pp.need ? "warn" : "ok"; }
+  if (sec === 3) return `<button class="sy-card" id="sy-emu"><div class="sy-h"><i style="--c:${col}"></i><b>${esc(n)}</b><span class="sy-chip ${tone}">${esc(line)}</span></div>
+    <p class="hint">${esc(T("La sauvegarde la plus récente de ProsperoEden ou d'Églantine arrive sur l'autre PS5 ; l'ancienne est gardée."))}</p></button>`;
   return `<button class="sy-card" id="${sec ? "sy-apps" : "sy-parties"}"><div class="sy-h"><i style="--c:${col}"></i><b>${esc(n)}</b><span class="sy-chip ${tone}">${esc(line)}</span></div>
     <p class="hint">${esc(d.kind === "nas" ? (sec ? T("Le NAS garde la dernière version de chaque appli choisie ; une PS5 en retard l'installe depuis le NAS.") : T("Le NAS garde la partie la plus récente ; une PS5 en retard la récupère, la sienne d'abord sauvegardée."))
       : sec ? T("La version la plus récente d'une appli remplace l'ancienne de l'autre côté. Même version : rien.") : T("La partie la plus récente arrive sur l'autre PS5 ; celle qu'elle remplace est d'abord sauvegardée."))}</p></button>`;
@@ -781,13 +788,13 @@ async function partiesOpen(peer, sec, keepFilter) {
   if (!keepFilter && (!SY.pp || SY.pp.sec !== sec)) SY.pf = 0;
   SY.pp = { peer, plan: null, sec };
   partiesDraw();
-  try { SY.pp.plan = await api(`/sync/${sec === 2 ? "dlc" : sec ? "apps" : "parties"}/plan?peer=${encodeURIComponent(peer)}`); } catch (e) { if (SY.pp) SY.pp.plan = { error: e.message }; }
+  try { SY.pp.plan = await api(`/sync/${sec === 3 ? "emu" : sec === 2 ? "dlc" : sec ? "apps" : "parties"}/plan?peer=${encodeURIComponent(peer)}`); } catch (e) { if (SY.pp) SY.pp.plan = { error: e.message }; }
   if (SY.pp) partiesDraw();
 }
 function partiesDraw() {
   if (SY.pp.sec === 2) { dlcDraw(); return; }
-  const p = SY.pp, d = synchroDevices().find((x) => x.id === p.peer) || { name: "" }, name = d.name, pl = p.plan, apps = p.sec === 1;
-  const moving = (t) => apps ? !!(t.app_moves || t.config_moves) : t.state !== "same" && t.state !== "conflict" && t.state !== "unknown" && t.state !== "manual";
+  const p = SY.pp, d = synchroDevices().find((x) => x.id === p.peer) || { name: "" }, name = d.name, pl = p.plan, apps = p.sec === 1, emu = p.sec === 3;
+  const moving = (t) => apps ? !!(t.app_moves || t.config_moves) : t.state !== "same" && t.state !== "conflict" && t.state !== "unknown" && t.state !== "manual" && t.state !== "no_profile";
   const titles = (pl && pl.titles) || [], chosen = titles.filter((t) => t.followed).length, need = titles.filter((t) => t.followed && moving(t)).length;
   const sw = (on, attr) => `<button class="sy-switch ${on ? "on" : ""}" ${attr}><i></i></button>`;
   // Filtres (comme la télé) : tous, choisis, à mettre à jour, à trancher, vers là-bas, vers ici
@@ -804,32 +811,34 @@ function partiesDraw() {
     const cs = t.config_state || "", cfg = !apps || !t.mode || t.mode === "app" || !cs ? "" : " · " + (cs === "same" ? T("réglages identiques") : cs === "here_newer" ? T("réglages : ↑ à envoyer") : cs === "there_newer" ? T("réglages : ↓ à recevoir")
       : cs === "conflict" ? T("réglages modifiés des deux côtés") : cs === "version_differs" ? T("réglages : versions différentes") : T("réglages : dossier inconnu"));
     const det = apps ? (t.here_key ? T("Ici : v%s", t.here_version || "?") : T("Pas installée ici")) + " · " + (t.there_key ? T("Sur %s", name) + " : v" + (t.there_version || "?") : pl.nas ? T("Pas encore dans le dépôt") : T("Pas installée sur %s", name)) + cfg
-      : (t.here_at ? T("Ici : %s", syDay(t.here_at)) : T("Pas de partie ici")) + " · " + (t.there_at ? T("Sur %s", name) + " : " + syDay(t.there_at) : T("Pas de partie sur %s", name));
+      : (t.detail ? t.detail + " · " : "") + (t.here_at ? T("Ici : %s", syDay(t.here_at)) : T("Pas de partie ici")) + " · " + (t.there_at ? T("Sur %s", name) + " : " + syDay(t.there_at) : T("Pas de partie sur %s", name));
     const up = t.state === "here_newer" || t.state === "only_here";
     const chip = t.running ? `<span class="sy-chip warn">${esc(T("en cours de jeu"))}</span>`
       : t.state === "conflict" ? `<span class="sy-chip warn">${esc(apps ? T("même version, fichiers différents : R2") : T("Jouée des deux côtés : laquelle garder ?"))}</span><button class="secondary small" data-ppr="${esc(t.title_id)}" data-k="${apps ? "apps_resolve" : "resolve"}" data-v="here">${esc(T("Celle d'ici"))}</button><button class="secondary small" data-ppr="${esc(t.title_id)}" data-k="${apps ? "apps_resolve" : "resolve"}" data-v="there">${esc(T("Celle de %s", name))}</button>`
       : apps && t.mode !== "app" && cs === "conflict" ? `<span class="sy-chip warn">${esc(T("réglages modifiés des deux côtés"))}</span><button class="secondary small" data-ppr="${esc(t.title_id)}" data-k="config_resolve" data-v="here">${esc(T("Celle d'ici"))}</button><button class="secondary small" data-ppr="${esc(t.title_id)}" data-k="config_resolve" data-v="there">${esc(T("Celle de %s", name))}</button>`
+      : t.state === "no_profile" ? `<span class="sy-chip">${esc(T("aucun profil de ce nom ici"))}</span>`
       : t.state === "manual" ? `<span class="sy-chip">${esc(T("en image : par Transferts"))}</span>` : t.state === "unknown" ? `<span class="sy-chip">${esc(T("version inconnue"))}</span>`
       : !t.followed ? `<span class="sy-chip">${esc(T("pas choisi"))}</span>`
       : apps && t.state === "only_here" ? `<span class="sy-chip warn">${esc(T("↑ à installer sur %s", name))}</span>` : apps && t.state === "only_there" ? `<span class="sy-chip warn">${esc(T("↓ à installer ici"))}</span>`
       : t.state === "same" ? `<span class="sy-chip ok">${esc(T("✓ au même niveau"))}</span>` : `<span class="sy-chip warn">${esc((up ? T("↑ la plus récente est ici → %s", name) : T("↓ la plus récente est sur %s", name)) + (why(t) ? " · " + why(t) : ""))}</span>`;
-    return `<div class="sy-item ${t.followed ? "" : "off"}"><div class="thumb">${mgCover({ item: "title:" + t.title_id, title_id: t.title_id, title: t.title, kind: apps ? "app" : undefined })}</div>
+    return `<div class="sy-item ${t.followed ? "" : "off"}"><div class="thumb">${mgCover({ item: "title:" + (t.game_id || t.title_id), title_id: t.game_id || t.title_id, title: t.title, kind: apps ? "app" : undefined })}</div>
       <div class="grow"><b>${esc(t.title)}</b><div class="hint">${esc(det)}</div></div>${apps ? `<select data-ppm="${esc(t.title_id)}">${[["app", T("Appli seule")], ["app_config", T("Appli + réglages")], ["config", T("Réglages seuls")]].map(([v, l]) => `<option value="${v}" ${(t.mode || "app") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>` : ""}${chip}${sw(t.followed, `data-ppk="${esc(t.title_id)}"`)}</div>`;
   };
-  $("#view").innerHTML = `<div class="sy-top"><h1>${esc(apps ? T("Applis à garder au même niveau") : T("Parties actives à garder au même niveau"))}</h1><span class="hint">${esc(T("avec %s", name))}</span>
+  $("#view").innerHTML = `<div class="sy-top"><h1>${esc(apps ? T("Applis à garder au même niveau") : emu ? T("Émulateurs : progression à garder au même niveau") : T("Parties actives à garder au même niveau"))}</h1><span class="hint">${esc(T("avec %s", name))}</span>
       <span class="hint sy-count">${esc((apps ? T("%d appli(s) choisie(s) sur %d", chosen, titles.length) : T("%d jeu(x) choisi(s) sur %d", chosen, titles.length)) + (need ? " · " + T("%lld à mettre à niveau", need) : ""))}</span></div>
     <p class="hint">${esc(pl && pl.nas ? (apps ? T("Le NAS sert de dépôt : il garde la dernière version de chaque appli choisie. Plus récente ici : elle y est déposée ; plus récente sur le NAS : elle est installée ici, à la place de l'ancienne. Jamais de retour en arrière.")
         : T("Le NAS sert de dépôt : il garde la partie la plus récente de chaque jeu choisi. Plus récente ici : une copie y part ; plus récente sur le NAS : elle est restaurée ici, celle d'ici d'abord sauvegardée. Jamais pendant que le jeu tourne."))
+      : emu ? T("Les sauvegardes de ProsperoEden et d'Églantine, profil par profil (associés par leur nom). La plus récente gagne ; celle qu'elle remplace est d'abord copiée. Jamais pendant que l'émulateur est ouvert.")
       : apps ? T("Les applis installées sur chaque PS5. Même version : rien. Plus récente d'un côté : elle remplace l'ancienne de l'autre côté — jamais deux versions, jamais de retour en arrière. Une appli en image (.ffpkg, .exfat) se met à jour par Transferts.")
       : T("Les parties qui sont SUR les consoles, celles que vous reprenez en lançant le jeu. La plus récente gagne ; celle qu'elle remplace est d'abord sauvegardée. Jamais pendant que le jeu tourne."))}</p>
     ${pl && !pl.error && !apps && pl.nas ? `<p class="hint">${esc(T("Compte : la partie de chaque compte de cette PS5 est comparée à sa dernière copie sur le NAS."))}</p>` : ""}
-    ${pl && !pl.error && !apps && !pl.nas ? `<div class="actions"><span class="hint">${esc(T("Compte ici :"))}</span><select id="pp-here"><option value="">${esc(T("le même compte PSN des deux côtés (automatique)"))}</option>${(pl.here_accounts || []).map((a) => `<option value="${esc(a.key)}" ${a.key === pl.here_account ? "selected" : ""}>${esc(a.name + " (" + a.user_id + ")")}</option>`).join("")}</select>
+    ${pl && !pl.error && !apps && !emu && !pl.nas ? `<div class="actions"><span class="hint">${esc(T("Compte ici :"))}</span><select id="pp-here"><option value="">${esc(T("le même compte PSN des deux côtés (automatique)"))}</option>${(pl.here_accounts || []).map((a) => `<option value="${esc(a.key)}" ${a.key === pl.here_account ? "selected" : ""}>${esc(a.name + " (" + a.user_id + ")")}</option>`).join("")}</select>
       <span class="hint">${esc(T("Compte sur %s :", name))}</span><select id="pp-there"><option value="">${esc(T("automatique"))}</option>${(pl.there_accounts || []).map((a) => `<option value="${esc(a.key)}" ${a.key === pl.there_account ? "selected" : ""}>${esc(a.name + " (" + a.user_id + ")")}</option>`).join("")}</select></div>` : ""}
     <div class="actions">${filt.map(([lbl], i) => `<button class="${i === SY.pf ? "primary" : "secondary"} small" data-ppf="${i}">${esc(lbl)}</button>`).join("")}</div>
     <div class="actions"><button class="primary" id="pp-go" ${need ? "" : "disabled"}>${esc(need ? T("Mettre à niveau…") : T("Rien à mettre à niveau"))}</button>
       <button class="secondary small" id="pp-all">${esc(T("Tout choisir / tout retirer"))}</button><button class="secondary" id="pp-back">${esc(T("Retour à Synchro"))}</button></div>
     ${!pl ? `<p class="hint">${esc(T("Lecture…"))}</p>` : pl.error ? `<p class="bad">${esc(pl.error)}</p>` : !titles.length ? `<p class="hint">${esc(apps ? T("Aucune appli à comparer.") : pl.nas ? T("Aucune partie à comparer : il faut des parties sur cette PS5, ou des copies sur le NAS d'un compte présent ici.") : T("Aucune partie à comparer : il faut le même compte PSN sur les deux PS5, et des parties sur au moins l'une d'elles."))}</p>` : `<div class="sy-list">${titles.filter(filt[SY.pf][1]).map(row).join("") || `<p class="hint">${esc(T("Rien à afficher avec ce filtre."))}</p>`}</div>`}`;
-  const prefs = async (b) => { try { await post("/sync/parties/prefs", { peer: p.peer, ...(apps ? { section: "apps" } : {}), ...b }); } catch (e) { toast(e.message); } if (SY.parties) SY.parties[p.peer] = null; partiesOpen(p.peer, p.sec); };
+  const prefs = async (b) => { try { await post("/sync/parties/prefs", { peer: p.peer, ...(apps ? { section: "apps" } : emu ? { section: "emu" } : {}), ...b }); } catch (e) { toast(e.message); } if (SY.parties) SY.parties[p.peer] = null; partiesOpen(p.peer, p.sec); };
   $("#pp-back").onclick = () => { SY.pp = null; synchroDraw(); };
   $$("[data-ppf]").forEach((b) => b.onclick = () => { SY.pf = +b.dataset.ppf; partiesDraw(); });
   $$("[data-ppr]").forEach((b) => b.onclick = () => prefs({ [b.dataset.k || "resolve"]: { [b.dataset.ppr]: b.dataset.v } }));
@@ -847,10 +856,10 @@ function partiesDraw() {
       : !t.app_moves ? (t.config_state === "here_newer" ? T("réglages d'ici → %s", name) : T("réglages de %s → ici", name))
       : up(t) ? (t.there_version ? T("v%s d'ici remplace v%s sur %s", t.here_version, t.there_version, name) : T("installée sur %s (v%s)", name, t.here_version))
       : (t.here_version ? T("v%s de %s remplace v%s d'ici", t.there_version, name, t.here_version) : T("installée ici (v%s)", t.there_version));
-    const list = todo.map((t) => `<li>${esc(t.title)} : ${esc(what(t))}</li>`).join("");
-    const note = apps ? T("L'ancienne version n'est retirée qu'une fois la nouvelle installée, vérifiée et ses droits relus ; sinon elle reste en place.") : T("Avant de remplacer une partie, elle est sauvegardée (onglet Sauvegardes). Jamais pendant que le jeu tourne.");
+    const list = todo.map((t) => `<li>${esc(t.title)}${t.detail ? " (" + esc(t.detail) + ")" : ""} : ${esc(what(t))}</li>`).join("");
+    const note = emu ? T("Avant de remplacer une sauvegarde d'émulateur, une copie de sécurité est faite. Jamais pendant que l'émulateur est ouvert.") : apps ? T("L'ancienne version n'est retirée qu'une fois la nouvelle installée, vérifiée et ses droits relus ; sinon elle reste en place.") : T("Avant de remplacer une partie, elle est sauvegardée (onglet Sauvegardes). Jamais pendant que le jeu tourne.");
     if (!(await ask(apps ? T("Mettre à niveau les applis ?") : T("Mettre à niveau les parties actives ?"), `<ul>${list}</ul><p class="hint">${esc(note)}</p>`, apps ? T("Mettre à niveau %d appli(s)", todo.length) : T("Mettre à niveau %d partie(s)", todo.length)))) return;
-    try { await post(apps ? "/sync/apps/start" : "/sync/parties/start", { peer: p.peer }); toast(apps ? T("Applis : mise à niveau avec %s lancée", name) : T("Parties : mise à niveau avec %s lancée", name)); SY.pp = null; if (SY.parties) SY.parties[p.peer] = null; synchroDraw(); } catch (e) { toast(e.message); }
+    try { await post(emu ? "/sync/emu/start" : apps ? "/sync/apps/start" : "/sync/parties/start", { peer: p.peer }); toast(apps ? T("Applis : mise à niveau avec %s lancée", name) : T("Parties : mise à niveau avec %s lancée", name)); SY.pp = null; if (SY.parties) SY.parties[p.peer] = null; synchroDraw(); } catch (e) { toast(e.message); }
   };
 }
 async function synchroOpenPick(peer) {
@@ -1117,7 +1126,7 @@ function consoleSelectHtml() {
 function bindConsoleSelect() {
   if (!state.linkPeers) { mgLoadPeers().then(() => { if (state.tab === "library" && (state.linkPeers || []).some((p) => p.paired)) library(); }); return; }
   const s = $("#f-console");
-  if (s) s.onchange = (e) => { state.libPeer = e.target.value; state.peerLib = null; state.libPresence = ""; library(); };
+  if (s) s.onchange = (e) => { state.peerPick = new Set(); state.libPeer = e.target.value; state.peerLib = null; state.libPresence = ""; library(); };
 }
 async function loadPeerLibrary(fresh) {
   const inst = state.libPeer;
@@ -1151,6 +1160,11 @@ function remoteLibrary() {
   const shelves = libraryShelves(items.map((i) => ({ ...i, key: i.here === "save_only" && !String(i.key).startsWith("save:") ? "save:" + i.key : i.key, _src: i })));
   $("#view").innerHTML = `<h1>${esc(T("Bibliothèque de %s", name))}<small>${T("%d sur %d", items.length, (d.items || []).length)} · ${esc(when)}</small></h1>
     <div class="remote-banner">${esc(T("Vous regardez %s : les actions se font là-bas", name))}</div>
+    ${(state.peerPick && state.peerPick.size) ? `<div class="actions pick-bar"><b>${esc(T("%d élément(s) coché(s) sur %s", state.peerPick.size, name))}</b>
+      <button class="secondary" id="rp-saves">${esc(T("Sauvegarder leurs parties là-bas (%d)", [...state.peerPick].filter((i) => peerHasSave(d.items[i])).length))}</button>
+      <button class="secondary" id="rp-full">${esc(T("Faire un backup complet là-bas (%d)", [...state.peerPick].filter((i) => peerFull(d.items[i])).length))}</button>
+      <button class="secondary" id="rp-newer">${esc(T("Prendre ici les parties plus récentes là-bas (%d)", [...state.peerPick].filter((i) => (d.items[i] || {}).save === "there").length))}</button>
+      <button class="secondary" id="rp-clear">${esc(T("Tout décocher"))}</button></div>` : ""}
     <div class="filters">
       <div class="pills">${kinds.map(([k, l]) => `<button data-kind="${k}" class="${(f.kind === "ignored" ? "" : f.kind) === k ? "active" : ""}">${l}</button>`).join("")}</div>
       <select id="f-pres"><option value="">${T("Ici : tout")}</option><option value="missing" ${pres === "missing" ? "selected" : ""}>${T("Manque ici")}</option><option value="both" ${pres === "both" ? "selected" : ""}>${T("Aussi ici")}</option></select>
@@ -1160,7 +1174,7 @@ function remoteLibrary() {
     </div>
     ${items.length ? shelves.map((s) => `<section class="lib-shelf"><h2>${esc(s.title)} <span class="n">${s.items.length}</span></h2>
       <div class="grid">${s.items.map((it) => { const b = peerBadge(it); const i = d.items.indexOf(it._src);
-        return `<div class="tile" data-ri="${i}" tabindex="0" role="button">${coverHtml({ key: it.cover_key, has_cover: true, title: it.title, kind: it.kind, platform: it.platform })}${b ? `<span class="peer-badge ${b[1]}">${esc(b[0])}</span>` : ""}
+        return `<div class="tile ${(state.peerPick || new Set()).has(i) ? "picked" : ""}" data-ri="${i}" tabindex="0" role="button"><label class="pick" title="${esc(T("Cocher"))}"><input type="checkbox" data-rpick="${i}" ${(state.peerPick || new Set()).has(i) ? "checked" : ""}></label>${coverHtml({ key: it.cover_key, has_cover: true, title: it.title, kind: it.kind, platform: it.platform })}${b ? `<span class="peer-badge ${b[1]}">${esc(b[0])}</span>` : ""}
         <div class="name">${esc(cleanTitle(it.title))}</div><div class="meta">${esc(it.image_type || it.platform || "")}</div></div>`; }).join("")}</div></section>`).join("")
       : `<div class="empty"><div class="icon">⌕</div>${T("Aucun élément ne correspond à ces filtres.")}</div>`}`;
   $$(".pills button[data-kind]").forEach((b) => b.onclick = () => { f.kind = b.dataset.kind; library(); });
@@ -1168,8 +1182,26 @@ function remoteLibrary() {
   $("#f-q").oninput = (e) => { f.q = e.target.value; clearTimeout(library.t); library.t = setTimeout(() => { library(); $("#f-q").focus(); $("#f-q").setSelectionRange(f.q.length, f.q.length); }, 250); };
   $("#peer-reread").onclick = () => { loadPeerLibrary(true); library(); };
   bindConsoleSelect();
-  $$("[data-ri]").forEach((t) => t.onclick = () => { const it = d.items[+t.dataset.ri]; if (it) openRemoteItem(state.libPeer, name, it, d.online); });
+  $$("[data-ri]").forEach((t) => t.onclick = (ev) => { if (ev.target.closest(".pick")) return; const it = d.items[+t.dataset.ri]; if (it) openRemoteItem(state.libPeer, name, it, d.online); });
+  $$("[data-rpick]").forEach((c) => c.onchange = () => { state.peerPick = state.peerPick || new Set(); const i = +c.dataset.rpick; if (c.checked) state.peerPick.add(i); else state.peerPick.delete(i); library(); });
+  const picked = () => [...(state.peerPick || [])].map((i) => d.items[i]).filter(Boolean);
+  const run = async (action, keep) => {
+    if (!d.online) { toast(T("%s est hors ligne : les actions reviendront quand elle sera allumée.", name)); return; }
+    let n = 0;
+    for (const it of picked().filter(keep)) { try { await post("/link/peer-action", { instance: state.libPeer, action, item: it.key }); n++; } catch (e) { toast(e.message); } }
+    toast(T("%s : %d sauvegarde(s) lancée(s) là-bas (onglet Tâches)", name, n)); state.peerPick = new Set(); library();
+  };
+  if ($("#rp-saves")) $("#rp-saves").onclick = () => run("backup_saves", peerHasSave);
+  if ($("#rp-full")) $("#rp-full").onclick = () => run("backup", peerFull);
+  if ($("#rp-newer")) $("#rp-newer").onclick = async () => {
+    const ids = picked().filter((it) => it.save === "there" && it.title_id).map((it) => it.title_id);
+    try { await post("/sync/parties/start", { peer: state.libPeer, title_ids: ids, one: true }); toast(T("Parties : mise à niveau lancée (l'ancienne est sauvegardée d'abord)")); } catch (e) { toast(e.message); }
+    state.peerPick = new Set(); library();
+  };
+  if ($("#rp-clear")) $("#rp-clear").onclick = () => { state.peerPick = new Set(); library(); };
 }
+const peerHasSave = (it) => !!it && (String(it.key).startsWith("save:") || it.here === "save_only" || (it.components || []).some((c) => c.part === "save"));
+const peerFull = (it) => !!it && !String(it.key).startsWith("save:") && it.here !== "save_only" && (it.components || []).length > 0;
 // Fiche d'un élément d'une autre PS5 : ses actions, faites là-bas par son moteur (ou ici quand on récupère).
 function openRemoteItem(inst, name, it, online) {
   const saveOnly = String(it.key || "").startsWith("save:");
@@ -2358,11 +2390,15 @@ function tasks() {
   const list = state.tasks.filter((t) => TASK_GROUPS[state.taskFilter].includes(t.state)).reverse();
   const canClear = state.taskFilter !== "active" && list.length > 0;
   $("#view").innerHTML = `<h1>${T("Tâches")}<small>${active > 1 ? T("%d actives", active) : T("%d active", active)}</small></h1>${taskTabs()}
-    ${canClear ? `<div class="actions" style="margin:0 0 12px"><button class="secondary" id="tasks-clear">${T("Vider la liste")}</button></div>` : ""}
+    ${canClear ? `<div class="actions" style="margin:0 0 12px"><button class="secondary" id="tasks-clear">${T("Vider la liste")}</button><button class="secondary" id="tasks-clear-all">${T("Tout vider : Terminées, Échecs et Annulées")}</button></div>` : ""}
     <div class="list">${list.length ? list.map(taskRowHtml).join("") : `<div class="empty"><div class="icon">↻</div>${T("Rien ici. Choisissez un élément dans la bibliothèque pour lancer une sauvegarde.")}</div>`}</div>`;
   bindTaskTabs();
   bindTaskButtons();
   if (canClear) $("#tasks-clear").onclick = () => clearTasks(state.taskFilter);
+  if (canClear) $("#tasks-clear-all").onclick = async () => {
+    if (!await ask(T("Tout vider : Terminées, Échecs et Annulées"), `<p class="hint">${esc(T("Seulement la liste : rien n'est retiré des disques. Ces tâches ne pourront plus être reprises."))}</p>`, T("Oui, vider la liste"))) return;
+    try { for (const st of ["done", "failed", "cancelled"]) await post("/tasks/clear", { state: st }); toast(T("Listes vidées : Terminées, Échecs et Annulées")); refresh(true); } catch (e) { toast(e.message); }
+  };
 }
 async function plansView() {
   if (!state.plans) $("#view").innerHTML = `<h1>${T("Tâches")}</h1>${taskTabs()}${loading(T("Lecture des plans…"))}`;
@@ -2494,7 +2530,7 @@ async function itemPlans(it) {
 async function settings() {
   // Même ordre que la télé ; disques, Switch, NAS et téléphones associés se règlent dans l'onglet Appareils seulement.
   const sections = { general: T("Général"), news: T("Nouveautés"), emulators: T("Sources et émulateurs"), ignored: T("Éléments ignorés"), accounts: T("Utilisateurs"),
-    updates: T("Mises à jour et démarrage"), diagnostics: T("Diagnostic et à propos"), thanks: T("Remerciements") };
+    updates: T("Mises à jour et démarrage"), diagnostics: T("Diagnostic et à propos"), thanks: T("Remerciements"), report: T("Signaler un problème"), goals: T("Projets à financer"), support: T("Soutenir le projet") };
   if (!sections[state.settingsSection]) state.settingsSection = "general";
   const st = state.status || {};
   const devicesLink = `<div class="card link-card"><span class="dev-ico">${ICONS.usb}</span><span class="grow"><b>${T("Stockage et appareils")}</b><br><span class="hint">${T("Disque par défaut, disques, Switch, NAS et téléphones associés se règlent dans l'onglet Appareils.")}</span></span>
@@ -2556,6 +2592,9 @@ async function settings() {
         : `<div class="empty">${T("Aucun élément ignoré")}</div>`}`; },
     updates: () => updatesView(st),
     thanks: () => thanksView(),
+    report: () => reportView(),
+    goals: () => goalsView(),
+    support: () => supportView(),
     diagnostics: () => `<h2>${T("Diagnostic et à propos")}</h2>
       <div class="card"><div class="kv">${T("Moteur")}<b>${esc(st.version)}</b></div><div class="kv">${T("Éléments")}<b>${st.items}</b></div>
       <div class="kv">${T("Dernier relevé")}<b>${st.last_scan ? T("%d dossiers en %d ms", st.last_scan.dirs, st.last_scan.ms) : "—"}</b></div>
@@ -2563,12 +2602,19 @@ async function settings() {
   };
   if (state.settingsSection === "accounts") { try { state.players = await api("/players"); } catch (e) { state.players = { players: [], others: [] }; } }
   if (state.settingsSection === "news" && !state.changelog) { try { state.changelog = await api("/changelog"); } catch (e) { state.changelog = []; } }
+  if (state.settingsSection === "report" && !state.statusInfo) { try { state.statusInfo = await api("/status"); } catch (e) { state.statusInfo = {}; } }
+  if ((state.settingsSection === "support" || state.settingsSection === "goals") && !state.support) { try { state.support = await api("/support"); } catch (e) { state.support = { links: [], crypto: [], supporters: [], error: e.message }; } }
   if (state.settingsSection === "thanks" && !state.credits) { try { state.credits = await (await fetch("/credits.json")).json(); } catch (e) { state.credits = { used: [], thanks: [] }; } }
   if (state.tab !== "settings") return;
   $("#view").innerHTML = `<h1>${T("Paramètres")}</h1><div class="settings">
     <nav class="menu">${Object.entries(sections).map(([k, l]) => `<button data-s="${k}" class="${state.settingsSection === k ? "active" : ""}">${l}</button>`).join("")}</nav>
     <div>${body[state.settingsSection]()}</div></div>`;
   document.querySelectorAll(".menu button").forEach((b) => b.onclick = () => { state.settingsSection = b.dataset.s; settings(); });
+  document.querySelectorAll("[data-copy]").forEach((b) => b.onclick = async () => {
+    const el = document.getElementById("sup-a" + b.dataset.copy);
+    try { await navigator.clipboard.writeText(el.textContent); toast(T("Adresse copiée")); }
+    catch (e) { const r = document.createRange(); r.selectNodeContents(el); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); toast(T("Adresse sélectionnée : copiez-la")); }
+  });
   document.querySelectorAll("input[name=lang]").forEach((r) => r.onchange = () => setLanguage(r.value));
   document.querySelectorAll("[data-theme-pick]").forEach((b) => b.onclick = async () => {
     applyTheme(b.dataset.themePick); settings();
@@ -2650,6 +2696,45 @@ function emulatorDialog(e) {
 }
 
 
+// ---- Soutenir le projet : un code QR par moyen (dessiné à partir de la matrice du moteur), lien et copie ----
+function qrSvg(rows) {
+  if (!rows || !rows.length) return "";
+  const n = rows.length, q = 4;
+  let d = "";
+  rows.forEach((r, y) => { for (let x = 0; x < r.length; x++) if (r[x] === "1") d += `M${x + q} ${y + q}h1v1h-1z`; });
+  return `<svg viewBox="0 0 ${n + 2 * q} ${n + 2 * q}" shape-rendering="crispEdges" role="img"><rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+}
+function reportView() {
+  const s = state.statusInfo || {}, url = "https://github.com/consolecenterstudio/ps5-backup-center/issues/new/choose";
+  return `<h2>${T("Signaler un problème")}</h2><p class="sub">${esc(T("Un bug, une idée ? Le formulaire s'ouvre sur GitHub ; recopiez-y les versions ci-dessous."))}</p>
+    <div class="card"><div class="kv">${T("Version de l'appli")}<b>${esc(s.version || "—")}</b></div><div class="kv">${T("Système de la console")}<b>${esc(s.firmware || "—")}</b></div></div>
+    <p><a class="sup-btn" href="${url}" target="_blank" rel="noopener">${esc(T("Ouvrir le formulaire"))}</a>
+      <a class="sup-btn" href="https://github.com/consolecenterstudio/ps5-backup-center/discussions" target="_blank" rel="noopener">${esc(T("Discussions"))}</a></p>`;
+}
+function goalsView() {
+  const goals = (state.support && state.support.goals) || [];
+  const card = (g) => { const pct = Math.min(100, Math.round(100 * (g.raised || 0) / Math.max(1, g.target)));
+    return `<div class="card goal-card"><div class="goal-h"><b>${esc(g.name)}</b><span>$${(g.raised || 0).toLocaleString("en-US")} / $${g.target.toLocaleString("en-US")} · ${pct} %${g.supporters ? " · " + esc(T("%lld soutien(s)", g.supporters)) : ""}</span></div>
+      <p class="hint accent">${esc(g.pitch || "")}</p><ul class="hint">${(g.features || []).map((f) => `<li>${esc(f)}</li>`).join("")}</ul>
+      <div class="gauge"><i style="width:${pct}%"></i></div></div>`; };
+  return `<h2>${T("Projets à financer")}</h2><p class="sub">${esc(T("Aidez à faire naître les prochaines applis. Pour contribuer : Soutenir le projet, en précisant le produit."))}</p>
+    ${goals.length ? goals.map(card).join("") : `<p class="hint">${esc(T("Bientôt : PS5 Center et PS5 Connector, avec leurs objectifs et une jauge pour suivre la cagnotte."))}</p>`}`;
+}
+function supportView() {
+  const s = state.support || { links: [], crypto: [], supporters: [] };
+  const link = (l) => `<div class="card support-card"><div class="qr">${l.active && l.qr ? qrSvg(l.qr) : `<span class="soon">${esc(T("bientôt"))}</span>`}</div>
+    <div class="grow"><b>${esc(T(l.name))}</b><div class="hint">${esc(l.detail ? T(l.detail) : "")}</div>${l.active && l.url ? `<a class="sup-btn" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(T("Ouvrir"))}</a>` : ""}</div></div>`;
+  const coin = (c, i) => `<div class="card support-card"><div class="qr">${qrSvg(c.qr)}</div>
+    <div class="grow"><b>${esc(c.coin)}</b><div class="hint accent">${esc(c.network)}</div><code class="addr" id="sup-a${i}">${esc(c.address)}</code><button class="secondary small" data-copy="${i}">${esc(T("Copier l'adresse"))}</button></div></div>`;
+  return `<h2>${T("Merci d'utiliser PS5 Backup Center")}</h2>
+    <p class="sub">${esc(T("L'appli est gratuite et le restera : rien n'est bloqué, tout le monde a les mêmes fonctions et les mêmes mises à jour. Elle est faite par un développeur indépendant, sur son temps libre et ses propres consoles. Si elle a déjà sauvé une de vos parties, un petit coup de pouce aide à payer les consoles de test, les disques et les outils. Merci, vraiment."))}</p>
+    <div class="support-grid">${(s.links || []).map(link).join("")}${(s.crypto || []).map(coin).join("")}</div>
+    <p class="hint warn">${esc(T("Crypto : envoyez uniquement sur le réseau indiqué sous chaque code, sinon l'envoi est perdu."))}</p>
+    <p><a class="sup-btn" href="https://github.com/consolecenterstudio/ps5-backup-center" target="_blank" rel="noopener">★ ${esc(T("Une étoile sur GitHub"))}</a></p>
+    <h2>${T("Merci à nos soutiens")}</h2>
+    ${(s.supporters || []).length ? (s.supporters || []).map((w) => `<div class="kv">${esc(w.name)}<b>${esc(w.message || "")}</b></div>`).join("") : `<p class="hint">${esc(T("Les premiers soutiens apparaîtront ici, avec le pseudo et le petit mot de leur choix."))}</p>`}`;
+}
+
 // ---- Remerciements : composants utilisés (licence, source) et projets à qui l'on doit beaucoup ----
 function thanksView() {
   const c = state.credits || { used: [], thanks: [] };
@@ -2707,6 +2792,7 @@ function updatesView(st) {
         <button class="secondary" data-u="save">${T("Enregistrer")}</button></div>
       <label class="radio"><input type="checkbox" id="u-auto" ${s.update_auto_check !== false ? "checked" : ""}><span class="grow">${T("Rechercher automatiquement")}<br><span class="hint">${T("Au démarrage, à l'ouverture de l'appli, dans Paramètres et toutes les heures.")}</span></span></label>
       <label class="radio"><input type="checkbox" id="u-autoinst" ${s.update_auto_install ? "checked" : ""}><span class="grow">${T("Installer automatiquement (jamais pendant une partie)")}<br><span class="hint">${T("La mise à jour trouvée s'installe seule, puis le moteur redémarre quand aucune copie n'est en cours.")}</span></span></label>
+      <label class="radio"><span class="grow">${T("Canal des mises à jour")}<br><span class="hint">${T("Les bêtas arrivent avant les versions stables, pour les essayer. Elles peuvent contenir des défauts ; « Revenir à la version d'avant » reste possible. Repassez en Stable à tout moment.")}</span></span><select id="u-channel"><option value="stable" ${s.update_channel !== "beta" ? "selected" : ""}>${T("Stable (recommandé)")}</option><option value="beta" ${s.update_channel === "beta" ? "selected" : ""}>${T("Bêta")}</option></select></label>
     </div>`;
 }
 // Nouveautés à la façon d'Orbit : par version, un titre puis Nouveautés / Améliorations / Corrections.
@@ -2727,7 +2813,7 @@ async function whatsNew() {
   if (!seen || seen === latest) return;  // première visite : pas de fenêtre
   const box = document.createElement("div");
   box.className = "modal";
-  box.innerHTML = `<div class="dialog"><h2>${T("Quoi de neuf")}</h2>${changelogHtml(list.filter((v) => v.version !== seen).slice(0, 3))}<div class="actions"><button class="primary" id="wn-ok">${T("Compris")}</button></div></div>`;
+  box.innerHTML = `<div class="dialog"><h2>${T("Quoi de neuf")}</h2>${changelogHtml(list.filter((v) => v.version !== seen).slice(0, 3))}<p class="hint"><span style="color:#ff5e5b">♥</span> ${esc(T("PS5 Backup Center reste gratuit. Si l'appli vous aide, vous pouvez soutenir son développement : Paramètres › Soutenir le projet."))}</p><div class="actions"><button class="primary" id="wn-ok">${T("Compris")}</button></div></div>`;
   document.body.appendChild(box);
   $("#wn-ok").onclick = () => box.remove();
 }
@@ -2769,7 +2855,7 @@ function bindUpdates() {
       const j = await api("/update/versions");
       const inst = j.installed, rec = j.recommended;
       box.innerHTML = `<div class="list">${(j.versions || []).slice(0, 10).map((v) => {
-        const tag = v.version === inst ? T("installée") : v.version === rec ? T("recommandée") : !v.tested ? T("test") : "";
+        const tag = v.version === inst ? T("installée") : v.version === rec ? T("recommandée") : v.channel === "beta" ? T("bêta") : !v.tested ? T("test") : "";
         return `<div class="row"><div class="grow"><div class="t">${esc(v.version)}${tag ? ` · <span class="hint">${esc(tag)}</span>` : ""}</div><div class="d">${esc(v.date ? new Date(v.date + "T12:00:00").toLocaleDateString(I18N.code) : "")} · ${esc(T(v.title || ""))}</div></div>
           <div class="btns">${v.version === inst ? "" : `<button data-ver="${esc(v.version)}">${T("Installer")}</button>`}</div></div>`; }).join("") || `<p class="hint">${T("Aucune version dans la liste")}</p>`}</div>`;
       box.querySelectorAll("[data-ver]").forEach((b) => b.onclick = async () => {
@@ -2807,6 +2893,11 @@ function bindUpdates() {
   if (auto) auto.onchange = async () => { state.settings = await post("/settings", { update_auto_check: auto.checked }); toast(T("Réglage enregistré")); };
   const autoInst = $("#u-autoinst");
   if (autoInst) autoInst.onchange = async () => { state.settings = await post("/settings", { update_auto_install: autoInst.checked }); toast(T("Réglage enregistré")); };
+  const channel = $("#u-channel");
+  if (channel) channel.onchange = async () => {
+    if (channel.value === "beta" && !(await ask(T("Recevoir les versions bêta ?"), `<p class="hint">${esc(T("Les bêtas arrivent avant les versions stables, pour les essayer. Elles peuvent contenir des défauts ; « Revenir à la version d'avant » reste possible. Repassez en Stable à tout moment."))}</p>`, T("Passer en bêta")))) { channel.value = "stable"; return; }
+    state.settings = await post("/settings", { update_channel: channel.value }); toast(T("Réglage enregistré"));
+  };
 }
 function tickRestart() {
   if (!state.restartAt) return;
@@ -3327,5 +3418,6 @@ function trFull() {
 
 // ---- Démarrage ----
 refresh(true);
+document.getElementById("support-btn").onclick = () => { state.settingsSection = "support"; setTab("settings"); };
 setTimeout(() => { if (state.token) whatsNew(); }, 1500);
 setTimeout(autoCheckUpdates, 2000);  // ouverture de la page

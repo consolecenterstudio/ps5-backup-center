@@ -802,10 +802,11 @@ button.mg-stat:hover { border-color: var(--accent); }
 .sy-hero .grow { min-width: 220px; flex: 1; } .sy-hero h2 { margin: 2px 0 4px; } .sy-hero h2.ok { color: var(--ok); } .sy-hero h2.muted { color: var(--muted); }
 .sy-eb { color: var(--accent); font-weight: 600; font-size: 13px; letter-spacing: .06em; }
 .sy-go { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; } button.big { font-size: 17px; padding: 12px 26px; border-radius: 999px; }
-.sy-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; grid-template-rows: auto auto; gap: 14px; margin-top: 16px; }
+.sy-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; grid-template-rows: auto auto auto; gap: 14px; margin-top: 16px; }
+.sy-grid > #sy-dlc, .sy-grid > .sy-card.wide { grid-column: span 2; }
 .sy-grid.one { grid-template-columns: 1fr 1fr; } @media (max-width: 1100px) { .sy-grid { grid-template-columns: 1fr 1fr; } .sy-card.big { grid-column: span 2; grid-row: auto; } }
 .sy-card { text-align: left; padding: 16px 18px; border-radius: 18px; background: var(--panel); border: 1px solid var(--line); color: var(--text); cursor: pointer; font: inherit; }
-.sy-card.big { grid-row: span 2; border-color: color-mix(in srgb, var(--ok) 40%, transparent); background: linear-gradient(170deg, color-mix(in srgb, var(--ok) 10%, var(--panel)), var(--panel) 50%); }
+.sy-card.big { grid-row: span 3; border-color: color-mix(in srgb, var(--ok) 40%, transparent); background: linear-gradient(170deg, color-mix(in srgb, var(--ok) 10%, var(--panel)), var(--panel) 50%); }
 .sy-card.soon p, .sy-card.soon b { opacity: .75; } .sy-card:hover { border-color: var(--accent); }
 .sy-h { display: flex; align-items: center; gap: 10px; } .sy-h i { width: 6px; height: 24px; border-radius: 3px; background: var(--c); } .sy-h b { font-size: 18px; } .sy-h .sy-chip { margin-left: auto; }
 .sy-chip { display: inline-flex; align-items: center; height: 26px; padding: 0 12px; border-radius: 13px; font-size: 13px; font-weight: 600; background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--muted); white-space: nowrap; }
@@ -835,3 +836,25 @@ button.sy-dev { display: flex; border-radius: 16px; } .sy-covers > .hint { width
 .tile .peer-badge.ok { color: var(--ok, #47d18a); }
 .tile .peer-badge.warn { background: var(--warn); color: #1d1300; }
 .tile .peer-badge.info { background: var(--accent); color: #021431; }
+
+/* Soutenir le projet */
+.support-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 12px 0; }
+.support-card { display: grid; grid-template-columns: 112px 1fr; gap: 14px; align-items: center; min-width: 0; }
+.support-card .qr { width: 112px; height: 112px; border-radius: 10px; overflow: hidden; background: var(--line); display: grid; place-items: center; }
+.support-card .qr svg { width: 100%; height: 100%; display: block; }
+.support-card .soon { color: var(--warn); font-weight: 600; font-size: 13px; }
+.support-card .grow { min-width: 0; display: grid; gap: 4px; justify-items: start; }
+.support-card .addr { font-size: 11px; word-break: break-all; color: var(--muted); }
+.sup-btn { display: inline-block; padding: 6px 12px; border-radius: 10px; border: 1px solid var(--line); color: var(--text); text-decoration: none; font-size: 13px; }
+.sup-btn:hover { border-color: var(--accent); }
+.hint.accent { color: var(--accent); } .hint.warn { color: var(--warn); }
+
+.gear.heart:hover { border-color: #ff5e5b; }
+
+.goal-card { display: grid; gap: 8px; } .goal-h { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; } .goal-h b { font-size: 20px; } .goal-h span { font-variant-numeric: tabular-nums; }
+.gauge { height: 14px; border-radius: 999px; background: color-mix(in srgb, var(--text) 10%, transparent); overflow: hidden; }
+.gauge i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--ok)); }
+
+.tile { position: relative; } .tile .pick { position: absolute; top: 6px; left: 6px; z-index: 2; background: color-mix(in srgb, var(--bg) 70%, transparent); border-radius: 6px; padding: 2px 4px; }
+.tile.picked { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pick-bar { flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }

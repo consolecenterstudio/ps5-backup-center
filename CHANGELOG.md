@@ -11,6 +11,7 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 | Version | What it brought |
 |---|---|
+| **2.99** | **Same emulator progress** (ProsperoEden, Églantine) on both PS5s; several games at once on the other PS5's library; **Support the project** (♥, QR codes, crypto, gifts, projects to fund); report a problem; easier task clearing; beta update channel. |
 | **2.98** | **The other PS5's library**: browse the games of the other connected PS5 and back them up from here (TV and web), with "up to date here / there" badges; the other PS5's card shows its installed version. Lighter app package, updates from GitHub built in. |
 | **2.93–2.97** | **Églantine** (Switch 2) saves; **uninstall a game**, here or on the other PS5 (saves backed up first, game image kept by default); deletion in Files with several confirmations; compressed images on every PS5. |
 | **2.87–2.92** | **Updates**: automatic check, Home bubble, automatic install, roll back to the previous version, list of available versions; console power (restart); **Files**: copy or move anything between disks, NAS and consoles; Switch over SMB; rest mode removed. |
@@ -33,6 +34,81 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 | **2.0–2.6** | New TV app and engine; in-app updates; PS5 saves per account; Switch ↔ Eden sync via JKSV; scheduled plans with rotation; acknowledgements screen. |
 
 ---
+
+## 2.99.5 — 2026-11-13
+
+**Several games at once on the other PS5**
+
+### New
+
+- Other PS5's library: tick several items (L2 on the TV, a box on the web), then one action for all: back up their saves there, full backup there, or take the newer saves here.
+
+## 2.99.4 — 2026-11-13
+
+**Tasks: easier clearing**
+
+### Improved
+
+- Tasks: a visible Clear the list button, Clear all (Finished, Failed and Cancelled) and Options to remove a single task; nothing is ever removed from the disks.
+
+## 2.99.3 — 2026-11-13
+
+**Projects to fund, gifts and reports**
+
+### New
+
+- Settings › Projects to fund: one card per product (PS5 Center, PS5 Connector) with its highlights and a gauge in US dollars.
+- Support the project: a Send a gift card (gift cards, subscriptions, test hardware).
+- Settings › Report a problem: a QR code to the GitHub form and the versions to copy.
+
+## 2.99.2 — 2026-11-13
+
+**A little heart to support**
+
+### New
+
+- A heart at the top right opens Support the project: on the TV, R1 from Tasks then Cross; on the web, one click.
+
+### Fixed
+
+- QR codes always black on white, whatever the theme; full network names; the What's new line is no longer cut off.
+- Settings › Updates and startup scrolls: the last options are reachable; Available versions shows the official site's list even when updates come from a local folder or a USB key.
+
+## 2.99.1 — 2026-11-12
+
+**Support the project**
+
+### New
+
+- Settings › Support the project: a thank-you note, one QR code per way to support (Ko-fi and Patreon soon; BTC, ETH, BNB and SOL with their network), addresses to copy on the web, and a thank-you wall with the nickname each supporter chose. The app stays free: nothing is locked.
+
+### Improved
+
+- The list of ways to support is read from our site at most once a day, only when the screen is open; the app keeps its own list if the site does not answer.
+
+## 2.99.0 — 2026-11-12
+
+**Same emulator progress**
+
+### New
+
+- Sync › Emulators card: ProsperoEden and Églantine saves stay in step between two PS5s, game by game and profile by profile (profiles matched by name). The most recent wins; the one it replaces is copied first; never while the emulator is open; never back and forth in a loop; if both moved on, you choose.
+
+### Improved
+
+- Each console only writes to its own folders: it fetches the most recent save from the other one, with the files' original times.
+
+## 2.98.5 — 2026-11-12
+
+**Beta channel**
+
+### New
+
+- Settings › Updates › Update channel: Stable (recommended, default) or Beta. On Beta, test versions arrive before stable ones, marked “beta” in Available versions; “Go back to the previous version” is still available.
+
+### Improved
+
+- A beta is never published as a GitHub release: Prospero Store and other catalogs only offer stable versions.
 
 ## 2.98.4 — 2026-11-12
 

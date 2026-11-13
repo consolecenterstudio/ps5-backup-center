@@ -83,6 +83,7 @@ struct Snapshot {
     std::string version, pair_code, default_place;
     bool update_auto_check = true;
     bool update_auto_install = false;
+    std::string update_channel = "stable";  // « stable » ou « beta »
     std::string tv_seen_version;  // dernière version dont la télé a montré « Quoi de neuf »
     std::string theme;            // thème choisi (Paramètres › Général), vide : moteur sans thèmes
     bool sound_ui = true, music = false;  // son (Paramètres › Général)

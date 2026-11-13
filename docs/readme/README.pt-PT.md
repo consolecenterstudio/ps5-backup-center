@@ -16,7 +16,7 @@
 
 Identifique o que precisa de uma cópia de segurança, compare as cópias existentes e organize as trocas entre dispositivos. PS5 Backup Center reúne inventário, cópias, sincronização e transferências na televisão e no navegador.
 
-**2.98.4 · GPL-3.0-or-later · 19 · 8**
+**2.99.5 · GPL-3.0-or-later · 19 · 8**
 
 Software livre. Sem subscrição.
 

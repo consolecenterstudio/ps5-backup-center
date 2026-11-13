@@ -94,6 +94,7 @@ Json Settings::to_json() const {
     j.set("update_source", update_source);
     j.set("update_auto_check", update_auto_check);
     j.set("update_auto_install", update_auto_install);
+    j.set("update_channel", update_channel);
     j.set("covers_online", covers_online);
     j.set("tv_seen_version", tv_seen_version);
     j.set("theme", theme);
@@ -126,6 +127,7 @@ Settings Settings::from_json(const Json& j) {
     s.update_source = j["update_source"].as_string();
     s.update_auto_check = j["update_auto_check"].as_bool(true);
     s.update_auto_install = j["update_auto_install"].as_bool(false);
+    s.update_channel = j["update_channel"].as_string() == "beta" ? "beta" : "stable";
     s.covers_online = j["covers_online"].as_bool(true);
     s.tv_seen_version = j["tv_seen_version"].as_string();
     // Identifiant court en minuscules ; la télé et le web retombent sur « nuit » s'ils ne le connaissent pas.
@@ -294,6 +296,7 @@ bool Engine::start() {
     fetcher_->start();
     scan_thread_ = std::thread([this] { scan_loop(); });
     plans_thread_ = std::thread([this] { plans_loop(); });
+    updater_->set_channel(settings_.update_channel == "beta");
     updater_->set_source(settings_.update_source);
     // Mise à jour trouvée : notification système dans la langue de l'interface (même si l'appli est fermée).
     updater_->on_available = [this](const std::string& v) {
@@ -766,7 +769,7 @@ Json Engine::sync_prefs(const std::string& peer) {
 bool Engine::sync_configured(const std::string& peer) {
     const Json p = sync_prefs(peer);
     if (p["mode"].as_string() == "all") return true;
-    for (const char* k : {"games", "parties_games", "apps_games"}) if (!p[k].items().empty()) return true;
+    for (const char* k : {"games", "parties_games", "apps_games", "emu_games"}) if (!p[k].items().empty()) return true;
     return false;
 }
 
@@ -961,7 +964,7 @@ Json Engine::plan_cached(const std::string& kind, const std::string& peer, bool 
     // Pendant une mise à niveau, l'état bouge : jamais de plan gardé, toujours le vrai.
     const bool busy = sync_running_.load() || parties_running_.load();
     if (busy) {
-        Json j = kind == "copies" ? sync_copies_plan(peer, full) : kind == "parties" ? parties_plan(peer) : kind == "apps" ? apps_plan(peer) : dlc_plan(peer);
+        Json j = kind == "copies" ? sync_copies_plan(peer, full) : kind == "parties" ? parties_plan(peer) : kind == "apps" ? apps_plan(peer) : kind == "emu" ? emu_plan(peer) : dlc_plan(peer);
         j.set("cached_at", now_unix());
         return j;
     }
@@ -1018,7 +1021,7 @@ Json Engine::plan_cached(const std::string& kind, const std::string& peer, bool 
     plans_running_.insert(key);
     l.unlock();
     const std::int64_t t0 = now_unix();
-    Json j = kind == "copies" ? sync_copies_plan(peer, full) : kind == "parties" ? parties_plan(peer) : kind == "apps" ? apps_plan(peer) : dlc_plan(peer);
+    Json j = kind == "copies" ? sync_copies_plan(peer, full) : kind == "parties" ? parties_plan(peer) : kind == "apps" ? apps_plan(peer) : kind == "emu" ? emu_plan(peer) : dlc_plan(peer);
     l.lock();
     plans_cache_[key] = {j, now_unix(), gen, rev, now_unix() - t0};
     plans_running_.erase(key);
@@ -1041,7 +1044,7 @@ void Engine::plans_loop() {
                 const std::string inst = p["instance"].as_string();
                 // Préparé d'avance seulement si une synchro est configurée avec cette PS5 ; sinon, à la demande.
                 if (!sync_configured(inst)) continue;
-                for (const char* k : {"copies", "parties", "dlc", "apps"}) { if (quit_) break; OpMark op("synchro préparée d'avance"); plan_cached(k, inst, std::string(k) == "copies"); }
+                for (const char* k : {"copies", "parties", "dlc", "apps", "emu"}) { if (quit_) break; OpMark op("synchro préparée d'avance"); plan_cached(k, inst, std::string(k) == "copies"); }
             }
             const Json rem = remotes_json();
             for (const auto& r : rem.items()) {
@@ -4372,6 +4375,7 @@ bool Engine::set_settings(const Settings& s) {
         settings_ = s;
     }
     autostart::write_launchers_file(dir_, s.launchers);  // lu par l'appli télé, même moteur arrêté
+    updater_->set_channel(s.update_channel == "beta");
     updater_->set_source(s.update_source);
     fetcher_->set_enabled(s.covers_online);
     if (link_) link_->wan_configure(s.wan_enabled, static_cast<std::uint16_t>(s.wan_port), s.wan_public_host);

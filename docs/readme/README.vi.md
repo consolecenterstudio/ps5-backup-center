@@ -16,7 +16,7 @@
 
 Xác định nội dung cần sao lưu, so sánh các bản sao hiện có và tổ chức trao đổi giữa thiết bị. PS5 Backup Center kết hợp danh mục, sao lưu, đồng bộ và truyền dữ liệu trên TV và trình duyệt.
 
-**2.98.4 · GPL-3.0-or-later · 19 · 8**
+**2.99.5 · GPL-3.0-or-later · 19 · 8**
 
 Phần mềm tự do. Không cần thuê bao.
 

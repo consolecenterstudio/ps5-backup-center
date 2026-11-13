@@ -28,6 +28,7 @@ public:
 
     std::string auto_source() const;
     void set_source(const std::string& url);
+    void set_channel(bool beta);  // canal bêta : beta.json au lieu de latest.json, versions bêta listées
     Json status() const;
     std::uint64_t revision() const { return revision_.load(); }
 
@@ -77,6 +78,8 @@ private:
 
     std::string dir_, app_dir_, running_;
     mutable std::mutex mu_;
+    bool beta_ = false;
+    std::string channel_source(const std::string& src) const;  // latest.json → beta.json sur le canal bêta
     std::string configured_;  // réglage de l'utilisateur (vide : recherche automatique)
     std::string source_;
     std::string state_ = "idle";  // idle, checking, up_to_date, available, downloading, installing, installed, error

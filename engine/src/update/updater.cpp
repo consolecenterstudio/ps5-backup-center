@@ -157,15 +157,28 @@ Json Updater::versions(std::string& error) {
     { std::lock_guard<std::mutex> l(mu_); src = configured_.empty() ? auto_source() : configured_; }
     Json list;
     if (!read_json(sibling(src, "versions.json"), list, error) || !list.is_array()) {
-        if (error.empty()) error = "liste illisible";
-        error = "cette source ne propose pas de liste de versions (" + error + ")";
-        return Json();
+#if defined(PBC_UPDATE_URL)
+        // Source sans liste (dossier local, clé USB) : la liste du site officiel
+        std::string e2;
+        if (src != PBC_UPDATE_URL && read_json(sibling(PBC_UPDATE_URL, "versions.json"), list, e2) && list.is_array()) { src = PBC_UPDATE_URL; error.clear(); }
+        else
+#endif
+        {
+            if (error.empty()) error = "liste illisible";
+            error = "cette source ne propose pas de liste de versions (" + error + ")";
+            return Json();
+        }
     }
     Json latest, out = Json::object();
     std::string e2;
     out.set("recommended", read_json(sibling(src, "latest.json"), latest, e2) ? latest["version"] : Json(""));
     out.set("installed", installed_version());
-    out.set("versions", list);
+    bool beta;
+    { std::lock_guard<std::mutex> l(mu_); beta = beta_; }
+    out.set("channel", beta ? "beta" : "stable");
+    Json shown = Json::array();  // canal stable : les bêtas ne sont pas proposées
+    for (const auto& v : list.items()) if (beta || v["channel"].as_string() != "beta") shown.push(v);
+    out.set("versions", shown);
     return out;
 }
 
@@ -173,7 +186,16 @@ bool Updater::install_version(const std::string& version, std::string& error) {
     std::string src;
     { std::lock_guard<std::mutex> l(mu_); src = configured_.empty() ? auto_source() : configured_; }
     Json list;
-    if (!read_json(sibling(src, "versions.json"), list, error)) return false;
+    if (!read_json(sibling(src, "versions.json"), list, error)) {
+#if defined(PBC_UPDATE_URL)
+        std::string e2;  // même repli que la liste : le site officiel
+        if (src == PBC_UPDATE_URL || !read_json(sibling(PBC_UPDATE_URL, "versions.json"), list, e2)) return false;
+        src = PBC_UPDATE_URL;
+        error.clear();
+#else
+        return false;
+#endif
+    }
     std::string manifest;
     for (const auto& v : list.items()) if (v["version"].as_string() == version) manifest = v["manifest"].as_string();
     if (manifest.empty()) { error = "version absente de la liste : " + version; return false; }
@@ -229,6 +251,16 @@ Updater::~Updater() { join(); }
 
 void Updater::join() { if (worker_.joinable()) worker_.join(); }
 
+void Updater::set_channel(bool beta) { std::lock_guard<std::mutex> l(mu_); beta_ = beta; }
+
+// Sur le canal bêta, un dépôt de versions (« …/latest.json ») se lit par « …/beta.json » : la bêta la plus récente,
+// ou la stable si elle est plus récente. Une autre source (manifeste direct, clé USB, autre PS5) ne change pas.
+std::string Updater::channel_source(const std::string& src) const {
+    static const std::string kLatest = "latest.json";
+    if (!beta_ || src.size() < kLatest.size() || src.compare(src.size() - kLatest.size(), kLatest.size(), kLatest) != 0) return src;
+    return src.substr(0, src.size() - kLatest.size()) + "beta.json";
+}
+
 void Updater::set_source(const std::string& url) { std::lock_guard<std::mutex> l(mu_); configured_ = url; source_ = url.empty() ? auto_source() : url; }
 
 bool Updater::busy() const { return state_ == "checking" || state_ == "downloading" || state_ == "installing"; }
@@ -264,6 +296,7 @@ Json Updater::status() const {
     j.set("message", message_);
     j.set("restart_error", restart_error_);
     j.set("source", source_);
+    j.set("channel", beta_ ? "beta" : "stable");
     j.set("running", running_);
     j.set("installed", installed_version());
     j.set("available", manifest_["version"].as_string());
@@ -316,7 +349,7 @@ bool Updater::check(std::string& error) {
     {
         std::lock_guard<std::mutex> l(mu_);
         if (busy()) { error = "une opération est déjà en cours"; return false; }
-        source_ = configured_.empty() ? auto_source() : configured_;  // toujours la source réglée (pas celle d'une fois : autre PS5, « Revenir »)  // aucun réglage : recherche automatique à chaque vérification
+        source_ = channel_source(configured_.empty() ? auto_source() : configured_);  // toujours la source réglée (pas celle d'une fois : autre PS5, « Revenir »)  // aucun réglage : recherche automatique à chaque vérification
         if (source_.empty()) { error = "aucune mise à jour trouvée (clé USB avec un dossier « PBC Update », ou source en ligne)"; return false; }
         state_ = "checking";
         message_.clear();
@@ -334,7 +367,7 @@ bool Updater::check_auto(int min_age_s) {
         std::lock_guard<std::mutex> l(mu_);
         if (busy() || state_ == "installed") return false;
         if (attempted_at_ && now_unix() - attempted_at_ < min_age_s) return false;
-        source_ = configured_.empty() ? auto_source() : configured_;  // toujours la source réglée (pas celle d'une fois : autre PS5, « Revenir »)
+        source_ = channel_source(configured_.empty() ? auto_source() : configured_);  // toujours la source réglée (pas celle d'une fois : autre PS5, « Revenir »)
         if (source_.empty()) return false;
         quiet_prev_state_ = state_;
         quiet_prev_message_ = message_;

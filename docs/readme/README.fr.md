@@ -8,10 +8,10 @@
   <img src="../assets/screenshots/tv-home-current.png" alt="PS5 Backup Center — Écran d’accueil" width="88%">
 </p>
 
-<p><strong>Version 2.98.4</strong> · Parcourez la bibliothèque de votre autre PS5 connectée et sauvegardez ses jeux et ses parties d’ici, à la télé comme sur le web. L’application cherche et installe elle-même ses mises à jour.</p>
+<p><strong>Version 2.99.5</strong> · Gardez la même progression des émulateurs Switch et Switch 2 sur vos deux PS5, agissez sur plusieurs jeux de l'autre PS5 d'un coup, et soutenez le projet avec le ♥ en haut à droite. L'application cherche et installe elle-même ses mises à jour.</p>
 
 <p align="center">
-  <a href="../../CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/documented%20version-2.98.4-7cc4ff?style=flat-square&labelColor=0a1729"></a>
+  <a href="../../CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/documented%20version-2.99.5-7cc4ff?style=flat-square&labelColor=0a1729"></a>
   <a href="../../LICENSE"><img alt="Licence : GPL-3.0-or-later" src="https://img.shields.io/badge/licence-GPL--3.0--or--later-3d8bff?style=flat-square&labelColor=0a1729"></a>
   <img alt="Plateforme : PS5" src="https://img.shields.io/badge/plateforme-PS5%20(homebrew)-e8f1fb?style=flat-square&labelColor=0a1729">
   <img alt="Langues" src="https://img.shields.io/badge/langues-19-f0b867?style=flat-square&labelColor=0a1729">

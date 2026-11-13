@@ -1,6 +1,94 @@
 {
  "versions": [
   {
+   "version": "2.99.5",
+   "date": "2026-11-13",
+   "title": "Plusieurs jeux d'un coup sur l'autre PS5",
+   "new": [
+    "Bibliothèque de l'autre PS5 : cochez plusieurs éléments (L2 à la télé, case sur le web), puis une action pour tous : sauvegarder leurs parties là-bas, backup complet là-bas, ou prendre ici les parties plus récentes."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : cases à cocher et barre d'actions"
+  },
+  {
+   "version": "2.99.4",
+   "date": "2026-11-13",
+   "title": "Tâches : vider plus facilement",
+   "new": [],
+   "improved": [
+    "Tâches : un bouton Vider la liste visible, Tout vider (Terminées, Échecs et Annulées) et Options pour retirer une seule tâche ; rien n'est jamais retiré des disques."
+   ],
+   "fixed": [],
+   "web": "oui : bouton Tout vider"
+  },
+  {
+   "version": "2.99.3",
+   "date": "2026-11-13",
+   "title": "Projets à financer, cadeaux et signalements",
+   "new": [
+    "Paramètres › Projets à financer : une carte par produit (PS5 Center, PS5 Connector) avec ses points forts et sa jauge en dollars US.",
+    "Soutenir le projet : une carte Offrir un cadeau (cartes cadeaux, abonnements, matériel de test).",
+    "Paramètres › Signaler un problème : un code QR vers le formulaire GitHub et les versions à recopier."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : mêmes sections dans Paramètres"
+  },
+  {
+   "version": "2.99.2",
+   "date": "2026-11-13",
+   "title": "Un petit cœur pour soutenir",
+   "new": [
+    "Un cœur en haut à droite ouvre Soutenir le projet : à la télé, R1 depuis Tâches puis Croix ; sur le web, un clic."
+   ],
+   "improved": [],
+   "fixed": [
+    "Codes QR toujours noir sur blanc, quel que soit le thème ; noms de réseau en entier ; la ligne de Quoi de neuf n'est plus coupée.",
+    "Paramètres › Mises à jour et démarrage défile : les dernières options sont accessibles ; Versions disponibles montre la liste du site officiel même quand les mises à jour viennent d'un dossier local ou d'une clé USB."
+   ],
+   "web": "oui : même cœur dans la barre du haut"
+  },
+  {
+   "version": "2.99.1",
+   "date": "2026-11-12",
+   "title": "Soutenir le projet",
+   "new": [
+    "Paramètres › Soutenir le projet : un mot de remerciement, un code QR par moyen de soutien (Ko-fi et Patreon bientôt ; BTC, ETH, BNB et SOL avec leur réseau), l'adresse à copier sur le web, et un mur des remerciements avec le pseudo choisi par chaque soutien. L'appli reste gratuite : rien n'est bloqué."
+   ],
+   "improved": [
+    "La liste des moyens de soutien est lue sur notre site au plus une fois par jour, seulement quand l'écran est ouvert ; l'appli garde sa propre liste si le site ne répond pas."
+   ],
+   "fixed": [],
+   "web": "oui : même écran, adresses à copier, liens cliquables"
+  },
+  {
+   "version": "2.99.0",
+   "date": "2026-11-12",
+   "title": "Même progression des émulateurs",
+   "new": [
+    "Synchro › carte Émulateurs : les sauvegardes de ProsperoEden et d'Églantine restent au même niveau entre deux PS5, jeu par jeu et profil par profil (profils associés par leur nom). La plus récente gagne ; celle qu'elle remplace est d'abord copiée ; jamais pendant que l'émulateur est ouvert ; jamais d'aller-retour en boucle ; si les deux ont avancé, vous choisissez."
+   ],
+   "improved": [
+    "Chaque console n'écrit que dans ses propres dossiers : elle va chercher la sauvegarde la plus récente chez l'autre, avec les heures d'origine des fichiers."
+   ],
+   "fixed": [],
+   "web": "oui : même carte Émulateurs et même liste dans Synchro"
+  },
+  {
+   "version": "2.98.5",
+   "date": "2026-11-12",
+   "title": "Canal bêta",
+   "new": [
+    "Paramètres › Mises à jour › Canal des mises à jour : Stable (recommandé, par défaut) ou Bêta. Sur Bêta, les versions d'essai arrivent avant les stables, marquées « bêta » dans Versions disponibles ; « Revenir à la version d'avant » reste possible."
+   ],
+   "improved": [
+    "Une bêta n'est jamais publiée comme version GitHub : Prospero Store et les autres catalogues ne proposent que les versions stables."
+   ],
+   "fixed": [],
+   "web": "oui : même réglage dans Paramètres › Mises à jour"
+  },
+  {
    "version": "2.98.4",
    "date": "2026-11-12",
    "title": "Fenêtres de démarrage dans le bon ordre",

@@ -57,6 +57,14 @@ void badge(Surface& s, const Font& f, int x, int y, int st) {
         for (int d = 0; d < 10; ++d) s.rect(x + 13 + d, y + 18 - d, 3, 3, color::bg, 1);
     } else s.text(f, x + 8, y - 1, st == 1 ? "↑" : st == 2 ? "↓" : "↕", small, color::bg);
 }
+
+// Interrupteur (comme sur le web) : vert et rond à droite quand il est allumé.
+void toggle(Surface& s, int x, int y, bool on) {
+    s.rect(x, y, 88, 48, on ? color::ok : color::line, 24);
+    s.rect(on ? x + 46 : x + 6, y + 6, 36, 36, on ? color::text : color::muted, 18);
+}
+}  // namespace
+
 // Paragraphe coupé aux mots, au plus « max » lignes (la dernière finit par « … » si le texte est plus long).
 int para(Surface& s, const Font& f, int x, int y, const std::string& text, FontSize sz, std::uint32_t c, int w, int max, int lh) {
     std::vector<std::string> lines;
@@ -74,12 +82,6 @@ int para(Surface& s, const Font& f, int x, int y, const std::string& text, FontS
     for (std::size_t i = 0; i < lines.size(); ++i) s.text(f, x, y + static_cast<int>(i) * lh, lines[i], sz, c, w);
     return static_cast<int>(lines.size()) * lh;
 }
-// Interrupteur (comme sur le web) : vert et rond à droite quand il est allumé.
-void toggle(Surface& s, int x, int y, bool on) {
-    s.rect(x, y, 88, 48, on ? color::ok : color::line, 24);
-    s.rect(on ? x + 46 : x + 6, y + 6, 36, 36, on ? color::text : color::muted, 18);
-}
-}  // namespace
 
 bool Ui::sy_needs(const Json& t) {
     if (!t["followed"].as_bool()) return false;
@@ -215,6 +217,7 @@ void Ui::sy_run(const SyDev& d, int action) {
     if (action == 3) { sy_open_parties(d.id, d.name, 1); return; }
     if (action == 4) { sy_open_parties(d.id, d.name, 2); return; }
     if (action == 5) { sy_open_parties(d.id, d.name, 1); sp_filter_ = 6; return; }
+    if (action == 6) { sy_open_parties(d.id, d.name, 3); return; }
     static const char* const soon[] = {N_("Bientôt : reprenez votre partie sur l'autre PS5 ; la plus récente arrive, l'ancienne est gardée."),
                                        N_("Bientôt : une appli mise à jour ici l'est aussi là-bas, jamais de retour en arrière."),
                                        N_("Bientôt : seulement les extensions qui manquent de l'autre côté."),
@@ -369,9 +372,10 @@ void Ui::input_synchro(std::uint32_t k) {
         if (k & key::cross) sy_run(d, sn_target_);
         return;
     }
-    // Grille : 0 = Mettre à niveau ; 1 = Sauvegardes (grande carte) ; 2 Parties, 3 Applis (ligne 1) ; 4 DLC, 5 Réglages (ligne 2)
-    static const int up[6] = {0, 0, 0, 0, 2, 3}, down[6] = {1, 1, 4, 5, 4, 5}, left[6] = {-1, -1, 1, 2, 1, 4}, right[6] = {0, 2, 3, 3, 5, 5};
-    sn_target_ = std::clamp(sn_target_, 0, 5);
+    // Grille : 0 = Mettre à niveau ; 1 = Sauvegardes (grande carte) ; ligne 1 : 2 Parties, 6 Émulateurs ;
+    // ligne 2 : 3 Applis, 5 Réglages ; ligne 3 : 4 DLC (toute la largeur)
+    static const int up[7] = {0, 0, 0, 2, 3, 6, 0}, down[7] = {1, 1, 3, 4, 4, 4, 5}, left[7] = {-1, -1, 1, 1, 1, 3, 2}, right[7] = {0, 2, 6, 5, 4, 5, 6};
+    sn_target_ = std::clamp(sn_target_, 0, 6);
     if (k & key::up) sn_target_ = up[sn_target_];
     else if (k & key::down) sn_target_ = down[sn_target_];
     else if (k & key::left) { if (left[sn_target_] < 0) sn_zone_ = 0; else sn_target_ = left[sn_target_]; }
@@ -534,7 +538,7 @@ void Ui::draw_synchro(Surface& s) {
         draw_footer(s, {{0, tr("Valider")}, {-1, tr("Haut / bas : appareils")}, {1, tr("Retour")}});
         return;
     }
-    const int bigw = (rw - 2 * gap) * 155 / 355, smw = (rw - 2 * gap - bigw) / 2, smh = (gh - gap) / 2;
+    const int bigw = (rw - 2 * gap) * 155 / 355, smw0 = (rw - 2 * gap - bigw) / 2, smh = (gh - 2 * gap) / 3;
     {   // Sauvegardes : la grande carte, la seule active pour l'instant
         const bool f = zone && sn_target_ == 1;
         if (f) for (int g = 3; g >= 1; --g) s.rect(rx - g * 5, gy - g * 5, bigw + g * 10, gh + g * 10, rgb(80, 150, 255, 18), 24 + g * 5);
@@ -586,20 +590,24 @@ void Ui::draw_synchro(Surface& s) {
         para(s, font_, rx + 26, ly + 54, (d.kind == "nas" ? tr("↑ part vers le NAS · ↓ arrive ici · ✓ déjà au même niveau") : tr("↑ part vers l'autre PS5 · ↓ arrive ici · ✓ déjà au même niveau")), small, color::muted, bigw - 52, 2, 28);
     }
     struct Soon { const char* name; const char* text; std::uint32_t c; };
-    static const Soon soon[4] = {{N_("Parties actives"), N_("Reprenez votre partie sur l'autre PS5 : la plus récente arrive, l'ancienne est gardée."), rgb(95, 178, 255)},
+    static const Soon soon[5] = {{N_("Parties actives"), N_("Reprenez votre partie sur l'autre PS5 : la plus récente arrive, l'ancienne est gardée."), rgb(95, 178, 255)},
                                  {N_("Applis"), N_("Une appli mise à jour ici l'est aussi là-bas. Jamais de retour en arrière."), rgb(155, 124, 255)},
                                  {N_("DLC"), N_("Seulement les extensions qui manquent de l'autre côté, rien d'autre."), rgb(255, 180, 77)},
-                                 {N_("Réglages"), N_("La configuration de certaines applis, au cas par cas."), rgb(170, 185, 205)}};
-    for (int i = 0; i < 4; ++i) {
-        const int cx = rx + bigw + gap + (i % 2) * (smw + gap), cy = gy + (i / 2) * (smh + gap);
-        const bool f = zone && sn_target_ == 2 + i;
-        if (d.kind == "nas" && i >= 2) {  // DLC et Réglages : entre deux PS5 seulement
+                                 {N_("Réglages"), N_("La configuration de certaines applis, au cas par cas."), rgb(170, 185, 205)},
+                                 {N_("Émulateurs"), N_("La progression la plus récente de ProsperoEden et d'Églantine arrive sur l'autre PS5."), rgb(79, 209, 190)}};
+    // Petites cartes : ligne 1 Parties | Émulateurs, ligne 2 Applis | Réglages, ligne 3 DLC (toute la largeur)
+    static const int col[5] = {0, 0, 0, 1, 1}, row[5] = {0, 1, 2, 1, 0}, target[5] = {2, 3, 4, 5, 6};
+    for (int i = 0; i < 5; ++i) {
+        const int smw = i == 2 ? 2 * smw0 + gap : smw0;
+        const int cx = rx + bigw + gap + col[i] * (smw0 + gap), cy = gy + row[i] * (smh + gap);
+        const bool f = zone && sn_target_ == target[i];
+        if (d.kind == "nas" && i >= 2) {  // DLC, Réglages, Émulateurs : entre deux PS5 seulement
             s.rect(cx, cy, smw, smh, color::panel, 24);
             s.outline(cx, cy, smw, smh, f ? color::accent : color::line, 24, f ? 4 : 1);
             s.rect(cx + 24, cy + 26, 10, 36, soon[i].c, 5);
             s.text(font_, cx + 48, cy + 18, tr(soon[i].name), large, color::text, smw - 72);
             s.text(font_, cx + 48, cy + 64, tr("Entre deux PS5"), small, color::muted);
-            para(s, font_, cx + 24, cy + 102, tr("Cette section se synchronise avec une autre PS5, pas avec un NAS."), small, color::muted, smw - 48, 4, 28);
+            para(s, font_, cx + 24, cy + 96, tr("Cette section se synchronise avec une autre PS5, pas avec un NAS."), small, color::muted, smw - 48, 2, 28);
             continue;
         }
         if (i == 2) {  // DLC : ce qui manque d'un côté (lecture seule pour l'instant)
@@ -619,7 +627,7 @@ void Ui::draw_synchro(Surface& s) {
             else if (nh || nt) { line = trf("%lld jeu(x) à compléter", static_cast<long long>(nh + nt)); lc = color::warn; }
             else { line = tr("rien ne manque"); lc = color::ok; }
             s.text(font_, cx + 48, cy + 64, line, small, lc, smw - 72);
-            para(s, font_, cx + 24, cy + 102, tr("Les extensions et mises à jour qui manquent d'un côté, sans jamais renvoyer le jeu entier."), small, color::muted, smw - 48, 4, 28);
+            para(s, font_, cx + 24, cy + 96, tr("Les extensions et mises à jour qui manquent d'un côté, sans jamais renvoyer le jeu entier."), small, color::muted, smw - 48, 2, 28);
             continue;
         }
         if (i == 3) {  // Réglages : les applis qui ont des réglages (même écran que Applis, filtre « Avec réglages »)
@@ -636,13 +644,14 @@ void Ui::draw_synchro(Surface& s) {
             s.text(font_, cx + 48, cy + 18, tr(soon[i].name), large, color::text, smw - 72);
             const bool aerr = ap && ap->has("error");
             s.text(font_, cx + 48, cy + 64, !ap ? std::string(tr("lecture…")) : aerr ? std::string(tr("autre PS5 injoignable")) : moving ? trf("%d à mettre à niveau", moving) : trf("%d appli(s) avec réglages", with), small, aerr || moving ? color::warn : color::muted);
-            para(s, font_, cx + 24, cy + 102, tr("Les réglages des applis : appli + réglages ou réglages seuls, selon un profil par appli."), small, color::muted, smw - 48, 4, 28);
+            para(s, font_, cx + 24, cy + 96, tr("Les réglages des applis : appli + réglages ou réglages seuls, selon un profil par appli."), small, color::muted, smw - 48, 2, 28);
             continue;
         }
-        if (i <= 1) {  // Parties actives, Applis : actives — combien choisis, combien à mettre à niveau, ou l'avancement
+        if (i <= 1 || i == 4) {  // Parties actives, Applis, Émulateurs : combien choisis, combien à mettre à niveau, ou l'avancement
             const Json* pp = nullptr;
             if (i == 0) pp = parties_plan_for(d.id);
-            else for (const auto& [n2, pl2] : apps_plans_) if (pl2["peer"].as_string() == d.id) pp = &pl2;
+            else for (const auto& [n2, pl2] : i == 4 ? emu_plans_ : apps_plans_) if (pl2["peer"].as_string() == d.id) pp = &pl2;
+            const std::string sec = i == 1 ? "apps" : i == 4 ? "emu" : "";
             const Json& ps = parties_status_;
             s.rect(cx, cy, smw, smh, color::panel, 24);
             s.rect(cx, cy, smw, smh, rgb(95, 178, 255, 16), 24);
@@ -651,17 +660,17 @@ void Ui::draw_synchro(Surface& s) {
             s.text(font_, cx + 48, cy + 18, tr(soon[i].name), large, color::text, smw - 72);
             std::string line;
             std::uint32_t lc = color::muted;
-            if (ps["state"].as_string() == "running" && ps["peer"].as_string() == d.id && (ps["section"].as_string() == "apps") == (i == 1)) { line = trf("En cours : %lld / %lld", static_cast<long long>(ps["done"].as_int()), static_cast<long long>(ps["total"].as_int())); lc = color::accent; }
+            if (ps["state"].as_string() == "running" && ps["peer"].as_string() == d.id && ps["section"].as_string() == sec) { line = trf("En cours : %lld / %lld", static_cast<long long>(ps["done"].as_int()), static_cast<long long>(ps["total"].as_int())); lc = color::accent; }
             else if (!pp) line = tr("lecture…");
             else if (pp->has("error")) { line = d.kind == "nas" ? tr("NAS injoignable") : tr("autre PS5 injoignable"); lc = color::warn; }
             else if (!(*pp)["chosen"].as_int()) line = i == 1 ? tr("aucune appli choisie") : tr("aucun jeu choisi");
             else if ((*pp)["need"].as_int()) { line = trf("%lld à mettre à niveau", static_cast<long long>((*pp)["need"].as_int())); lc = color::warn; }
             else { line = tr("au même niveau"); lc = color::ok; }
             s.text(font_, cx + 48, cy + 64, line, small, lc);
-            para(s, font_, cx + 24, cy + 102, d.kind == "nas" ? (i == 1 ? tr("Le NAS garde la dernière version de chaque appli choisie ; une PS5 en retard l'installe depuis le NAS.")
+            para(s, font_, cx + 24, cy + 96, i == 4 ? tr("La sauvegarde la plus récente de ProsperoEden ou d'Églantine arrive sur l'autre PS5 ; l'ancienne est gardée.") : d.kind == "nas" ? (i == 1 ? tr("Le NAS garde la dernière version de chaque appli choisie ; une PS5 en retard l'installe depuis le NAS.")
                                                                         : tr("Le NAS garde la partie la plus récente ; une PS5 en retard la récupère, la sienne d'abord sauvegardée."))
                                                : (i == 1 ? tr("La version la plus récente d'une appli remplace l'ancienne de l'autre côté. Même version : rien.")
-                                                         : tr("La partie la plus récente arrive sur l'autre PS5 ; celle qu'elle remplace est d'abord sauvegardée.")), small, color::muted, smw - 48, 4, 28);
+                                                         : tr("La partie la plus récente arrive sur l'autre PS5 ; celle qu'elle remplace est d'abord sauvegardée.")), small, color::muted, smw - 48, 2, 28);
             continue;
         }
         s.rect(cx, cy, smw, smh, color::panel, 24);
@@ -669,7 +678,7 @@ void Ui::draw_synchro(Surface& s) {
         s.rect(cx + 24, cy + 26, 10, 36, soon[i].c, 5);
         s.text(font_, cx + 48, cy + 18, tr(soon[i].name), large, color::text, smw - 72);  // le nom entier (« Parties actives »)
         s.text(font_, cx + 48, cy + 64, tr("Bientôt"), small, soon[i].c);                  // « Bientôt » dessous, à la couleur de la section
-        para(s, font_, cx + 24, cy + 102, tr(soon[i].text), small, color::muted, smw - 48, 4, 28);
+        para(s, font_, cx + 24, cy + 96, tr(soon[i].text), small, color::muted, smw - 48, 2, 28);
     }
     if (sn_zone_ == 0) draw_footer(s, {{0, sn_games_ ? tr("Ouvrir Transferts") : tr("Choisir")}, {-1, tr("Haut / bas : appareils")}});
     else if (sn_target_ == 0) draw_footer(s, {{0, btn.empty() ? tr("Valider") : btn.c_str()}, {-1, tr("Bas : les sections")}, {1, tr("Retour")}});
@@ -690,13 +699,13 @@ void Ui::sy_open_parties(const std::string& peer, const std::string& name, int s
     sy_pick_peer_ = peer;
     sy_pick_name_ = name;
     if (!again) { sn_row_ = 0; sy_pick_plan_ = Json(); sp_filter_ = 0; }
-    const std::string path = section == 2 ? "/api/v2/sync/dlc/plan?peer=" : section == 1 ? "/api/v2/sync/apps/plan?peer=" : "/api/v2/sync/parties/plan?peer=";
+    const std::string path = section == 3 ? "/api/v2/sync/emu/plan?peer=" : section == 2 ? "/api/v2/sync/dlc/plan?peer=" : section == 1 ? "/api/v2/sync/apps/plan?peer=" : "/api/v2/sync/parties/plan?peer=";
     model_.command("GET", path + peer, "", [this, peer, section](const std::string& e, const std::string& body) {
         Json j;
         if (!e.empty() || !Json::parse(body, j)) { post_toast(e.empty() ? std::string(tr("réponse illisible")) : e); return; }
         post_ui([this, j, peer, section] {
             if (sy_pick_peer_ == peer && sy_parties_ && sy_section_ == section) sy_pick_plan_ = j;
-            for (auto& [n, pl] : section == 2 ? dlc_plans_ : section == 1 ? apps_plans_ : parties_plans_) if (pl["peer"].as_string() == peer) pl = j;
+            for (auto& [n, pl] : section == 3 ? emu_plans_ : section == 2 ? dlc_plans_ : section == 1 ? apps_plans_ : parties_plans_) if (pl["peer"].as_string() == peer) pl = j;
         });
     });
 }
@@ -708,7 +717,7 @@ void Ui::sy_parties_start(const std::string& peer, const std::string& name) {
     int n = 0;
     for (const auto& t : pl["titles"].items()) {
         if (!t["followed"].as_bool()) continue;
-        if (sy_section_ == 0 && (t["state"].as_string() == "same" || t["state"].as_string() == "conflict")) continue;  // conflit : à trancher d'abord
+        if ((sy_section_ == 0 || sy_section_ == 3) && (t["state"].as_string() == "same" || t["state"].as_string() == "conflict" || t["state"].as_string() == "no_profile")) continue;  // conflit : à trancher d'abord
         if (t["running"].as_bool()) { toast(trf("« %s » est lancé : fermez le jeu d'abord.", t["title"].as_string().c_str())); return; }
         const std::string st0 = t["state"].as_string();
         if (sy_section_ == 1 && !(t["app_moves"].as_bool() || t["config_moves"].as_bool())) continue;  // applis : rien à faire pour elle
@@ -721,6 +730,7 @@ void Ui::sy_parties_start(const std::string& peer, const std::string& name) {
                 what = up ? (vt.empty() ? trf("installée sur %s (v%s)", name.c_str(), vh.c_str()) : trf("v%s d'ici remplace v%s sur %s", vh.c_str(), vt.c_str(), name.c_str()))
                           : (vh.empty() ? trf("installée ici (v%s)", vt.c_str()) : trf("v%s de %s remplace v%s d'ici", vt.c_str(), name.c_str(), vh.c_str()));
             } else what = up ? trf("la partie d'ici remplace celle de %s", name.c_str()) : trf("la partie de %s remplace celle d'ici", name.c_str());
+            if (sy_section_ == 3) what = t["detail"].as_string() + " · " + what;
             note += (note.empty() ? "" : " · ") + t["title"].as_string() + " : " + what;
         }
         ++n;
@@ -728,11 +738,11 @@ void Ui::sy_parties_start(const std::string& peer, const std::string& name) {
     if (!n) { toast(tr("Tout est déjà au même niveau.")); return; }
     if (n > 4) note += " · " + trf("… et %d autre(s)", n - 4);
     std::vector<std::pair<std::string, std::function<void()>>> acts;
-    const bool apps = sy_section_ == 1;
-    acts.push_back({apps ? trf("Mettre à niveau %d appli(s)", n) : trf("Mettre à niveau %d partie(s)", n), [this, peer, name, apps] {
+    const bool apps = sy_section_ == 1, emu = sy_section_ == 3;
+    acts.push_back({apps ? trf("Mettre à niveau %d appli(s)", n) : trf("Mettre à niveau %d partie(s)", n), [this, peer, name, apps, emu] {
         Json b = Json::object();
         b.set("peer", peer);
-        model_.command("POST", apps ? "/api/v2/sync/apps/start" : "/api/v2/sync/parties/start", b.dump(), [this, name, apps](const std::string& e, const std::string&) {
+        model_.command("POST", emu ? "/api/v2/sync/emu/start" : apps ? "/api/v2/sync/apps/start" : "/api/v2/sync/parties/start", b.dump(), [this, name, apps](const std::string& e, const std::string&) {
             post_toast(e.empty() ? (apps ? trf("Applis : mise à niveau avec %s lancée", name.c_str()) : trf("Parties : mise à niveau avec %s lancée", name.c_str())) : e);
             post_ui([this] { parties_status_at_ = 0; });
         });
@@ -740,6 +750,7 @@ void Ui::sy_parties_start(const std::string& peer, const std::string& name) {
     acts.push_back({tr("Annuler"), [] {}});
     open_actions(apps ? tr("Mettre à niveau les applis ?") : tr("Mettre à niveau les parties actives ?"), std::move(acts));
     popup_note_ = note + ". " + (apps ? tr("L'ancienne version n'est retirée qu'une fois la nouvelle installée, vérifiée et ses droits relus ; sinon elle reste en place.")
+                                 : emu ? tr("Avant de remplacer une sauvegarde d'émulateur, une copie de sécurité est faite. Jamais pendant que l'émulateur est ouvert.")
                                       : tr("Avant de remplacer une partie, elle est sauvegardée (onglet Sauvegardes). Jamais pendant que le jeu tourne."));
 }
 
@@ -783,6 +794,7 @@ void Ui::input_synchro_parties(std::uint32_t k) {
     }
     auto prefs = [this](Json b) {
         if (sy_section_ == 1) b.set("section", "apps");
+        if (sy_section_ == 3) b.set("section", "emu");
         model_.command("POST", "/api/v2/sync/parties/prefs", b.dump(), [this](const std::string& e, const std::string&) {
             if (!e.empty()) post_toast(e);
             post_ui([this] { sy_open_parties(sy_pick_peer_, sy_pick_name_); sync_plans_at_ = 0; });
@@ -1034,7 +1046,7 @@ void Ui::draw_synchro_parties(Surface& s, int x, int w) {
     }
     {
         const bool apps = sy_section_ == 1;
-        const int tw = s.text(font_, x, 124, apps ? tr("Applis à garder au même niveau") : tr("Parties actives à garder au même niveau"), large, color::text);
+        const int tw = s.text(font_, x, 124, apps ? tr("Applis à garder au même niveau") : sy_section_ == 3 ? tr("Émulateurs : progression à garder au même niveau") : tr("Parties actives à garder au même niveau"), large, color::text);
         s.text(font_, x + tw + 30, 138, trf("avec %s", sy_pick_name_.c_str()), small, color::muted);
         const std::string r = (apps ? trf("%d appli(s) choisie(s) sur %d", chosen, total) : trf("%d jeu(x) choisi(s) sur %d", chosen, total)) + (need ? " · " + trf("%lld à mettre à niveau", static_cast<long long>(need)) : std::string());
         s.text(font_, x + w - Surface::measure(r, small), 138, r, small, rgb(200, 215, 234));
@@ -1042,11 +1054,12 @@ void Ui::draw_synchro_parties(Surface& s, int x, int w) {
     const bool apps = sy_section_ == 1;
     para(s, font_, x, 184, pl["nas"].as_bool() ? (apps ? tr("Le NAS sert de dépôt : il garde la dernière version de chaque appli choisie. Plus récente ici : elle y est déposée ; plus récente sur le NAS : elle est installée ici, à la place de l'ancienne. Jamais de retour en arrière.")
                                                        : tr("Le NAS sert de dépôt : il garde la partie la plus récente de chaque jeu choisi. Plus récente ici : une copie y part ; plus récente sur le NAS : elle est restaurée ici, celle d'ici d'abord sauvegardée. Jamais pendant que le jeu tourne."))
+                         : sy_section_ == 3 ? tr("Les sauvegardes de ProsperoEden et d'Églantine, profil par profil (associés par leur nom). La plus récente gagne ; celle qu'elle remplace est d'abord copiée. Jamais pendant que l'émulateur est ouvert.")
                          : apps ? tr("Les applis installées sur chaque PS5. Même version : rien. Plus récente d'un côté : elle remplace l'ancienne de l'autre côté — jamais deux versions, jamais de retour en arrière. Une appli en image (.ffpkg, .exfat) se met à jour par Transferts.")
                                 : tr("Les parties qui sont SUR les consoles, celles que vous reprenez en lançant le jeu. La plus récente gagne ; celle qu'elle remplace est d'abord sauvegardée. Jamais pendant que le jeu tourne."), small, color::muted, w, 2, 30);
     const bool nas = pl["nas"].as_bool();
     if (!apps && nas) s.text(font_, x, 250, tr("Compte : la partie de chaque compte de cette PS5 est comparée à sa dernière copie sur le NAS."), small, color::accent, w);
-    if (!apps && !nas) {   // le compte de chaque côté (la partie est remise sur l'identifiant de la console qui la reçoit)
+    if (!apps && !nas && sy_section_ != 3) {   // le compte de chaque côté (la partie est remise sur l'identifiant de la console qui la reçoit)
         auto name_of = [&](const char* list, const std::string& key) {
             for (const auto& a : pl[list].items()) if (a["key"].as_string() == key) return a["name"].as_string() + " (" + a["user_id"].as_string() + ")";
             return key;
@@ -1222,7 +1235,8 @@ void Ui::draw_synchro_pick(Surface& s, int x, int w) {
         s.rect(x, yy, w, h, f ? rgb(21, 41, 74) : color::panel, 20);
         s.outline(x, yy, w, h, f ? color::accent : color::line, 20, f ? 3 : 1);
         Item tmp;
-        const Item* it = find_or_stand_in("title:" + t["title_id"].as_string(), t["title"].as_string(), t["title_id"].as_string(), tmp, t["kind"].as_string());
+        const std::string gid = t["game_id"].as_string().empty() ? t["title_id"].as_string() : t["game_id"].as_string();  // émulateurs : le vrai numéro du jeu
+        const Item* it = find_or_stand_in("title:" + gid, t["title"].as_string(), gid, tmp, t["kind"].as_string());
         cover(s, *it, x + 16, yy + 16, 86, false);
         const unsigned dim = on ? 255 : 150;
         const int tx = x + 128, tw = w - 128 - 470;
@@ -1237,6 +1251,8 @@ void Ui::draw_synchro_pick(Surface& s, int x, int w) {
         else if (ta) det = trf("Seulement sur %s : %s", sy_pick_name_.c_str(), day_text(ta).c_str());
         const std::string pt = play_text(std::max(t["here_play"].as_int(), t["there_play"].as_int()));
         if (!pt.empty()) det += "  ·  " + pt;
+        if (!t["detail"].as_string().empty()) det = t["detail"].as_string() + "  ·  " + det;  // émulateurs : lequel, quel profil
+        if (t["state"].as_string() == "no_profile") det += "  ·  " + std::string(tr("aucun profil de ce nom ici"));
         s.text(font_, tx, yy + 62, det, small, color::muted, tw + 300);
         (void)dim;
         // État (à droite), puis l'interrupteur

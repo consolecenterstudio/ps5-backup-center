@@ -16,7 +16,7 @@
 
 Nelerin yedeklenmesi gerektiğini görün, mevcut kopyaları karşılaştırın ve cihazlar arasındaki aktarımı düzenleyin. PS5 Backup Center envanteri, yedekleri, eşitlemeyi ve aktarımları TV’de ve tarayıcıda birleştirir.
 
-**2.98.4 · GPL-3.0-or-later · 19 · 8**
+**2.99.5 · GPL-3.0-or-later · 19 · 8**
 
 Özgür yazılım. Abonelik yok.
 

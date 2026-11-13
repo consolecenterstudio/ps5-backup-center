@@ -606,7 +606,9 @@ void HttpServer::handle(int fd, bool local) {
         for (const auto& [k, v] : body.members()) merged.set(k, v);
         const std::string src = merged["update_source"].as_string();
         if (!src.empty() && src.rfind("http://", 0) != 0 && src.rfind("https://", 0) != 0 && src[0] != '/') { error(fd, 400, "la source doit être une adresse http:// ou https://, ou un dossier de la console (/data/…, /mnt/usb0/…)"); return; }
+        const std::string channel_before = e.settings().update_channel;
         e.set_settings(Settings::from_json(merged));
+        if (e.settings().update_channel != channel_before && e.settings().update_auto_check) e.updater().check_auto(0);  // nouveau canal : regarder tout de suite
         json(fd, 200, e.settings().to_json());
         return;
     }
@@ -1111,6 +1113,30 @@ void HttpServer::handle(int fd, bool local) {
     if (r.method == "GET" && r.path == "/api/v2/link/dlc/read") {  // une PS5 jumelée vient chercher un DLC déclaré
         std::string data, err;
         if (!e.dlc_read(r.param("title_id"), r.param("id"), std::strtoull(r.param("offset").c_str(), nullptr, 10), std::strtoull(r.param("limit").c_str(), nullptr, 10), data, err)) { error(fd, 404, err); return; }
+        respond(fd, 200, "application/octet-stream", data);
+        return;
+    }
+    // Même progression des émulateurs : sauvegardes d'ici, plan, mise à niveau ; l'autre PS5 lit les fichiers par clé.
+    if (r.method == "GET" && r.path == "/api/v2/support") { json(fd, 200, e.support(r.param("fresh") == "1")); return; }
+    if (r.method == "GET" && r.path == "/api/v2/emu/saves") { json(fd, 200, e.emu_saves()); return; }
+    if (r.method == "GET" && r.path == "/api/v2/sync/emu/plan") { json(fd, 200, e.plan_cached("emu", r.param("peer"), false, r.param("fresh") == "1")); return; }
+    if (r.method == "POST" && r.path == "/api/v2/sync/emu/start") {
+        std::string err;
+        const Json j = e.emu_start(body, err);
+        if (!err.empty()) { error(fd, 409, err); return; }
+        json(fd, 200, j);
+        return;
+    }
+    if (r.method == "GET" && r.path == "/api/v2/link/emu/files") {
+        std::string err;
+        const Json j = e.emu_files(r.param("key"), err);
+        if (!err.empty()) { error(fd, 404, err); return; }
+        json(fd, 200, j);
+        return;
+    }
+    if (r.method == "GET" && r.path == "/api/v2/link/emu/read") {
+        std::string data, err;
+        if (!e.emu_read(r.param("key"), r.param("path"), std::strtoull(r.param("offset").c_str(), nullptr, 10), std::strtoull(r.param("limit").c_str(), nullptr, 10), data, err)) { error(fd, 404, err); return; }
         respond(fd, 200, "application/octet-stream", data);
         return;
     }

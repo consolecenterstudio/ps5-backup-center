@@ -33,6 +33,9 @@ struct InputState {
     std::uint32_t down = 0;          // touches tenues en ce moment (confirmations « maintenir Carré »)
 };
 
+// Paragraphe coupé aux mots (ui_synchro.cpp) : renvoie la hauteur occupée.
+int para(Surface& s, const Font& f, int x, int y, const std::string& text, FontSize sz, std::uint32_t c, int w, int max, int lh);
+
 class Ui {
 public:
     Ui(Model& model, Covers& covers, Font font, std::string address) : model_(model), covers_(covers), font_(font), address_(std::move(address)) {}
@@ -184,6 +187,7 @@ private:
     bool animating_ = false;
     // Clavier à l'écran (recherche, et plus tard réglages des appareils) : le texte est appliqué en direct.
     bool kb_open_ = false;
+    bool heart_ = false;   // focus sur le cœur du haut (L1 / R1), Croix = Soutenir le projet
     bool loupe_ = false;   // focus sur la loupe du haut (L1 / R1), Croix = recherche
     std::string kb_title_, kb_text_, search_;
     bool kb_shift_ = false;  // majuscules et symboles (L1)
@@ -286,6 +290,11 @@ private:
     pbc::Json pending_backups_;
     bool has_pending_backups_ = false;
     pbc::Json pending_credits_, credits_;
+    pbc::Json pending_support_, support_;  // Paramètres › Soutenir le projet
+    bool support_big_ = false;            // code QR agrandi
+    pbc::Json pending_status_, status_info_;  // Signaler un problème : version du système
+    bool has_pending_status_ = false;
+    std::atomic<bool> status_requested_{false};
     // Paramètres → Nouveautés (historique installé avec l'app)
     std::vector<ChangelogEntry> news_, pending_news_;
     bool has_pending_news_ = false;
@@ -369,7 +378,7 @@ private:
     std::uint64_t sync_copies_at_ = 0, sync_plans_at_ = 0;
     void load_sync_plans();
     // Parties actives (ui_synchro.cpp) : plan par PS5 jumelée, état de la mise à niveau, écran de choix
-    std::vector<std::pair<std::string, pbc::Json>> parties_plans_, apps_plans_, dlc_plans_;
+    std::vector<std::pair<std::string, pbc::Json>> parties_plans_, apps_plans_, dlc_plans_, emu_plans_;
     int sy_section_ = 0;                          // écran ouvert : 0 = parties actives, 1 = applis
     pbc::Json parties_status_;
     std::uint64_t parties_status_at_ = 0;
@@ -512,6 +521,8 @@ private:
     void save_entries(const std::vector<std::size_t>& rows);
     bool has_pending_credits_ = false;
     std::atomic<bool> credits_requested_{false};
+    std::atomic<bool> support_requested_{false};
+    bool has_pending_support_ = false;
     int credits_rows_ = 1;
     // Transferts (ui_transfers.cpp) : source → destination, quoi faire, choix des éléments, suivi,
     // sauvegarde complète. Écran 0 principal, 1 choix, 2 suivi, 3 sauvegarde complète.

@@ -8,10 +8,10 @@
   <img src="docs/assets/screenshots/en-oled-home.png" alt="PS5 Backup Center — Home screen" width="88%">
 </p>
 
-<p><strong>Version 2.98.4</strong> · Browse the library of your other connected PS5 and back up its games and saves from here, on the TV and on the web. Updates are checked and installed by the app itself.</p>
+<p><strong>Version 2.99.5</strong> · Keep your Switch and Switch 2 emulator progress in step between two PS5s, act on several games of the other PS5 at once, and support the project from the ♥ at the top right. Updates are checked and installed by the app itself.</p>
 
 <p align="center">
-  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/documented%20version-2.98.4-7cc4ff?style=flat-square&labelColor=0a1729"></a>
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/documented%20version-2.99.5-7cc4ff?style=flat-square&labelColor=0a1729"></a>
   <a href="LICENSE"><img alt="License: GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-3d8bff?style=flat-square&labelColor=0a1729"></a>
   <img alt="Platform: PS5" src="https://img.shields.io/badge/platform-PS5%20(homebrew)-e8f1fb?style=flat-square&labelColor=0a1729">
   <img alt="19 languages" src="https://img.shields.io/badge/languages-19-f0b867?style=flat-square&labelColor=0a1729">

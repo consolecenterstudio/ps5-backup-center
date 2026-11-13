@@ -140,6 +140,13 @@
    "license": "GPL-3.0-or-later",
    "role": "Relance du moteur après une mise à jour, sans chargeur externe (code compilé dans le moteur)",
    "url": "https://github.com/ps5-payload-dev/elfldr"
+  },
+  {
+   "name": "QR Code generator",
+   "author": "Project Nayuki",
+   "license": "MIT",
+   "role": "Codes QR de l'écran « Soutenir le projet »",
+   "url": "https://github.com/nayuki/QR-Code-generator"
   }
  ],
  "thanks": [

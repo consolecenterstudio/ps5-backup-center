@@ -16,7 +16,7 @@
 
 Ontdek wat een back-up nodig heeft, vergelijk bestaande kopieën en organiseer uitwisselingen tussen apparaten. PS5 Backup Center brengt inventaris, back-ups, synchronisatie en overdrachten samen op je tv en in je browser.
 
-**2.98.4 · GPL-3.0-or-later · 19 · 8**
+**2.99.5 · GPL-3.0-or-later · 19 · 8**
 
 Vrije software. Geen abonnement.
 

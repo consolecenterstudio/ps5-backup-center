@@ -58,6 +58,7 @@ struct Settings {
     std::string default_place = "auto";   // « auto » : premier USB, sinon interne
     std::string custom_folder;            // vide : « PBC Backup » à la racine du disque
     std::string update_source;            // adresse du manifeste de mises à jour (http://…)
+    std::string update_channel = "stable";  // « stable » (recommandé) ou « beta » : les bêtas ne sont jamais des Releases GitHub
     bool update_auto_install = false;     // installer seul ce qui est trouvé, puis relancer le moteur — jamais pendant une partie
     bool update_auto_check = true;        // rechercher seul : démarrage du moteur, ouverture de l'appli (télé, web), Paramètres, toutes les heures
     bool covers_online = true;            // jaquettes manquantes des ROM depuis libretro-thumbnails
@@ -244,6 +245,14 @@ public:
     Json pkg_library(bool fresh = false);
     // Lecture d'un morceau d'un fichier DLC / mise à jour déclaré par dlc_list (rien d'autre n'est servi).
     bool dlc_read(const std::string& title_id, const std::string& id, std::uint64_t offset, std::uint64_t limit, std::string& out, std::string& error);
+    // Même progression des émulateurs (ProsperoEden, Églantine) entre deux PS5 — sync_emu.cpp
+    Json support(bool fresh);  // « Soutenir le projet » : moyens de soutien + codes QR (support.cpp)
+    Json emu_saves();                                                        // sauvegardes d'émulateurs d'ici (aussi lue par l'autre PS5)
+    Json emu_files(const std::string& key, std::string& error);              // fichiers d'une sauvegarde (chemin, taille, heure)
+    bool emu_read(const std::string& key, const std::string& path, std::uint64_t offset, std::uint64_t limit, std::string& out, std::string& error);
+    Json emu_plan(const std::string& peer);                                  // la plus récente gagne, journal, conflits
+    Json emu_start(const Json& body, std::string& error);                    // {peer, keys?} ou {peer, direction:"here", keys} (demandé par l'autre PS5)
+    std::string emu_pull_one(const std::string& peer, const std::string& key, const Json& here, std::int64_t& here_at, std::int64_t& there_at);
     Json apps_plan(const std::string& peer);
     Json apps_start(const Json& body, std::string& error);
     // NAS = dépôt (mêmes écrans, mêmes règles qu'entre deux PS5) : parties actives ↔ dernière copie du NAS, applis ↔

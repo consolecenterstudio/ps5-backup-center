@@ -16,7 +16,7 @@
 
 Sprawdź, co wymaga kopii zapasowej, porównaj istniejące kopie i uporządkuj wymianę danych między urządzeniami. PS5 Backup Center łączy katalog, kopie, synchronizację i transfery na telewizorze oraz w przeglądarce.
 
-**2.98.4 · GPL-3.0-or-later · 19 · 8**
+**2.99.5 · GPL-3.0-or-later · 19 · 8**
 
 Wolne oprogramowanie. Bez abonamentu.
 

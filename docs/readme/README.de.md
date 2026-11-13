@@ -16,7 +16,7 @@
 
 Erkenne, was gesichert werden sollte, vergleiche vorhandene Kopien und organisiere den Austausch zwischen Geräten. PS5 Backup Center verbindet Inventar, Backups, Synchronisierung und Übertragungen am Fernseher und im Browser.
 
-**2.98.4 · GPL-3.0-or-later · 19 · 8**
+**2.99.5 · GPL-3.0-or-later · 19 · 8**
 
 Freie Software. Ohne Abonnement.
 

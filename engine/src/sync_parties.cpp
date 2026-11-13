@@ -190,8 +190,8 @@ Json Engine::set_parties_prefs(const Json& body, std::string& error) {
     const std::string peer = body["peer"].as_string();
     if (peer.empty()) { error = "PS5 inconnue"; return Json(); }
     Json p = sync_prefs(peer);
-    const bool apps = body["section"].as_string() == "apps";
-    const char* list_key = apps ? "apps_games" : "parties_games";  // une liste par section (parties, applis)
+    const bool apps = body["section"].as_string() == "apps", emu = body["section"].as_string() == "emu";
+    const char* list_key = apps ? "apps_games" : emu ? "emu_games" : "parties_games";  // une liste par section (parties, applis, émulateurs)
     std::set<std::string> games;
     for (const auto& t : p[list_key].items()) games.insert(t.as_string());
     for (const auto& [tid, on] : body["follow"].members()) { if (on.as_bool()) games.insert(tid); else games.erase(tid); }
@@ -202,19 +202,20 @@ Json Engine::set_parties_prefs(const Json& body, std::string& error) {
         p.set(k, kept);
     }
     if (body["resolve"].is_object()) {  // conflit tranché par l'utilisateur : quelle partie garder
-        Json rs = p["parties_resolve"].is_object() ? p["parties_resolve"] : Json::object(), kept = Json::object();
+        const char* rk = emu ? "emu_resolve" : "parties_resolve";
+        Json rs = p[rk].is_object() ? p[rk] : Json::object(), kept = Json::object();
         for (const auto& [tid, v] : body["resolve"].members()) rs.set(tid, v);
         for (const auto& [tid, v] : rs.members()) if (!v.as_string().empty()) kept.set(tid, v);
-        p.set("parties_resolve", kept);
+        p.set(rk, kept);
     }
     if (body.has("here_account") || body.has("there_account")) {  // compte choisi de chaque côté ("" = même personne PSN)
         p.set("parties_here_account", body["here_account"].as_string());
         p.set("parties_there_account", body["there_account"].as_string());
     }
     if (body.has("follow_all")) {
-        const Json plan = apps ? apps_plan(peer) : parties_plan(peer);
+        const Json plan = apps ? apps_plan(peer) : emu ? emu_plan(peer) : parties_plan(peer);
         games.clear();
-        if (body["follow_all"].as_bool()) for (const auto& t : plan["titles"].items()) games.insert(t["title_id"].as_string());
+        if (body["follow_all"].as_bool()) for (const auto& t : plan["titles"].items()) games.insert(emu ? t["key"].as_string() : t["title_id"].as_string());
     }
     Json list = Json::array();
     for (const auto& g : games) list.push(g);
