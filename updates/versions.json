@@ -1,11 +1,11 @@
 [
  {
-  "version": "2.99.12",
+  "version": "2.99.15",
   "date": "2026-11-13",
-  "title": "Signaler un problème plus clair",
+  "title": "Synchro : chaque appareil défile",
   "tested": false,
   "channel": "beta",
-  "manifest": "2.99.12/manifest.json"
+  "manifest": "2.99.15/manifest.json"
  },
  {
   "version": "2.99.5",

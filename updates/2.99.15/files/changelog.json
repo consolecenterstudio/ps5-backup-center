@@ -1,6 +1,41 @@
 {
  "versions": [
   {
+   "version": "2.99.15",
+   "date": "2026-11-13",
+   "title": "Synchro : chaque appareil défile",
+   "new": [],
+   "improved": [
+    "Accueil : dans la carte Synchro, chaque appareil défile avec son image (PS5, NAS), comme les jeux dans les autres cartes."
+   ],
+   "fixed": [
+    "Mises à jour : une version installée mais pas encore active affiche « Installée, active au redémarrage du moteur » au lieu de « À jour »."
+   ],
+   "web": "oui : même carte et même état"
+  },
+  {
+   "version": "2.99.14",
+   "date": "2026-11-13",
+   "title": "Carte Synchro : titre court",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Accueil : la carte Synchro sans jeu choisi affiche « Aucun jeu choisi » en titre et la liste des appareils dessous (le titre n'est plus coupé)."
+   ],
+   "web": "oui : même carte"
+  },
+  {
+   "version": "2.99.13",
+   "date": "2026-11-13",
+   "title": "Accueil : une seule carte Synchro",
+   "new": [],
+   "improved": [
+    "Accueil › À faire : une seule carte Synchro au lieu d'une par appareil ; les jeux à mettre à niveau d'abord, et les appareils sans jeu choisi regroupés en une ligne."
+   ],
+   "fixed": [],
+   "web": "oui : même carte regroupée"
+  },
+  {
    "version": "2.99.12",
    "date": "2026-11-13",
    "title": "Signaler un problème plus clair",

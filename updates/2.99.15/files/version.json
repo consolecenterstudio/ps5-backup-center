@@ -1,0 +1,8 @@
+{
+ "version": "2.99.15",
+ "build": "PBCK L03 A27F573C29",
+ "notes": [
+  "Accueil : dans la carte Synchro, chaque appareil défile avec son image (PS5, NAS), comme les jeux dans les autres cartes.",
+  "Mises à jour : une version installée mais pas encore active affiche « Installée, active au redémarrage du moteur » au lieu de « À jour »."
+ ]
+}
