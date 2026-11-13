@@ -1,5 +1,13 @@
 [
  {
+  "version": "2.99.12",
+  "date": "2026-11-13",
+  "title": "Signaler un problème plus clair",
+  "tested": false,
+  "channel": "beta",
+  "manifest": "2.99.12/manifest.json"
+ },
+ {
   "version": "2.99.5",
   "date": "2026-11-13",
   "title": "Plusieurs jeux d'un coup sur l'autre PS5",
