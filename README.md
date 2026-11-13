@@ -321,9 +321,32 @@ Yes, and open source (GPL-3.0-or-later). A *buy me a coffee* link will be added 
 
 Every version and what it brought: [CHANGELOG.md](CHANGELOG.md) — the same history as **Settings › What's new** in the app.
 
-## Support the project
+## Support the developer
 
-Share a tested hardware report, report a bug, or help improve a translation. See [how to contribute](CONTRIBUTING.md).
+PS5 Backup Center is free and will stay free: nothing is locked, everyone gets the same features and updates. It is made by one independent developer, in spare time and on personal consoles. If it saved your progress once, you can help cover test consoles, drives and tools. Thank you! In the app: the ♥ at the top right, or Settings › Support the project.
+
+### Crypto
+
+| Coin | Network | Address |
+|---|---|---|
+| BTC | Bitcoin | `16J2KqxzzAwqrbdtsBAXLcfXySH3WEqvas` |
+| ETH | Ethereum (ERC20) | `0xc8bdccce6d52570e059f58f0f4c5c6199bee298d` |
+| BNB | BNB Smart Chain (BEP20) | `0xc8bdccce6d52570e059f58f0f4c5c6199bee298d` |
+| SOL | Solana | `EyiGLmxw1b1AZxhVmpfP4cXYGTDuYJaWXonvKww2hDaD` |
+
+Send only on the network listed for each address, otherwise the transfer is lost. Ko-fi and Patreon are coming soon.
+
+### Gifts
+
+Rather give something else? Gift cards (PlayStation Store, Amazon, Steam), a gifted subscription (AI tools, API credits, services) or test hardware are welcome. The studio contact for gifts will be listed here shortly. Please never share an account: it is often against the service's rules and risky for you.
+
+### Projects to fund
+
+The next apps, **PS5 Center** (all your consoles from one screen) and **PS5 Connector** (connectors for NAS, shares and cloud), will get their own goals and progress gauge, shown here and in the app (Settings › Projects to fund).
+
+### Report a problem
+
+Bugs and ideas: [Issues](https://github.com/consolecenterstudio/ps5-backup-center/issues/new/choose) · questions and thanks: [Discussions](https://github.com/consolecenterstudio/ps5-backup-center/discussions). A ⭐ on the repository helps too.
 
 ---
 

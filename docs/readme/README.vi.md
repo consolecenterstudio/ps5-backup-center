@@ -68,7 +68,14 @@ PS5 Center là dự án tương lai rộng hơn, có phạm vi và lộ trình s
 
 ## Ủng hộ
 
-Phần mềm được cung cấp miễn phí. Báo lỗi, bản dịch, thử nghiệm có ghi chép và hỗ trợ tự nguyện có thể giúp chi trả phát triển, công cụ AI, thử nghiệm và phần cứng. Phương thức thanh toán và liên hệ công khai chưa được chọn.
+PS5 Backup Center miễn phí và sẽ luôn miễn phí. Nếu ứng dụng giúp ích cho bạn, bạn có thể ủng hộ việc phát triển (trong ứng dụng: biểu tượng ♥ ở góc trên bên phải). Crypto ở bên dưới: chỉ gửi trên mạng được ghi. Quà tặng, Ko-fi, Patreon và mục tiêu: [Support the developer](../../README.md#support-the-developer).
+
+| Coin | Network | Address |
+|---|---|---|
+| BTC | Bitcoin | `16J2KqxzzAwqrbdtsBAXLcfXySH3WEqvas` |
+| ETH | Ethereum (ERC20) | `0xc8bdccce6d52570e059f58f0f4c5c6199bee298d` |
+| BNB | BNB Smart Chain (BEP20) | `0xc8bdccce6d52570e059f58f0f4c5c6199bee298d` |
+| SOL | Solana | `EyiGLmxw1b1AZxhVmpfP4cXYGTDuYJaWXonvKww2hDaD` |
 
 ## Bắt đầu
 

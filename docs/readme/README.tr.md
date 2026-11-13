@@ -68,7 +68,14 @@ PS5 Center, kapsamı ve yol haritası birlikte geliştirilecek daha geniş bir g
 
 ## Destekle
 
-Yazılım ücretsiz sunulur. Bildirimler, çeviriler, belgelenmiş testler ve gönüllü destek; geliştirme, yapay zekâ araçları, test ve donanıma katkı sağlayabilir. Ödeme yolları ve herkese açık iletişim henüz belirlenmedi.
+PS5 Backup Center ücretsiz ve öyle kalacak. Uygulama işinize yarıyorsa geliştirmeyi destekleyebilirsiniz (uygulamada: sağ üstteki ♥). Kripto aşağıda: yalnızca belirtilen ağdan gönderin. Hediyeler, Ko-fi, Patreon ve hedefler: [Support the developer](../../README.md#support-the-developer).
+
+| Coin | Network | Address |
+|---|---|---|
+| BTC | Bitcoin | `16J2KqxzzAwqrbdtsBAXLcfXySH3WEqvas` |
+| ETH | Ethereum (ERC20) | `0xc8bdccce6d52570e059f58f0f4c5c6199bee298d` |
+| BNB | BNB Smart Chain (BEP20) | `0xc8bdccce6d52570e059f58f0f4c5c6199bee298d` |
+| SOL | Solana | `EyiGLmxw1b1AZxhVmpfP4cXYGTDuYJaWXonvKww2hDaD` |
 
 ## Başlangıç
 

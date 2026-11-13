@@ -68,7 +68,14 @@ PS5 Center is een breder toekomstig project waarvan de reikwijdte en routekaart 
 
 ## Steunen
 
-De software is gratis. Meldingen, vertalingen, gedocumenteerde tests en vrijwillige steun kunnen ontwikkeling, AI-tools, tests en hardware helpen financieren. Betaalwijzen en openbaar contact zijn nog te bepalen.
+PS5 Backup Center is gratis en blijft gratis. Helpt de app je, dan kun je de ontwikkeling steunen (in de app: het ♥ rechtsboven). Crypto hieronder: stuur alleen via het vermelde netwerk. Cadeaus, Ko-fi, Patreon en doelen: [Support the developer](../../README.md#support-the-developer).
+
+| Coin | Network | Address |
+|---|---|---|
+| BTC | Bitcoin | `16J2KqxzzAwqrbdtsBAXLcfXySH3WEqvas` |
+| ETH | Ethereum (ERC20) | `0xc8bdccce6d52570e059f58f0f4c5c6199bee298d` |
+| BNB | BNB Smart Chain (BEP20) | `0xc8bdccce6d52570e059f58f0f4c5c6199bee298d` |
+| SOL | Solana | `EyiGLmxw1b1AZxhVmpfP4cXYGTDuYJaWXonvKww2hDaD` |
 
 ## Aan de slag
 

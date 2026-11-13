@@ -68,7 +68,14 @@ PS5 Center는 범위와 로드맵을 함께 구체화할 더 폭넓은 미래 �
 
 ## 후원
 
-소프트웨어는 무료입니다. 제보, 번역, 기록된 테스트와 자발적 후원은 개발, AI 도구, 시험과 하드웨어 비용에 도움이 됩니다. 결제 수단과 공개 연락처는 아직 정하지 않았습니다.
+PS5 Backup Center는 무료이며 앞으로도 무료입니다. 도움이 되었다면 개발을 후원할 수 있습니다(앱에서는 오른쪽 위 ♥). 암호화폐는 아래 표에 있으며 표시된 네트워크로만 보내 주세요. 선물, Ko-fi, Patreon, 프로젝트 목표: [Support the developer](../../README.md#support-the-developer).
+
+| Coin | Network | Address |
+|---|---|---|
+| BTC | Bitcoin | `16J2KqxzzAwqrbdtsBAXLcfXySH3WEqvas` |
+| ETH | Ethereum (ERC20) | `0xc8bdccce6d52570e059f58f0f4c5c6199bee298d` |
+| BNB | BNB Smart Chain (BEP20) | `0xc8bdccce6d52570e059f58f0f4c5c6199bee298d` |
+| SOL | Solana | `EyiGLmxw1b1AZxhVmpfP4cXYGTDuYJaWXonvKww2hDaD` |
 
 ## 시작하기
 

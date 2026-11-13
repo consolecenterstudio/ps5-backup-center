@@ -324,7 +324,30 @@ Chaque version et ce qu'elle a apporté : [CHANGELOG.md](../../CHANGELOG.md) —
 
 ## Soutenir le projet
 
-Partagez un retour de test, signalez un problème ou aidez à améliorer une traduction. Consultez le [guide de contribution](../../CONTRIBUTING.md).
+PS5 Backup Center est gratuit et le restera : rien n'est bloqué, tout le monde a les mêmes fonctions et les mêmes mises à jour. Il est fait par un développeur indépendant, sur son temps libre et ses propres consoles. S'il a déjà sauvé une de vos parties, vous pouvez aider à payer les consoles de test, les disques et les outils. Merci ! Dans l'appli : le ♥ en haut à droite, ou Paramètres › Soutenir le projet.
+
+### Crypto
+
+| Coin | Network | Address |
+|---|---|---|
+| BTC | Bitcoin | `16J2KqxzzAwqrbdtsBAXLcfXySH3WEqvas` |
+| ETH | Ethereum (ERC20) | `0xc8bdccce6d52570e059f58f0f4c5c6199bee298d` |
+| BNB | BNB Smart Chain (BEP20) | `0xc8bdccce6d52570e059f58f0f4c5c6199bee298d` |
+| SOL | Solana | `EyiGLmxw1b1AZxhVmpfP4cXYGTDuYJaWXonvKww2hDaD` |
+
+Envoyez uniquement sur le réseau indiqué pour chaque adresse, sinon l'envoi est perdu. Ko-fi et Patreon arrivent bientôt.
+
+### Cadeaux
+
+Vous préférez offrir autre chose ? Cartes cadeaux (PlayStation Store, Amazon, Steam), abonnement offert (outils d'IA, crédits d'API, services) ou matériel de test sont les bienvenus. Le contact du studio pour les cadeaux sera indiqué ici très bientôt. Ne partagez jamais un compte : c'est souvent interdit par le service et risqué pour vous.
+
+### Projets à financer
+
+Les prochaines applis, **PS5 Center** (toutes vos consoles depuis un seul écran) et **PS5 Connector** (connecteurs pour NAS, partages et cloud), auront leur objectif et leur jauge, ici et dans l'appli (Paramètres › Projets à financer).
+
+### Signaler un problème
+
+Bugs et idées : [Issues](https://github.com/consolecenterstudio/ps5-backup-center/issues/new/choose) · questions et remerciements : [Discussions](https://github.com/consolecenterstudio/ps5-backup-center/discussions). Une ⭐ sur le dépôt aide aussi.
 
 ---
 

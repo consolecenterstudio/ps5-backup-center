@@ -68,7 +68,14 @@ PS5 Center — более широкий будущий проект: его н�
 
 ## Поддержать
 
-Программа бесплатна. Отчёты, переводы, документированные тесты и добровольная поддержка могут помочь оплатить разработку, инструменты ИИ, испытания и оборудование. Способы оплаты и публичные контакты ещё не выбраны.
+PS5 Backup Center бесплатен и останется таким. Если приложение вам помогает, вы можете поддержать разработку (в приложении: ♥ в правом верхнем углу). Криптовалюта ниже — отправляйте только в указанной сети. Подарки, Ko-fi, Patreon и цели: [Support the developer](../../README.md#support-the-developer).
+
+| Coin | Network | Address |
+|---|---|---|
+| BTC | Bitcoin | `16J2KqxzzAwqrbdtsBAXLcfXySH3WEqvas` |
+| ETH | Ethereum (ERC20) | `0xc8bdccce6d52570e059f58f0f4c5c6199bee298d` |
+| BNB | BNB Smart Chain (BEP20) | `0xc8bdccce6d52570e059f58f0f4c5c6199bee298d` |
+| SOL | Solana | `EyiGLmxw1b1AZxhVmpfP4cXYGTDuYJaWXonvKww2hDaD` |
 
 ## Начало работы
 
