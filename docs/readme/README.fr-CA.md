@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <b>Sauvegarder, comparer et restaurer les parties et les jeux de votre PS5 — et les sauvegardes Switch et d'émulateurs autour.</b><br>
+  <b>Sauvegarder, comparer et restaurer les parties et les jeux de votre PS5 — et les sauvegardes Switch, Switch 2 et d'émulateurs autour.</b><br>
   Un moteur sur la console, une app télé à la manette, la même interface dans n'importe quel navigateur. Sans PC, sans autre outil, sans autre port.
 </p>
 
@@ -160,18 +160,21 @@ L’Accueil propose jeux à sauvegarder, copies plus récentes, doublons, compar
 
 ## Comment ça marche
 
-```
-             ┌──────────────────────────── PS5 ───────────────────────────────┐
-  App télé ─►│  Moteur (payload, continue quand l'app est fermée)             │◄─── Navigateur
- (PPSA99950) │   ├─ Catalogue : jeux, applis, ROM, sauvegardes (cache disque) │     téléphone / PC
-             │   ├─ Plans, destinations, journal des tâches (reprise)         │     port 52370
-             │   ├─ Copie / restauration (un seul chemin, vérifié)            │
-             │   ├─ Chiffrement et montage des sauvegardes (cœur Garlic)      │
-             │   ├─ Images de jeux (.ffpfsc / .exfat — cœur Game Compressor)  │
-             │   └─ Connecteurs : USB · SMB · FTP/FTPS · Switch · autre PS5   │
-             └───────────────────┬────────────────────────┬────────────────────┘
-                                 ▼                        ▼
-                      Disques USB (index témoin)    NAS · Switch · autre console
+```text
+      App télé             Navigateur, port 52370
+          │                           │
+          ▼                           ▼
+┌─────────────────────── PS5 ────────────────────────┐
+│ Moteur (continue quand l'app est fermée)           │
+│  ├─ Catalogue : jeux, applis, ROM, parties         │
+│  ├─ Plans, destinations, journal des tâches        │
+│  ├─ Copie / restauration (vérifiée)                │
+│  ├─ Chiffrement des sauvegardes (cœur Garlic)      │
+│  ├─ Images de jeux (cœur Game Compressor)          │
+│  └─ Connecteurs : USB · SMB · FTP · Switch · PS5   │
+└─────────┬───────────────────────────┬──────────────┘
+          ▼                           ▼
+     Disques USB             NAS · Switch · PS5
 ```
 
 - **Le moteur est le serveur.** Il sert l'API et les pages web sur un port fixe du réseau local (52370). L'app télé n'est qu'un client, comme le navigateur : la fermer n'arrête ni le web ni une sauvegarde en cours. La liaison facultative par Internet entre deux PS5 a son propre port (52373), coupée par défaut.
@@ -208,6 +211,7 @@ L'app cherche toute seule les nouvelles versions sur ce dépôt et affiche une b
 | **Switch** (réseau) | ✅ Disponible | ftpd ou SMB sur la Switch + sauvegardes JKSV. Synchro Switch ↔ Eden / ProsperoEden, profil par profil. |
 | **Deux PS5** | ✅ Disponible | Association, bibliothèque à distance, sauvegarde à distance, envoi de jeux et de parties ; réseau local ou liaison facultative par Internet. |
 | **SMB** (partages Windows, Synology, QNAP) | ✅ Disponible | SMB 2/3. Sert aussi à joindre une Switch par le réseau. |
+| **Switch 2** (émulateur Églantine) | ✅ Disponible | Ses jeux (.nup / .nsp / .xci) dans la Bibliothèque sous *Switch 2*, avec jaquettes et sauvegardes ; réglages partagés entre PS5. |
 | Switch en USB (Hekate UMS) | Prévu | Mode stockage de masse via Hekate ; le MTP (haze, DBI) n'est pas lisible par la PS5. |
 | **NAS / FTP** | ✅ Disponible | Synology, QNAP, tout serveur FTP. **FTPS** (TLS explicite) quand il est proposé ; certificats auto-signés du réseau local acceptés, empreinte notée. |
 | SFTP · NFS · WebDAV · cloud | 🗓 Prévu | SFTP d'abord. |

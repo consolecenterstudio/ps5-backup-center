@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <b>Back up, compare and restore the saves and games on your PS5 — and the Switch and emulator saves around it.</b><br>
+  <b>Back up, compare and restore the saves and games on your PS5 — and the Switch, Switch 2 and emulator saves around it.</b><br>
   One engine on the console, a TV app for the controller, the same interface in any browser. No PC, no extra tool, no extra port.
 </p>
 
@@ -159,18 +159,21 @@ Home surfaces games to back up, newer copies, duplicates, comparisons and checks
 
 ## How it works
 
-```
-             ┌──────────────────────────── PS5 ───────────────────────────────┐
-  TV app ───►│  Engine (payload, keeps running when the app is closed)        │◄─── Browser
- (PPSA99950) │   ├─ Catalogue: games, apps, ROMs, saves (disk cache)          │     phone / PC
-             │   ├─ Plans, destinations, task journal (resume after a stop)   │     port 52370
-             │   ├─ Copy / restore engine (one path, verified)                │
-             │   ├─ Save crypto & mounting (Garlic core, built in)            │
-             │   ├─ Game images (.ffpfsc / .exfat — Game Compressor core)     │
-             │   └─ Connectors: USB · SMB · FTP/FTPS · Switch · other PS5     │
-             └───────────────────┬────────────────────────┬────────────────────┘
-                                 ▼                        ▼
-                      USB drives (witness index)    NAS · Switch · other console
+```text
+       TV app              Browser, port 52370
+          │                         │
+          ▼                         ▼
+┌────────────────────── PS5 ───────────────────────┐
+│ Engine (keeps running when the app is closed)    │
+│  ├─ Catalogue: games, apps, ROMs, saves          │
+│  ├─ Plans, destinations, task journal            │
+│  ├─ Copy / restore (one path, verified)          │
+│  ├─ Save crypto & mounting (Garlic core)         │
+│  ├─ Game images (Game Compressor core)           │
+│  └─ Connectors: USB · SMB · FTP · Switch · PS5   │
+└─────────┬─────────────────────────┬──────────────┘
+          ▼                         ▼
+     USB drives            NAS · Switch · PS5
 ```
 
 - **The engine is the server.** It serves both the API and the web pages on one fixed port on your network (52370). The TV app is just a client, like your browser: closing it stops neither the web UI nor a running backup. The optional Internet link between two PS5s uses its own port (52373), off by default.
@@ -207,6 +210,7 @@ The app checks this repository for new versions by itself and shows a bubble on 
 | **Switch** (network) | ✅ Available | ftpd or SMB on the Switch + JKSV backups. Switch ↔ Eden / ProsperoEden sync, profile by profile. |
 | **Two PS5s** | ✅ Available | Pairing, remote library, remote backup, game and save transfer; local network or optional Internet link. |
 | **SMB** (Windows, Synology, QNAP shares) | ✅ Available | SMB 2/3. Also used to reach a Switch over the network. |
+| **Switch 2** (Églantine emulator) | ✅ Available | Its games (.nup / .nsp / .xci) in the Library under *Switch 2*, with covers and saves; settings shared between PS5s. |
 | Switch over USB (Hekate UMS) | Planned | Mass-storage mode via Hekate; MTP (haze, DBI) is not readable by the PS5. |
 | **NAS / FTP** | ✅ Available | Synology, QNAP, any FTP server. **FTPS** (explicit TLS) when offered; self-signed LAN certificates accepted, fingerprint logged. |
 | SFTP · NFS · WebDAV · cloud | 🗓 Planned | SFTP first. |
