@@ -90,7 +90,7 @@ function render(code) {
   const T = D.tr[code] || {}, t = s => T[s] || s, L = D.langs.find(l => l.code === code);
   document.documentElement.lang = code; document.documentElement.dir = L && L.rtl ? "rtl" : "ltr";
   sel.value = code;
-  document.getElementById("title").textContent = t(D.title);
+  document.getElementById("title").textContent = "PS5 Backup Center " + D.beta;
   document.getElementById("date").textContent = new Date(D.date + "T12:00:00").toLocaleDateString(code, {year: "numeric", month: "long", day: "numeric"});
   document.getElementById("vb").textContent = D.beta; document.getElementById("vs").textContent = D.stable;
   document.querySelectorAll("[data-t]").forEach(e => e.textContent = t(e.dataset.t));
