@@ -360,3 +360,7 @@ Bugs and ideas: [Issues](https://github.com/consolecenterstudio/ps5-backup-cente
   <sub>PS5 Backup Center is an independent community project, not affiliated with or endorsed by Sony Interactive Entertainment or Nintendo.<br>
   “PlayStation”, “PS5”, “PS4” and “Nintendo Switch” are trademarks of their respective owners.</sub>
 </p>
+
+## Google Drive
+
+[Privacy policy](docs/PRIVACY.md) · [Terms of use](docs/TERMS.md)
