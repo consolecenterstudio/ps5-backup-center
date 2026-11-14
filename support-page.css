@@ -21,3 +21,18 @@
 
 .support-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px}
 .support-tabs [aria-current]{background:#294774;color:#fff}
+
+.wallet-card img {
+  width: 144px;
+  height: 144px;
+  aspect-ratio: 1;
+  object-fit: contain;
+  background: white;
+  image-rendering: pixelated;
+}
+.wallet-card code {
+  display: block;
+  overflow-wrap: anywhere;
+  margin-block-end: 12px;
+  user-select: all;
+}
