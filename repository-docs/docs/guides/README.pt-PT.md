@@ -1,0 +1,20 @@
+# PS5 Backup Center
+
+1. [Primeiros passos](01-start.pt-PT.md)
+2. [Cópias e restauro no dia a dia](02-everyday.pt-PT.md)
+3. [Destinos e consolas associadas](03-destinations.pt-PT.md)
+4. [Jogos e transferências](04-transfers.pt-PT.md)
+5. [Emuladores e ROMs](05-emulators.pt-PT.md)
+6. [Definições e atualizações](06-settings.pt-PT.md)
+7. [Resolver problemas](07-troubleshooting.pt-PT.md)
+8. [Para programadores](08-developers.pt-PT.md)
+9. [Projeto e apoio](09-project.pt-PT.md)
+10. [Criar e verificar uma cópia de segurança](10-first-backup.pt-PT.md)
+11. [Comparar cópias e limpar duplicados](11-compare-cleanup.pt-PT.md)
+12. [Restaurar uma partida escolhida](12-restore.pt-PT.md)
+13. [Escolher o tipo de sincronização](13-sync.pt-PT.md)
+14. [Copiar ou mover um jogo completo](14-transfer-workflow.pt-PT.md)
+15. [Programar um plano de cópia](15-plans.pt-PT.md)
+16. [Usar o navegador e o motor](16-web-engine.pt-PT.md)
+
+- [Início e centro de notificações](17-home-notifications.pt-PT.md)

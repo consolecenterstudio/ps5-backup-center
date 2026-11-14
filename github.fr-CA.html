@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+
+<html dir="ltr" lang="fr-CA"><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>PS5 Backup Center — GitHub</title><link href="site.css" rel="stylesheet"/><body data-page="github"><header><a class="brand" href="index.fr-CA.html"><img alt="" src="assets/logo.png"/>PS5 Backup Center</a><div class="prefs"><select aria-label="Language" id="language"><option value="en">English</option><option value="fr">Français</option><option selected="" value="fr-CA">Français (Canada)</option><option value="es">Español</option><option value="es-419">Español (Latinoamérica)</option><option value="pt-BR">Português (Brasil)</option><option value="pt-PT">Português (Portugal)</option><option value="de">Deutsch</option><option value="it">Italiano</option><option value="nl">Nederlands</option><option value="pl">Polski</option><option value="tr">Türkçe</option><option value="ru">Русский</option><option value="zh-Hans">简体中文</option><option value="zh-Hant">繁體中文</option><option value="ja">日本語</option><option value="ko">한국어</option><option value="vi">Tiếng Việt</option><option value="ar">العربية</option></select><select aria-label="Theme" id="theme"><option value="night">Nuit</option><option value="oled">OLED</option><option value="playstation">PlayStation</option><option value="aurora">Aurore</option><option value="forest">Forêt</option><option value="sakura">Sakura</option><option value="light">Clair</option><option value="contrast">Contraste élevé</option></select></div><nav aria-label="Main"><a href="index.fr-CA.html">Découvrir</a><a href="guides.fr-CA.html">Guides</a><a aria-current="page" href="github.fr-CA.html">GitHub</a><a href="themes.fr-CA.html">Thèmes</a><a href="media.fr-CA.html">Médias</a><a href="support.fr-CA.html">Soutenir</a></nav></header><main><h1 id="github">GitHub</h1><p><a class="button" href="github-code.fr-CA.html" id="repository-code-link" style="margin-inline-end:8px;margin-block-end:6px">Dépôt</a><a class="button" href="#releases-preview" style="margin-inline-end:8px;margin-block-end:6px">Releases</a><a class="button" href="https://github.com/consolecenterstudio/ps5-backup-center">Documentation du dépôt (ZIP)</a></p><article id="repository-readme"><!-- MAQUETTE — aperçu local du futur dépôt public github.com/consolecenterstudio/ps5-backup-center. Rien n'est publié. -->
+<p align="center">
+<img alt="PS5 Backup Center — votre collection, préservée" src="github/assets/banner-ps5-backup-center.svg" width="100%"/>
+</p>
+<p align="center">
+<a href="https://github.com/consolecenterstudio/ps5-backup-center/blob/main/CHANGELOG.md"><span class="status">Version 2.86.0</span></a>
+<a href="https://github.com/consolecenterstudio/ps5-backup-center/blob/main/LICENSE"><span class="status">Licence : GPL-3.0-or-later</span></a>
+<span class="status">Plateforme : PS5</span>
+<span class="status">Langues</span>
+<span class="status">Compilation</span>
+<span class="status">C++20</span>
+</p>
+<p align="center">
+<b>Sauvegarder, comparer et restaurer les parties et les jeux de votre PS5 — et les sauvegardes Switch et d'émulateurs autour.</b><br/>
+  Un moteur sur la console, une app télé à la manette, la même interface dans n'importe quel navigateur. Sans PC, sans autre outil, sans autre port.
+</p>
+<p align="center">
+<a href="#installer">Installer</a> ·
+  <a href="#fonctions">Fonctions</a> ·
+  <a href="#comment-ça-marche">Comment ça marche</a> ·
+  <a href="#compatibilité">Compatibilité</a> ·
+  <a href="#feuille-de-route">Feuille de route</a> ·
+  <a href="#questions-fréquentes">FAQ</a> ·
+  <a href="github.en.html">English</a>
+</p>
+<p align="center">
+<img alt="PS5 Backup Center sur la télé — Accueil" src="github/screenshots/tv-home-current.png" width="92%"/>
+</p>
+<hr/>
+<h2 id="votre-collection-vos-parties-vous-gardez-la-main">Votre collection. Vos parties. Vous gardez la main.</h2>
+<p>PS5 Backup Center réunit jeux, applications, ROMs et sauvegardes : sauvegardez, comparez, restaurez, transférez et synchronisez depuis la télé ou le navigateur. Un logiciel libre, sans abonnement.</p>
+<h2 id="pourquoi">Pourquoi</h2>
+<p>Une sauvegarde PS5 vit à un seul endroit, sur un seul compte, sur une seule console. Celles des émulateurs sont dispersées dans une douzaine de dossiers. Celles de la Switch sont sur un autre appareil, derrière JKSV. On découvre souvent qu'on n'avait pas de copie le jour où on en a besoin.</p>
+<p>PS5 Backup Center en garde une copie datée et vérifiée — sur une clé USB, sur votre NAS ou sur une autre console — et permet de remettre n'importe quelle version. Il lit ce que contient une sauvegarde : il sait dire quelles copies sont vraiment différentes et lesquelles sont des doublons.</p>
+<p>Il fait partie de <strong><a href="support.fr-CA.html">PS5 Center</a></strong>, une petite famille d'outils libres et gratuits construits sur le même moteur.</p>
+<blockquote>
+<p>[!NOTE]
+<strong>État : avant-première.</strong> L'app sert tous les jours sur la console du développeur. Tout ce qui est marqué <em>Disponible</em> fonctionne aujourd'hui ; ce qui est marqué <em>Prévu</em> n'est pas encore dans l'app. Les versions publiques commencent avec ce dépôt GitHub et la fiche ProsperoStore.</p>
+</blockquote>
+<h2 id="fonctions">Fonctions</h2>
+<table>
+<tr>
+<td valign="top" width="50%">
+<h3 id="sauvegardes">Sauvegardes</h3>
+<ul>
+<li><strong>Sauvegardes PS5, compte par compte</strong> — chaque jeu indique <em>à jour</em>, <em>console plus récente</em>, <em>plus récent dans un backup</em> ou <em>jamais sauvegardé</em>.</li>
+<li><strong>Sauvegarder un jeu ou tout un compte</strong> en un appui ; des plans programmés pour le reste.</li>
+<li><strong>Une avancée lisible</strong> — le texte écrit par le jeu (mission, %, niveau, temps), plus un catalogue qui lit dans les sauvegardes (ELDEN RING, Expedition 33, Cyberpunk 2077…) et un lecteur générique Unreal / JSON.</li>
+<li><strong>Comparer par le contenu, pas par la date</strong> — une empreinte repère les copies identiques, l'avancée dit laquelle va le plus loin.</li>
+<li><strong>Restauration vérifiée</strong> — contrôle d'abord, copie de sécurité, jeu fermé, le bon compte (re-signée si l'identifiant diffère) ; aussi directement depuis le NAS.</li>
+<li><strong>Switch ↔ PS5</strong> — les sauvegardes JKSV d'une Switch (ftpd) associées à vos jeux Eden / ProsperoEden, profil par profil, dans les deux sens.</li>
+</ul>
+</td>
+<td valign="top" width="50%">
+<h3 id="des-backups-quon-gère">Des backups qu'on gère</h3>
+<ul>
+<li><strong>Toutes les versions, partout</strong> — par jeu, chaque copie sur chaque disque, le NAS et l'autre PS5 : date, emplacement, taille, avancée, <em>protégée</em>.</li>
+<li><strong>Faire le tri sans risque</strong> — doublons repérés par le contenu, aperçu avant nettoyage, corbeille de 30 jours avec <em>Remettre</em> ; bouton à maintenir 5 s avant toute action destructrice. Les copies d'un autre compte ne sont jamais proposées au nettoyage.</li>
+<li><strong>Même compte PSN, mêmes backups</strong> — les copies faites sur une autre console sont reconnues toutes seules ; les anciens identifiants peuvent être nommés et repris sur votre compte actuel.</li>
+<li><strong>Sauvegarde complète de la PS5</strong> — comptes, sauvegardes, inscriptions des jeux, homebrews et leurs données, réglages de démarrage, captures, chacun avec sa taille.</li>
+</ul>
+</td>
+</tr>
+<tr>
+<td valign="top">
+<h3 id="deux-ps5-qui-travaillent-ensemble">Deux PS5 qui travaillent ensemble</h3>
+<ul>
+<li><strong>Jumelage avec un seul code à 6 chiffres</strong> — confiance dans les deux sens ; l'autre console apparaît dans Appareils avec son nom, son IP, son système et ses disques.</li>
+<li><strong>Envoyer une sauvegarde ou un jeu entier</strong> — copié, vérifié et installé là-bas (ShadowMountPlus), dans le format que son système sait monter (<code>.ffpfsc</code>, <code>.exfat</code> ou tel quel), sauvegarde restaurée sur le compte choisi.</li>
+<li><strong>Vérifier avant d'envoyer</strong> — version du jeu, SDK de ses exécutables, système minimum déclaré, backport trouvé : un avertissement clair si l'autre console est trop ancienne.</li>
+<li><strong>Tout voir des deux côtés</strong> — disques, parties, backups et jeux installés de l'autre PS5, jusque sur l'Accueil.</li>
+</ul>
+</td>
+<td valign="top">
+<h3 id="synchro">Synchro</h3>
+<ul>
+<li><strong>Un onglet, une carte par appareil</strong> — une autre PS5, une Switch, le NAS ; plans tenus prêts par le moteur, les écrans se remplissent tout de suite.</li>
+<li><strong>Sauvegardes</strong> — les jeux choisis gardent leurs copies des deux côtés ; ajout seulement, rien n'est écrasé.</li>
+<li><strong>Parties actives</strong> — la partie la plus récente gagne et part sur l'autre console ; celle qui est remplacée est sauvegardée d'abord ; jamais pendant que le jeu tourne, jamais en boucle, vous tranchez si les deux ont bougé.</li>
+<li><strong>Applis et leurs réglages</strong> — même version sur les deux PS5, remplacement sûr avec retour arrière ; réglages par profil d'appli.</li>
+<li><strong>DLC et mises à jour</strong> — inventaire par jeu et bibliothèque de paquets ; les DLC Switch manquants copiés d'une PS5 à l'autre.</li>
+<li><strong>Le NAS comme dépôt</strong> — pour les parties actives et les applis.</li>
+</ul>
+</td>
+</tr>
+<tr>
+<td valign="top">
+<h3 id="jeux-et-transferts">Jeux et transferts</h3>
+<ul>
+<li><strong>Onglet Transferts</strong> — <em>depuis</em> et <em>vers</em> (cette PS5, l'interne, l'USB, une Switch, le NAS, l'autre PS5), puis Copier, Déplacer, Compresser ou Synchroniser.</li>
+<li><strong>Copier ou déplacer un jeu PS5</strong> entre l'interne et un disque USB : relecture SHA-256, réinscription ; l'original n'est supprimé qu'après vérification.</li>
+<li><strong>Outils d'image</strong> — compresser en <code>.ffpfsc</code>, décompresser, créer ou extraire un <code>.exfat</code>, vérifier et réparer, lecture seule, test de vitesse, index AMPR. Avec le code de PS5 Game Compressor, dans notre moteur.</li>
+<li><strong>Un jeu en cours n'est jamais touché</strong> — et les applis gardent leurs droits d'exécution quand elles voyagent.</li>
+</ul>
+</td>
+<td valign="top">
+<h3 id="bibliothèque-appareils-interface">Bibliothèque, appareils, interface</h3>
+<ul>
+<li><strong>Une seule bibliothèque</strong> — jeux PS5 et PS4, applications, ROM des émulateurs connus (plus la détection générique), noms et icônes officiels, même pour un jeu dont il ne reste que la sauvegarde ; chaque jeu montre son stockage et son vrai disque.</li>
+<li><strong>Appareils</strong> — disques USB, NAS (Synology, QNAP ou tout serveur FTP, <strong>FTPS</strong> quand il le propose), Switch, autres PS5. Se connecter, parcourir, choisir le dossier, tester, enregistrer.</li>
+<li><strong>L'Accueil comme centre de notifications</strong> — ce qu'il faut sauvegarder, les copies plus récentes, les doublons, l'état de la synchro, les tâches en cours avec le temps restant.</li>
+<li><strong>Télé et web au même niveau</strong> — téléphone ou ordinateur, associé par un code à 6 chiffres ; <strong>19 langues</strong>, 8 thèmes, sons.</li>
+<li><strong>Mises à jour dans l'app</strong> — seuls les fichiers modifiés, vérifiés, retour arrière en cas d'échec ; aussi depuis une clé USB, sans réseau.</li>
+</ul>
+</td>
+</tr>
+</table>
+<h2 id="le-centre-de-notifications-directement-dans-laccueil">Le centre de notifications, directement dans l’Accueil</h2>
+<p>L’Accueil propose jeux à sauvegarder, copies plus récentes, doublons, comparaisons et vérifications, synchronisation et tâches en cours. Ouvrez une carte pour examiner le contenu concerné puis suivez le résultat dans Tâches. Descendez aussi vers jeux récents, parties sans jeu installé, plateformes rétro et applications.</p>
+<p><a href="guides.fr-CA.html#17-home-notifications.fr">Découvrir l’Accueil et ses notifications</a>.</p>
+<h2 id="les-neuf-espaces">Les neuf espaces</h2>
+<ul>
+<li><strong>Accueil</strong> — Notifications, jeux récents et contenus disponibles ailleurs.</li>
+<li><strong>Bibliothèque</strong> — Jeux, applications et ROMs ; filtres, recherche et fiches.</li>
+<li><strong>Parties</strong> — Parties actives sur la console, par joueur.</li>
+<li><strong>Sauvegardes</strong> — Copies rangées, versions, comparaison et nettoyage.</li>
+<li><strong>Synchro</strong> — Copies, parties actives, applis, réglages et inventaire des DLC.</li>
+<li><strong>Transferts</strong> — Jeux entiers, copie, déplacement et outils d’images.</li>
+<li><strong>Appareils</strong> — Disques, NAS, Switch et PS5 associées.</li>
+<li><strong>Tâches</strong> — File, opérations en cours, rapports et plans.</li>
+<li><strong>Paramètres</strong> — Langues, thèmes, sources, utilisateurs, mises à jour et crédits.</li>
+</ul>
+<p><a href="guides.fr-CA.html">Consulter les guides</a>.</p>
+<h2 id="captures">Captures</h2>
+<p><img alt="Home" src="github/screenshots/tv-home-current.png"/></p>
+<p><em>Le jeu actuel, les actions proposées et les titres récents.</em></p>
+<p><img alt="Library" src="github/screenshots/web-library.fr-CA.png"/></p>
+<p><em>Filtrez la collection par contenu, émulateur et emplacement dans le navigateur.</em></p>
+<h2 id="comment-ça-marche">Comment ça marche</h2>
+<pre><code>             ┌──────────────────────────── PS5 ───────────────────────────────┐
+  App télé ─►│  Moteur (payload, continue quand l'app est fermée)             │◄─── Navigateur
+ (PPSA99950) │   ├─ Catalogue : jeux, applis, ROM, sauvegardes (cache disque) │     téléphone / PC
+             │   ├─ Plans, destinations, journal des tâches (reprise)         │     port 52370
+             │   ├─ Copie / restauration (un seul chemin, vérifié)            │
+             │   ├─ Chiffrement et montage des sauvegardes (cœur Garlic)      │
+             │   ├─ Images de jeux (.ffpfsc / .exfat — cœur Game Compressor)  │
+             │   └─ Connecteurs : USB · FTP/FTPS · Switch (ftpd) · HTTPS      │
+             └───────────────────┬────────────────────────┬────────────────────┘
+                                 ▼                        ▼
+                      Disques USB (index témoin)    NAS · Switch · autre console
+</code></pre>
+<ul>
+<li><strong>Le moteur est le serveur.</strong> Il sert l'API et les pages web sur un port fixe (52370). L'app télé n'est qu'un client, comme le navigateur : la fermer n'arrête ni le web ni une sauvegarde en cours.</li>
+<li><strong>Aucun outil externe.</strong> Le chiffrement et le montage des sauvegardes (Garlic SaveMgr / garlic-worker) et les images de jeux (PS5 Game Compressor) sont compilés dans le moteur. Rien d'autre à lancer, aucun autre port à ouvrir.</li>
+<li><strong>Sources détectées, jamais codées en dur.</strong> Les émulateurs sont décrits comme des données ; leurs propres fichiers de réglages disent où sont les jeux. Un émulateur qu'on vient d'installer apparaît au scan suivant.</li>
+<li><strong>Tout laisse une trace sur disque.</strong> Les tâches et leur progression sont journalisées : une sauvegarde interrompue reprend.</li>
+</ul>
+<section aria-labelledby="releases-preview-title" id="releases-preview">
+<style>
+    .release-card{border:1px solid var(--line);border-radius:14px;padding:clamp(14px,3vw,24px);margin-block:16px}
+    .release-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+    .release-callout{padding:14px;border:1px solid var(--line);border-radius:10px;margin-block:8px}
+    .release-callout p{margin:5px 0 0}
+    .release-package h4{margin:0}
+    .release-availability{font-weight:600}
+    @media(max-width:680px){.release-columns{grid-template-columns:1fr}}
+  </style>
+<h2 id="releases-preview-title">Releases</h2>
+<p>Paquets pour la revue locale. Il faut une PS5 compatible homebrew avec un chargeur ELF. Payload Manager est facultatif pour le démarrage avec la console.</p>
+<p><a href="#installer">Guide d’installation</a></p>
+<p><a class="button" href="https://github.com/consolecenterstudio/ps5-backup-center/releases/latest">GitHub Releases →</a></p>
+</section><h2 id="installer">Installer</h2>
+<blockquote>
+<p>[!IMPORTANT]
+PS5 Backup Center est un homebrew. Il faut une PS5 qui fait déjà tourner des applications homebrew et des payloads. Ce projet ne fournit, ne documente et ne prend en charge aucun moyen d'y arriver.</p>
+</blockquote>
+<h3 id="par-prosperostore-prévu">Par ProsperoStore — <em>prévu</em></h3>
+<p>Dès la première version publique, PS5 Backup Center (<code>PPSA99950</code>) sera proposé au catalogue communautaire <a href="https://github.com/darkxex/ps5-homebrew-catalog">ps5-homebrew-catalog</a> qu'utilise ProsperoStore. Les mises à jour suivront ensuite chaque version GitHub.</p>
+<h3 id="installation-manuelle-avec-la-première-version-publique">Installation manuelle — <em>avec la première version publique</em></h3>
+<ol>
+<li>Ouvrez <a href="#release-2.90.9">Releases</a> pour vérifier la disponibilité du paquet. Quand PPSA99950.zip est disponible, comparez son empreinte SHA-256 à celle de SHA256SUMS, puis décompressez-le.</li>
+<li>Copiez le dossier <code>PPSA99950</code> dans le dossier homebrew de la console et inscrivez-le avec votre installateur habituel.</li>
+<li>Lancez PS5 Backup Center depuis l’accueil. Un chargeur ELF compatible permet à l’application de démarrer son moteur. Payload Manager est facultatif pour démarrer le moteur avec la console.</li>
+<li>Sur un téléphone ou un ordinateur du même réseau, ouvrez <code>http://&lt;ip-de-la-ps5&gt;:52370</code> et entrez le code à 6 chiffres affiché dans <strong>Paramètres › Appareils</strong>.</li>
+</ol>
+<h3 id="mises-à-jour">Mises à jour</h3>
+<p><strong>Paramètres › Mises à jour</strong> vérifie, télécharge seulement les fichiers modifiés, les contrôle, puis redémarre le moteur et/ou l'app avec un compte à rebours. En cas d'échec, l'ancienne version est remise. Fonctionne aussi sans réseau, depuis une clé USB.</p>
+<h2 id="compatibilité">Compatibilité</h2>
+<table>
+<thead>
+<tr>
+<th>Domaine</th>
+<th>État</th>
+<th>Précisions</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>PS5</strong></td>
+<td>✅ Disponible</td>
+<td>Environnement homebrew natif compatible requis ; la compatibilité dépend de la console, du format et du titre. L'app ne modifie pas le système.</td>
+</tr>
+<tr>
+<td>Sauvegardes PS5</td>
+<td>✅ Disponible</td>
+<td>Sauvegarde, restauration vérifiée, vers un autre compte avec confirmation, comparaison par le contenu.</td>
+</tr>
+<tr>
+<td>Jeux PS5 (installé, <code>.ffpfsc</code>, <code>.exfat</code>, dossier)</td>
+<td>✅ Disponible</td>
+<td>Copier / déplacer interne ↔ USB, outils d'image. Un jeu en cours n'est jamais touché.</td>
+</tr>
+<tr>
+<td>Jeux et sauvegardes PS4 sur PS5</td>
+<td>✅ Listés et sauvegardés</td>
+<td>Filtre PS4 dans la Bibliothèque.</td>
+</tr>
+<tr>
+<td>Sauvegarde complète de la PS5</td>
+<td>Sauvegarde · Restauration prévue</td>
+<td>Restaurer, et vers une autre PS5 : feuille de route.</td>
+</tr>
+<tr>
+<td><strong>Switch</strong> (réseau)</td>
+<td>✅ Disponible</td>
+<td>ftpd sur la Switch + sauvegardes JKSV. Synchro Switch ↔ Eden / ProsperoEden, profil par profil.</td>
+</tr>
+<tr>
+<td>Switch en USB (Hekate UMS)</td>
+<td>Prévu</td>
+<td>Mode stockage de masse via Hekate ; le MTP (haze, DBI) n'est pas lisible par la PS5.</td>
+</tr>
+<tr>
+<td><strong>NAS / FTP</strong></td>
+<td>✅ Disponible</td>
+<td>Synology, QNAP, tout serveur FTP. <strong>FTPS</strong> (TLS explicite) quand il est proposé ; certificats auto-signés du réseau local acceptés, empreinte notée.</td>
+</tr>
+<tr>
+<td>SFTP · SMB · NFS · rsync · WebDAV · cloud</td>
+<td>🗓 Prévu</td>
+<td>Dans cet ordre (SFTP d'abord).</td>
+</tr>
+<tr>
+<td>Disques USB</td>
+<td>✅ Disponible</td>
+<td>Reconnus par leur index témoin, même s'ils changent de port.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="émulateurs">Émulateurs</h3>
+<p>D'après le catalogue du moteur (<code>engine2/src/scan/emulators_catalog.cpp</code>) — ROM, sauvegardes, états et jaquettes, réglables à la main dans <strong>Paramètres › Sources et émulateurs</strong>. Un émulateur inconnu est détecté quand son dossier contient <code>roms</code>, <code>saves</code>, <code>states</code>…</p>
+<table>
+<thead>
+<tr>
+<th>Émulateur</th>
+<th>Plateforme</th>
+<th>Émulateur</th>
+<th>Plateforme</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ProsperoEden / Eden</td>
+<td>Switch</td>
+<td>Snes9x</td>
+<td>Super Nintendo</td>
+</tr>
+<tr>
+<td>PS5SX2</td>
+<td>PlayStation 2</td>
+<td>Beetle PCE</td>
+<td>PC Engine</td>
+</tr>
+<tr>
+<td>SwanStation</td>
+<td>PlayStation</td>
+<td>FBNeo</td>
+<td>Arcade</td>
+</tr>
+<tr>
+<td>PSXS5</td>
+<td>PlayStation</td>
+<td>Stella</td>
+<td>Atari 2600</td>
+</tr>
+<tr>
+<td>PSP5</td>
+<td>PSP</td>
+<td>PS64</td>
+<td>Commodore 64</td>
+</tr>
+<tr>
+<td>Mupen64Plus</td>
+<td>Nintendo 64</td>
+<td>PSFlyCast</td>
+<td>Dreamcast</td>
+</tr>
+<tr>
+<td>Genesis Plus GX</td>
+<td>Mega Drive / Master System / Game Gear / Mega-CD</td>
+<td>Porpoise</td>
+<td>GameCube / Wii</td>
+</tr>
+<tr>
+<td>PS5X360</td>
+<td>Xbox 360</td>
+<td>PS5-ECAM</td>
+<td>Wii U · 3DS · DS</td>
+</tr>
+</tbody>
+</table>
+<h2 id="technique">Technique</h2>
+<table>
+<thead>
+<tr>
+<th>Couche</th>
+<th>Technologie</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Moteur</td>
+<td>C++20, PS5 Payload SDK, LLVM/Clang. Payload en arrière-plan ; API HTTP <code>/api/v2/…</code> et web statique sur le port 52370.</td>
+</tr>
+<tr>
+<td>App télé</td>
+<td>App PS5 native en C++20 (<code>PPSA99950</code>), sur la base de ps5-native-app-boilerplate ; rendu maison, police Inter.</td>
+</tr>
+<tr>
+<td>Web</td>
+<td>JavaScript, HTML et CSS sans framework ni étape de build, servis par le moteur.</td>
+</tr>
+<tr>
+<td>Sauvegardes</td>
+<td>Cœur de Garlic SaveMgr / garlic-worker (chiffrement, montage, re-signature PS4/PS5) compilé dedans.</td>
+</tr>
+<tr>
+<td>Images de jeux</td>
+<td>Cœur de PS5 Game Compressor (<code>.ffpfsc</code>, <code>.exfat</code>, validation / réparation) compilé dedans.</td>
+</tr>
+<tr>
+<td>Réseau</td>
+<td>BearSSL (HTTPS, FTPS), client FTP maison (MLSD, passif, reprise de session TLS).</td>
+</tr>
+<tr>
+<td>Images</td>
+<td>libwebp, stb_image, zlib.</td>
+</tr>
+<tr>
+<td>Compilation</td>
+<td>Reproductible : deux compilations depuis zéro donnent le même moteur, octet pour octet.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="feuille-de-route">Feuille de route</h2>
+<p><strong>En développement</strong> : connexion SMB pour les partages Windows, Synology et QNAP.</p>
+<p><strong>À venir</strong> : SFTP ; corbeille pour les copies du NAS ; mises à jour de toutes les consoles depuis une seule ; installation des DLC PS5 ; passerelles Orbit / PatchDL ; rangement, compression, déplacement et installation des jeux arrivés par Orbit ou BlackBox ; Switch ↔ Switch ; synchronisation automatique ; restauration complète guidée.</p>
+<p><strong>Famille de produits</strong> : PS4 Backup Center et PS5 Center sont des projets futurs. PS5 Center vise une gestion plus large des consoles, des jeux et des interactions entre appareils. PS5 Connector est un concept futur d’extension des capacités par des connecteurs. Leur périmètre sera précisé séparément.</p>
+<p>Les 19 langues, huit thèmes, sons et musique font déjà partie de PS5 Backup Center.</p>
+<h2 id="remerciements-et-licences">Remerciements et licences</h2>
+<p>PS5 Backup Center est un logiciel libre sous <strong>GPL-3.0-or-later</strong>. Il repose sur le travail de ces projets — merci. La même liste est dans l'app, <strong>Paramètres › Remerciements</strong>.</p>
+<table>
+<thead>
+<tr>
+<th>Projet</th>
+<th>Auteur</th>
+<th>Licence</th>
+<th>Rôle</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/blackbearreloaded/ps5-native-app-boilerplate">ps5-native-app-boilerplate</a></td>
+<td>BlackBearReloaded</td>
+<td>GPL-3.0-or-later</td>
+<td>Base de l'app télé ; musique « Night Drive »</td>
+</tr>
+<tr>
+<td><a href="https://github.com/ps5-payload-dev/sdk">PS5 Payload SDK</a></td>
+<td>ps5-payload-dev (John Törnblom et contributeurs)</td>
+<td>GPL-3.0</td>
+<td>Bibliothèques, en-têtes, chaîne de compilation</td>
+</tr>
+<tr>
+<td><a href="https://github.com/SvenGDK/SharpProspero">SharpProspero</a></td>
+<td>SvenGDK</td>
+<td>GPL-3.0</td>
+<td>Conversion ELF et signature</td>
+</tr>
+<tr>
+<td><a href="https://github.com/earthonion/garlic-worker">garlic-worker</a></td>
+<td>earthonion (merci à c0w-ar, hzhreal, Team-Alua)</td>
+<td>GPL-3.0</td>
+<td>Chiffrement, déchiffrement, re-signature des sauvegardes PS4/PS5</td>
+</tr>
+<tr>
+<td><a href="https://github.com/earthonion/garlic-savemgr">Garlic SaveMgr</a></td>
+<td>earthonion</td>
+<td>GPL-3.0</td>
+<td>Import, montage et export des sauvegardes PS5</td>
+</tr>
+<tr>
+<td><a href="https://github.com/juma-sayeh/PS5-Game-Compressor">PS5 Game Compressor</a></td>
+<td>juma-sayeh</td>
+<td>GPL-3.0</td>
+<td>Compression, déplacement et validation des jeux</td>
+</tr>
+<tr>
+<td><a href="https://bearssl.org">BearSSL</a></td>
+<td>Thomas Pornin</td>
+<td>MIT</td>
+<td>HTTPS et FTPS</td>
+</tr>
+<tr>
+<td><a href="https://chromium.googlesource.com/webm/libwebp">libwebp</a></td>
+<td>Google</td>
+<td>BSD-3-Clause</td>
+<td>Jaquettes WebP</td>
+</tr>
+<tr>
+<td><a href="https://zlib.net">zlib</a></td>
+<td>Jean-loup Gailly, Mark Adler</td>
+<td>zlib</td>
+<td>Compression des vignettes</td>
+</tr>
+<tr>
+<td><a href="https://github.com/nothings/stb">stb_image</a></td>
+<td>Sean Barrett</td>
+<td>MIT / domaine public</td>
+<td>Lecture des jaquettes</td>
+</tr>
+<tr>
+<td><a href="https://rsms.me/inter">Inter</a></td>
+<td>Rasmus Andersson</td>
+<td>SIL OFL 1.1</td>
+<td>Police de l'interface</td>
+</tr>
+<tr>
+<td><a href="https://llvm.org">LLVM / Clang</a></td>
+<td>LLVM Project</td>
+<td>Apache-2.0 avec exceptions LLVM</td>
+<td>Compilateur</td>
+</tr>
+<tr>
+<td><a href="https://github.com/blawar/titledb">titledb</a></td>
+<td>blawar et contributeurs</td>
+<td>Données publiques</td>
+<td>Noms des jeux Switch</td>
+</tr>
+<tr>
+<td><a href="https://github.com/andshrew/PlayStation-Titles">PlayStation-Titles</a></td>
+<td>andshrew</td>
+<td>MIT</td>
+<td>Noms des jeux PS4 / PS5</td>
+</tr>
+<tr>
+<td><a href="https://prosperopatches.com">Prospero Patches</a> / Orbis Patches</td>
+<td>prosperopatches.com, orbispatches.com</td>
+<td>Service public</td>
+<td>Icônes officielles des jeux PS5 / PS4 sans le jeu</td>
+</tr>
+<tr>
+<td>tinfoil.media</td>
+<td>Tinfoil</td>
+<td>Service public</td>
+<td>Icônes des jeux Switch absents de la bibliothèque</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Merci aussi à</strong> Elf-Arsenal+ (chargeur de payloads), <a href="https://github.com/itsPLK/ps5-payload-manager">PS5 Payload Manager</a> d'itsPLK, <a href="https://github.com/drakmor/ShadowMountPlus">ShadowMount+</a> de drakmor, Orbit et BlackBox (ergonomie et mises à jour), et Prospero Manager (référence pour les sauvegardes et les comptes).</p>
+<h2 id="contribuer">Contribuer</h2>
+<p>Le plus utile aujourd'hui : signaler un bug, traduire, et dire sur quel matériel ça marche. Lisez <a href="https://github.com/consolecenterstudio/ps5-backup-center/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>, puis ouvrez un ticket. Pour un problème de sécurité, voir <a href="https://github.com/consolecenterstudio/ps5-backup-center/blob/main/SECURITY.md">SECURITY.md</a> — pas de ticket public.</p>
+<h2 id="questions-fréquentes">Questions fréquentes</h2>
+<details><summary><b>Peut-il effacer ou abîmer mes sauvegardes ou mes jeux ?</b></summary>
+<p>Une restauration est vérifiée d'abord et fait une copie de sécurité de la sauvegarde actuelle. Supprimer demande toujours confirmation, ne retire jamais une version protégée, et <em>cocher les doublons</em> garde toujours une copie de chaque contenu. Un jeu déplacé n'est effacé qu'après relecture et vérification de la copie. Un jeu en cours n'est jamais touché.</p>
+</details>
+<details><summary><b>Faut-il un PC ou un autre homebrew lancé à côté ?</b></summary>
+<p>Non. Le moteur tourne sur la PS5 ; l'app télé et le web lui parlent. Le code de Garlic et de Game Compressor est intégré : ni l'un ni l'autre n'a besoin de tourner.</p>
+</details>
+<details><summary><b>Peut-on remettre une sauvegarde sur un autre compte ou une autre console ?</b></summary>
+<p>Oui sur un autre compte de la même PS5, avec une confirmation explicite. Remettre une sauvegarde complète sur une autre PS5 est prévu.</p>
+</details>
+<details><summary><b>Mon NAS a déjà des backups faits par un script. Je les perds ?</b></summary>
+<p>Non. Les dossiers datés existants sont lus comme des versions et peuvent être restaurés. <em>Ranger sous PBC Backup</em> ne fait que renommer ; si un dossier existe des deux côtés, il fusionne date par date sans rien écraser.</p>
+</details>
+<details><summary><b>La Switch en USB ?</b></summary>
+<p>Pas encore. Aujourd'hui la Switch passe par le réseau (ftpd + JKSV). L'USB via le mode stockage de masse de Hekate est prévu ; le MTP (haze, DBI) n'est pas lisible par la PS5.</p>
+</details>
+<details><summary><b>C'est vraiment gratuit ?</b></summary>
+<p>Oui, et libre (GPL-3.0-or-later). Un lien « paye-moi un café » sera ajouté pour qui veut soutenir le travail ; rien n'est réservé aux donateurs.</p>
+</details>
+<h2 id="historique-des-versions">Historique des versions</h2>
+<p>Chaque version et ce qu'elle a apporté : <a href="https://github.com/consolecenterstudio/ps5-backup-center/blob/main/CHANGELOG.md">CHANGELOG.md</a> — le même historique que <strong>Paramètres › Nouveautés</strong> dans l'app.</p>
+<h2 id="soutenir-le-projet">Soutenir le projet</h2>
+<!-- EMPLACEMENT : liens de dons à choisir (Ko-fi / Buy Me a Coffee / GitHub Sponsors / PayPal). -->
+<p>☕ <em>Paye-moi un café</em> — lien bientôt. Voir <a href="https://github.com/consolecenterstudio/ps5-backup-center/blob/main/.github/FUNDING.yml">.github/FUNDING.yml</a>.</p>
+<hr/>
+<p align="center">
+<sub>PS5 Backup Center est un projet communautaire indépendant, sans lien avec Sony Interactive Entertainment ni Nintendo, et non approuvé par eux.<br/>
+  « PlayStation », « PS5 », « PS4 » et « Nintendo Switch » sont des marques de leurs propriétaires respectifs.</sub>
+</p>
+</article></main><footer>PS5 Backup Center · GPL-3.0-or-later · Libre et sans abonnement. · <a href="privacy.html">Privacy / Confidentialité</a> · <a href="terms.html">Terms / Conditions</a></footer><script src="site.js"></script></body></html>

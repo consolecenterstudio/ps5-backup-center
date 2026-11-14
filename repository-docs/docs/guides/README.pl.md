@@ -1,0 +1,20 @@
+# PS5 Backup Center
+
+1. [Pierwsze kroki](01-start.pl.md)
+2. [Codzienne kopie i przywracanie](02-everyday.pl.md)
+3. [Cele i sparowane konsole](03-destinations.pl.md)
+4. [Gry i transfery](04-transfers.pl.md)
+5. [Emulatory i ROM-y](05-emulators.pl.md)
+6. [Ustawienia i aktualizacje](06-settings.pl.md)
+7. [Rozwiązywanie problemów](07-troubleshooting.pl.md)
+8. [Dla programistów](08-developers.pl.md)
+9. [Projekt i wsparcie](09-project.pl.md)
+10. [Tworzenie i sprawdzanie kopii zapasowej](10-first-backup.pl.md)
+11. [Porównywanie kopii i usuwanie duplikatów](11-compare-cleanup.pl.md)
+12. [Przywracanie wybranego zapisu gry](12-restore.pl.md)
+13. [Wybór rodzaju synchronizacji](13-sync.pl.md)
+14. [Kopiowanie lub przenoszenie całej gry](14-transfer-workflow.pl.md)
+15. [Planowanie kopii zapasowej](15-plans.pl.md)
+16. [Przeglądarka i silnik w tle](16-web-engine.pl.md)
+
+- [Ekran główny i centrum powiadomień](17-home-notifications.pl.md)

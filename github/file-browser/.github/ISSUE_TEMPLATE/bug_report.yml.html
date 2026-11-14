@@ -1,0 +1,103 @@
+<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>.github/ISSUE_TEMPLATE/bug_report.yml</title>
+<link rel="stylesheet" href="../../../../site.css"></head><body><main>
+<p><a href="../../../../github-code.fr.html#repository-code">← GitHub</a></p><h1>.github/ISSUE_TEMPLATE/bug_report.yml</h1>
+<pre style="white-space:pre-wrap;overflow-wrap:anywhere">name: Bug report
+description: Report a problem with the TV app, web interface or background engine.
+title: &quot;[Bug] &quot;
+labels: [&quot;bug&quot;, &quot;triage&quot;]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the existing issues and Settings › What&#x27;s new before reporting.
+        Remove account IDs, personal names, hostnames, private addresses, passwords, tokens and pairing codes from screenshots and logs. For security problems, follow SECURITY.md and use private reporting.
+  - type: input
+    id: app_version
+    attributes:
+      label: App version
+      description: Read the version in Settings › Diagnostics and about.
+      placeholder: &quot;2.87.0&quot;
+    validations:
+      required: true
+  - type: input
+    id: engine_version
+    attributes:
+      label: Backup engine version
+      description: Include the engine version from diagnostics when available. It can differ from the TV app version.
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Where did it happen?
+      options:
+        - TV app
+        - Web interface on a computer
+        - Web interface on a phone or tablet
+        - Both TV and web
+        - Background task or engine
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Home and notifications
+        - Library, search and covers
+        - Progress and player accounts
+        - Saves, versions, comparison and restore
+        - Sync, apps, settings and DLC
+        - Transfers, game images and full backup
+        - Devices, disks, NAS and paired consoles
+        - Tasks and scheduled plans
+        - Settings, languages and themes
+        - Updates and diagnostics
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps and result
+      description: List the steps, the expected result, the actual result and the exact message shown.
+      placeholder: |
+        1. Opened Saves, then All versions for a game.
+        2. Selected a copy and opened the restore preview.
+        Expected:
+        Actual:
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Relevant setup
+      description: Firmware version, storage type, destination protocol and emulator version if relevant. Do not include private addresses or credentials.
+  - type: input
+    id: language_theme
+    attributes:
+      label: Language and theme
+      description: Useful for text, layout, font or contrast problems.
+  - type: dropdown
+    id: affected_app_state
+    attributes:
+      label: Was the affected game or app open?
+      options:
+        - Not applicable or not sure
+        - Closed
+        - Open
+  - type: dropdown
+    id: data_impact
+    attributes:
+      label: Effect on data
+      options:
+        - No data lost
+        - An expected backup or item was not found
+        - Data may have changed unexpectedly
+        - Not sure
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized screenshots or logs
+      description: Review attachments first. Do not upload personal save files, account IDs, pairing codes, tokens or credentials in a public issue.
+</pre></main></body></html>

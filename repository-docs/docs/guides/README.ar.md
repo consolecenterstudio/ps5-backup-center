@@ -1,0 +1,20 @@
+# PS5 Backup Center
+
+1. [البدء](01-start.ar.md)
+2. [النسخ والاستعادة اليومية](02-everyday.ar.md)
+3. [الوجهات والوحدات المقترنة](03-destinations.ar.md)
+4. [الألعاب والنقل](04-transfers.ar.md)
+5. [المحاكيات وملفات ROM](05-emulators.ar.md)
+6. [الإعدادات والتحديثات](06-settings.ar.md)
+7. [حل المشكلات](07-troubleshooting.ar.md)
+8. [للمطورين](08-developers.ar.md)
+9. [المشروع والدعم](09-project.ar.md)
+10. [إنشاء نسخة احتياطية والتحقق منها](10-first-backup.ar.md)
+11. [مقارنة النسخ وتنظيف المكررات](11-compare-cleanup.ar.md)
+12. [استعادة ملف حفظ مختار](12-restore.ar.md)
+13. [اختيار نوع المزامنة المناسب](13-sync.ar.md)
+14. [نسخ لعبة كاملة أو نقلها](14-transfer-workflow.ar.md)
+15. [جدولة خطة نسخ احتياطي](15-plans.ar.md)
+16. [استخدام المتصفح والمحرك الخلفي](16-web-engine.ar.md)
+
+- [الرئيسية ومركز الإشعارات](17-home-notifications.ar.md)

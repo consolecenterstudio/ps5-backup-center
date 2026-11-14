@@ -1,0 +1,20 @@
+# PS5 Backup Center
+
+1. [Başlangıç](01-start.tr.md)
+2. [Günlük yedekleme ve geri yükleme](02-everyday.tr.md)
+3. [Hedefler ve eşleştirilmiş konsollar](03-destinations.tr.md)
+4. [Oyunlar ve aktarımlar](04-transfers.tr.md)
+5. [Emülatörler ve ROM’lar](05-emulators.tr.md)
+6. [Ayarlar ve güncellemeler](06-settings.tr.md)
+7. [Sorun giderme](07-troubleshooting.tr.md)
+8. [Geliştiriciler için](08-developers.tr.md)
+9. [Proje ve destek](09-project.tr.md)
+10. [Yedek oluşturma ve doğrulama](10-first-backup.tr.md)
+11. [Kopyaları karşılaştırma ve yinelenenleri temizleme](11-compare-cleanup.tr.md)
+12. [Seçilen oyun kaydını geri yükleme](12-restore.tr.md)
+13. [Doğru eşitleme türünü seçme](13-sync.tr.md)
+14. [Tam oyunu kopyalama veya taşıma](14-transfer-workflow.tr.md)
+15. [Yedek planı zamanlama](15-plans.tr.md)
+16. [Tarayıcı ve arka plan motorunu kullanma](16-web-engine.tr.md)
+
+- [Ana sayfa ve bildirim merkezi](17-home-notifications.tr.md)

@@ -1,0 +1,50 @@
+<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>.github/ISSUE_TEMPLATE/feature_request.yml</title>
+<link rel="stylesheet" href="../../../../site.css"></head><body><main>
+<p><a href="../../../../github-code.fr.html#repository-code">← GitHub</a></p><h1>.github/ISSUE_TEMPLATE/feature_request.yml</h1>
+<pre style="white-space:pre-wrap;overflow-wrap:anywhere">name: Feature request
+description: Describe a workflow or an option that would help you.
+title: &quot;[Idea] &quot;
+labels: [&quot;enhancement&quot;]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read the README roadmap first. Describe the situation, the intended outcome and any relevant device or content type. Keep personal information out of examples and attachments.
+  - type: textarea
+    id: situation
+    attributes:
+      label: What are you trying to do?
+      description: Explain the workflow and what makes it difficult today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help?
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What would a successful result look like?
+      description: A concrete example helps us document and test the intended behaviour.
+  - type: dropdown
+    id: context
+    attributes:
+      label: Where would you use it?
+      options:
+        - TV and web
+        - Mainly on the TV
+        - Mainly in the browser
+        - Background engine or scheduled work
+        - Not sure
+  - type: dropdown
+    id: product
+    attributes:
+      label: Product
+      options:
+        - PS5 Backup Center
+        - PS5 Center (future project)
+        - PS5 Connector (future concept)
+        - PS4 Backup Center (future project)
+        - Not sure
+</pre></main></body></html>
