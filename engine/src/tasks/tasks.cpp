@@ -68,6 +68,13 @@ Json Task::to_json(bool with_request) const {
     else if (!request["item_key"].as_string().empty()) j.set("item", request["item_key"]);
     else if (!request["title_id"].as_string().empty()) j.set("title_id", request["title_id"]);
     if (report.is_object()) j.set("report", report);
+    // Sauvegarde : où est la version produite (appareil + nom du dossier), pour la retrouver depuis la tâche.
+    if (type == Type::backup) {
+        const std::string place = !request["remote"].as_string().empty() ? request["remote"].as_string() : request["disk_id"].as_string();
+        if (!place.empty()) j.set("place", place);
+        if (!bundle.empty()) j.set("bundle_name", bundle.substr(bundle.rfind('/') + 1));
+        if (request["item"].is_object()) j.set("title_id", request["item"]["title_id"]);
+    }
     j.set("state", to_string(state));
     j.set("title", title);
     j.set("error", error);

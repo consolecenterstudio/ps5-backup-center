@@ -8,16 +8,19 @@
   <img src="docs/assets/screenshots/en-oled-home.png" alt="PS5 Backup Center — Home screen" width="88%">
 </p>
 
-<p><strong>Version 2.99.5</strong> · Keep your Switch and Switch 2 emulator progress in step between two PS5s, act on several games of the other PS5 at once, and support the project from the ♥ at the top right. Updates are checked and installed by the app itself.</p>
+<p><strong>Version 3.0.0</strong> · NAS via WebDAV, cloud storage and a full on-screen keyboard.</p>
 
 <p align="center">
-  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/documented%20version-2.99.5-7cc4ff?style=flat-square&labelColor=0a1729"></a>
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/documented%20version-3.0.0-7cc4ff?style=flat-square&labelColor=0a1729"></a>
   <a href="LICENSE"><img alt="License: GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-3d8bff?style=flat-square&labelColor=0a1729"></a>
   <img alt="Platform: PS5" src="https://img.shields.io/badge/platform-PS5%20(homebrew)-e8f1fb?style=flat-square&labelColor=0a1729">
   <img alt="19 languages" src="https://img.shields.io/badge/languages-19-f0b867?style=flat-square&labelColor=0a1729">
   <img alt="Build" src="https://img.shields.io/badge/build-reproducible-5fd39a?style=flat-square&labelColor=0a1729">
   <img alt="C++20" src="https://img.shields.io/badge/C%2B%2B-20-7cc4ff?style=flat-square&labelColor=0a1729">
 </p>
+
+**Follow us** · [X @CCenterStudio](https://x.com/CCenterStudio) · [YouTube @ConsoleCenterStudio](https://www.youtube.com/@ConsoleCenterStudio) · [Reddit @ConsoleCenterStudio](https://www.reddit.com/user/ConsoleCenterStudio/)
+
 
 <p align="center">
   <b>Back up, compare and restore the saves and games on your PS5 — and the Switch, Switch 2 and emulator saves around it.</b><br>
@@ -117,7 +120,8 @@ It is part of **[PS5 Center](docs/product-family.md)**, a small family of free, 
 
 ### Library, devices, interface
 - **One library** — PS5 and PS4 games, apps, ROMs from known emulators (plus generic detection), official names and icons, even for games that only exist as a save; each game shows its storage and real disk.
-- **Devices** — USB drives, NAS and PCs (**SMB 2/3** shares, FTP, **FTPS** when offered), Switch, other PS5s. Connect, browse, pick the folder, test, save.
+- **Devices** — USB drives, NAS (Synology, QNAP or any server over **FTP / FTPS, SMB or WebDAV**), Switch, other PS5s. Connect, browse, pick the folder, test, save. Each NAS is used for backups, sync, or both.
+- **The cloud** — Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2, pCloud, Koofr, Nextcloud; Google Drive, OneDrive and Dropbox with your own account, signed in from your phone (activation in a coming update). Used like a NAS.
 - **Home as a notification centre** — what to back up, newer copies, duplicates, sync state, running tasks with time left.
 - **TV and web at parity** — phone or computer, paired with a 6-digit code; **19 languages**, 8 themes, sounds.
 - **Updates by themselves** — checked automatically from this repository, announced on Home, installed automatically if you want; only changed files, verified, previous version kept for roll-back; also from a USB key, offline.
@@ -213,7 +217,7 @@ The app checks this repository for new versions by itself and shows a bubble on 
 | **Switch 2** (Églantine emulator) | ✅ Available | Its games (.nup / .nsp / .xci) in the Library under *Switch 2*, with covers and saves; settings shared between PS5s. |
 | Switch over USB (Hekate UMS) | Planned | Mass-storage mode via Hekate; MTP (haze, DBI) is not readable by the PS5. |
 | **NAS / FTP** | ✅ Available | Synology, QNAP, any FTP server. **FTPS** (explicit TLS) when offered; self-signed LAN certificates accepted, fingerprint logged. |
-| SFTP · NFS · WebDAV · cloud | 🗓 Planned | SFTP first. |
+| SFTP · NFS | 🗓 Planned | SFTP first. |
 | USB drives | ✅ Available | Recognised by their witness index, even when they change port. |
 
 ### Emulators
@@ -246,6 +250,8 @@ Detected from the engine catalogue (`engine/src/scan/emulators_catalog.cpp`) —
 | Build | Reproducible: two clean builds produce the same engine byte for byte. |
 
 ## Roadmap
+
+**New in 3.0** · WebDAV for NAS, per-NAS “Used for”, S3 and WebDAV cloud services, and a full on-screen keyboard.
 
 **In development**: same emulator progress on both PS5s (ProsperoEden, Églantine); installing a game on the other PS5 from its library; Wake-on-LAN.
 

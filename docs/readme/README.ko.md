@@ -16,7 +16,9 @@
 
 백업이 필요한 항목을 찾고 기존 사본을 비교하며 기기 간 교환을 정리하세요. PS5 Backup Center는 목록, 백업, 동기화, 전송을 TV와 브라우저에 모읍니다.
 
-**2.99.5 · GPL-3.0-or-later · 19 · 8**
+**3.0.0 · GPL-3.0-or-later · 19 · 8**
+
+**팔로우** · [X @CCenterStudio](https://x.com/CCenterStudio) · [YouTube @ConsoleCenterStudio](https://www.youtube.com/@ConsoleCenterStudio) · [Reddit @ConsoleCenterStudio](https://www.reddit.com/user/ConsoleCenterStudio/)
 
 자유 소프트웨어. 구독 없음.
 
@@ -29,6 +31,12 @@
 ## 라이브러리 · 동기화
 
 보관용 백업과 현재 플레이에 사용하는 저장 데이터는 다릅니다. PS5 사이 또는 NAS와 유지할 사본을 선택하세요. 본체마다 로컬 사용자 ID가 다를 수 있어 대상 계정이 중요합니다. Switch ↔ Eden / ProsperoEden은 Switch에서 JKSV와 ftpd를 사용합니다. 앱과 지원 설정에는 별도 비교 규칙이 있습니다. 전체 게임은 전송에서 처리합니다.
+
+## 3.0의 새로운 기능
+
+- 기기 화면에서 NAS나 콘솔을 추가하고 저장 전에 대상을 확인합니다. NAS는 지원 프로토콜을 선택해 연결을 시험하고 폴더를 고릅니다. PS5끼리는 페어링 코드를 확인하며 Switch는 ftpd와 JKSV 내보내기를 준비합니다. FTP / FTPS, SMB, WebDAV를 지원합니다. ‘용도’에서 NAS를 세이브 데이터, 동기화 또는 둘 다에 쓸지 선택합니다.
+- 클라우드는 기기 › 클라우드를 엽니다. S3 서비스(Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…)를 고르고 키를 입력합니다. QR 코드를 쓰면 같은 양식이 휴대폰에서 열려 키를 붙여 넣을 수 있습니다. 또는 pCloud, Koofr, Nextcloud를 내 계정으로 연결합니다. Google Drive, OneDrive, Dropbox는 휴대폰에서 내 계정으로 연결합니다(다음 업데이트에서 활성화).
+- 전체 화면 키보드.
 
 ## 2.98 새 기능
 

@@ -85,7 +85,7 @@ function mgProgress(g) {
 
 function mgPlaces(g) {
   const seen = g.console ? [T("Console")] : [];
-  for (const c of g.copies) if (!seen.includes(c.place_label)) seen.push(c.place_label);
+  for (const c of g.copies) { const l = c.on_peer ? c.peer_name : c.place_label; if (!seen.includes(l)) seen.push(l); }  // l'autre PS5, une seule fois
   return seen.join(" · ");
 }
 
@@ -151,7 +151,7 @@ function mgPlaceList() {
   const out = [{ id: "", name: T("Partout"), sub: T("%d copie(s)", total), icon: ICONS.consoles }];
   for (const p of state.places) {
     const n = count.get(p.id) || 0;
-    if (!(p.type === "usb" || p.type === "ftp" || n)) continue;
+    if (!(p.type === "usb" || p.type === "ftp" || n) || p.use === "sync") continue;  // NAS « Synchro seulement » : pas ici
     if (p.type === "switch" && !n) continue;
     const free = p.type === "usb" || p.type === "internal" ? " · " + T("%s libres", size(p.free)) : "";
     out.push({ id: p.id, name: p.label, sub: (n ? T("%d copie(s)", n) : T("vide")) + free, icon: ICONS[p.type === "usb" ? "usb" : p.type === "internal" ? "ps5" : p.type === "switch" ? "switch" : "nas"] });
@@ -209,7 +209,7 @@ function backupsTab() {
   if (!places.some((p) => p.id === mg.place)) mg.place = "";
   view.innerHTML = `<h1>${T("Sauvegardes")}<small>${mg.sum ? esc(T("%d jeu(x) · %d copie(s)", mg.sum.games.length, mg.sum.copies || 0)) : ""}${mg.loading ? " " + SPIN : ""}</small></h1><p class="hint tab-help">${esc(T("Des COPIES de vos parties : sur les disques de cette console, le NAS et les autres PS5 — pas la partie active."))}</p>
     <div class="tr-label">${T("ENDROITS")}</div>
-    <div class="places" data-scroll="bk-places">${places.map((p) => `<button class="tr-dev place-card ${mg.place === p.id ? "chosen" : ""}" data-place="${esc(p.id)}">
+    <div class="places" data-scroll="bk-places">${places.map((p) => `<button class="tr-dev place-card ${p.id === "trash" ? "trash-card" : ""} ${mg.place === p.id ? "chosen" : ""}" data-place="${esc(p.id)}">
       <span class="dev-ico">${p.icon}</span><span class="grow"><b>${esc(p.name)}</b><span class="hint">${esc(p.sub)}</span></span></button>`).join("")}</div>
     <div id="bk-main"></div>`;
   $$("[data-place]", view).forEach((b) => b.onclick = () => { mg.place = b.dataset.place; mg.gsel.clear(); mg.csel.clear(); if (mg.place === "trash") mg.trash = {}; backupsTab(); });
@@ -275,12 +275,12 @@ async function loadSyncState() {
     syncState.at = Date.now();
     try { const s = await api("/sync/copies/status"); const was = syncState.status.state; syncState.status = s; if (was === "running" && s.state !== "running") { syncState.plansAt = 0; mg.sum = null; } } catch (e) { /* rien */ }
   }
-  const nasPlaces = (state.places || []).filter((p) => p.type === "ftp");
+  const nasPlaces = (state.places || []).filter((p) => p.type === "ftp" && p.use !== "backups" && !p.same_as);  // NAS qui servent à la synchro (un dossier une fois)
   if (Date.now() - syncState.plansAt > 60000 && ((typeof peerGames !== "undefined" && peerGames.length) || nasPlaces.length)) {  // PS5 jumelées et NAS
     syncState.plansAt = Date.now();
     const out = [];
     for (const p of (typeof peerGames !== "undefined" ? peerGames : [])) { try { const pl = await api(`/sync/copies/plan?peer=${encodeURIComponent(p.instance)}&full=1`); if (!pl.error) out.push({ name: p.name, plan: pl }); } catch (e) { /* hors ligne */ } }
-    for (const n of nasPlaces) { try { const pl = await api(`/sync/copies/plan?peer=${encodeURIComponent(n.id)}&full=1`); if (!pl.error) out.push({ name: n.label, plan: pl }); } catch (e) { /* injoignable */ } }
+    for (const n of nasPlaces) { try { const pl = await api(`/sync/copies/plan?peer=${encodeURIComponent(n.id)}&full=1`); if (!pl.error) out.push({ name: nasSyncName(n), plan: pl }); } catch (e) { /* injoignable */ } }
     syncState.plans = out;
   }
 }
@@ -640,7 +640,7 @@ async function mgDiskExtras(root, placeId, again = false) {
 
 // Corbeille de chaque disque USB et du NAS, par jour ; « Remettre » remet la copie à sa place.
 async function mgTrashView(root) {
-  const places = (state.places || []).filter((p) => p.type === "usb" || p.type === "ftp");
+  const places = (state.places || []).filter((p) => (p.type === "usb" || p.type === "ftp") && p.use !== "sync");
   const draw = () => {
     if (!root.isConnected) return;
     root.innerHTML = places.length ? places.map((p) => {

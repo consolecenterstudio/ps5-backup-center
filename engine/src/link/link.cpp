@@ -83,7 +83,6 @@ Link::Link(std::string state_dir, Self self, std::uint16_t discovery_port, std::
 
 Link::~Link() { stop(); wan_.reset(); }
 
-namespace {
 // Adresse IPv4 de cette console sur son réseau local (la première interface active, hors boucle locale).
 std::string local_ipv4() {
     std::string best;
@@ -101,7 +100,6 @@ std::string local_ipv4() {
     ::freeifaddrs(ifs);
     return best;
 }
-}  // namespace
 
 Json Link::self_hello() const {
     Json j = Json::object();

@@ -16,7 +16,9 @@
 
 Detecta qué necesita una copia de seguridad, compara las copias existentes y organiza los intercambios entre dispositivos. PS5 Backup Center reúne inventario, copias, sincronización y transferencias en el televisor y el navegador.
 
-**2.99.5 · GPL-3.0-or-later · 19 · 8**
+**3.0.0 · GPL-3.0-or-later · 19 · 8**
+
+**Síguenos** · [X @CCenterStudio](https://x.com/CCenterStudio) · [YouTube @ConsoleCenterStudio](https://www.youtube.com/@ConsoleCenterStudio) · [Reddit @ConsoleCenterStudio](https://www.reddit.com/user/ConsoleCenterStudio/)
 
 Software libre. Sin suscripción.
 
@@ -29,6 +31,12 @@ Software libre. Sin suscripción.
 ## Biblioteca · Sincro
 
 Las copias almacenadas y las partidas activas son distintas. Elige qué copias mantener entre PS5 o con un NAS. Los identificadores locales pueden cambiar entre consolas: importa la cuenta de destino. Switch ↔ Eden / ProsperoEden usa JKSV y ftpd en Switch. Aplicaciones y ajustes compatibles tienen reglas propias. Los juegos completos pasan por Transferencias.
+
+## Novedades de 3.0
+
+- En dispositivos, añade el NAS o la consola y comprueba la identidad antes de guardar. Para un NAS, elige el protocolo compatible, prueba la conexión y selecciona la carpeta. Para dos PS5, confirma el código de asociación; para Switch prepara ftpd y un exportado JKSV. FTP / FTPS, SMB y WebDAV son compatibles. «Usado para» elige si el NAS guarda partidas, sincro o ambas cosas.
+- Para la nube, abre Dispositivos › Nube: elige un servicio S3 (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) e introduce sus claves —el código QR abre el mismo formulario en tu móvil para que las pegues— o pCloud, Koofr, Nextcloud con tu cuenta. Google Drive, OneDrive y Dropbox se conectan con tu propia cuenta desde tu móvil (activación en una próxima actualización).
+- Teclado completo en pantalla.
 
 ## Novedades en 2.98
 

@@ -19,6 +19,9 @@ struct FtpConfig {
     std::string proto;                // Switch : « smb » pour la lire par SMB (sinon FTP, ftpd / sphaira)
     std::string root = "/";         // dossier de départ sur l'appareil
     std::string tls = "auto";
+    std::string bucket, region;       // S3 : compartiment et région (user = clé d'accès, password = clé secrète)
+    std::string service;              // S3 : « aws », « b2 » ou « other » (host = adresse du service)
+    std::string pin;                  // WebDAV : empreinte du certificat maison du NAS (vide : certificat vérifié)
     // Rangement des backups : « pbc » (dossier « PBC Backup ») ou « platform » (rangement classique :
     // « PS5 backup/[PS5] Nom (ID)/saves/<date>/ », « Switch backup/… »).
     std::string layout = "pbc";       // « auto » : chiffré si le serveur le propose ; « on » : exigé ; « off »

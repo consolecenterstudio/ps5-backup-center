@@ -375,6 +375,15 @@ void HttpServer::handle(int fd, bool local) {
         error(fd, 404, "fichier inconnu");
         return;
     }
+    // Dropbox : la page de la console ouverte sur le téléphone par le code QR. L'identifiant du lien (à usage unique,
+    // 30 min) tient lieu d'association ; rien d'autre n'est accessible ainsi.
+    if (r.method == "GET" && r.path == "/api/v2/cloud/link/info") { json(fd, 200, e.cloud_link_info(r.param("id"))); return; }
+    if (r.method == "POST" && r.path == "/api/v2/cloud/link/code") {
+        std::string err;
+        if (!e.cloud_link_code(body["id"].as_string(), body["code"].as_string(), err)) { error(fd, 409, err); return; }
+        json(fd, 200, Json::object());
+        return;
+    }
     if (!local && !e.authorized(r.token) && !e.authorized(r.param("token"))) { error(fd, 401, "appareil non associé"); return; }
     if (r.client.rfind("tv/", 0) == 0) e.note_tv_app(r.client.substr(3));
     struct Done {  // diagnostic : réponse envoyée à l'appli de la console (code, taille, durée, envoi complet)
@@ -1117,6 +1126,17 @@ void HttpServer::handle(int fd, bool local) {
         return;
     }
     // Même progression des émulateurs : sauvegardes d'ici, plan, mise à niveau ; l'autre PS5 lit les fichiers par clé.
+    // Google Drive, OneDrive : services disponibles, connexion par code (début, puis état).
+    if (r.method == "GET" && r.path == "/api/v2/cloud/services") { json(fd, 200, e.cloud_services()); return; }
+    if (r.method == "POST" && r.path == "/api/v2/cloud/link") {
+        std::string err;
+        const Json j = e.cloud_link_start(body["provider"].as_string(), err);
+        if (!err.empty()) { error(fd, 409, err); return; }
+        json(fd, 200, j);
+        return;
+    }
+    if (r.method == "GET" && r.path == "/api/v2/cloud/link") { json(fd, 200, e.cloud_link_status(r.param("id"))); return; }
+    if (r.method == "GET" && r.path == "/api/v2/web-link") { json(fd, 200, e.web_link(r.param("place"))); return; }
     if (r.method == "GET" && r.path == "/api/v2/support") { json(fd, 200, e.support(r.param("fresh") == "1")); return; }
     if (r.method == "GET" && r.path == "/api/v2/emu/saves") { json(fd, 200, e.emu_saves()); return; }
     if (r.method == "GET" && r.path == "/api/v2/sync/emu/plan") { json(fd, 200, e.plan_cached("emu", r.param("peer"), false, r.param("fresh") == "1")); return; }
@@ -1268,6 +1288,13 @@ void HttpServer::handle(int fd, bool local) {
         auto slash = rest.find('/');
         if (slash == std::string::npos) { error(fd, 404, "action manquante"); return; }
         std::string id = rest.substr(0, slash), action = rest.substr(slash + 1);
+        if (action == "backup") {  // sauvegarde faite par cette tâche : {place, bundle, title_id, item, title}
+            std::string err;
+            Json j = e.task_backup(id, err);
+            if (!err.empty()) { error(fd, 409, err); return; }
+            json(fd, 200, j);
+            return;
+        }
         if (action == "cleanup") {  // « Fichiers » : retirer ce que la copie a créé
             std::string err;
             if (!e.queue().cleanup_files(id, err)) { error(fd, 409, err); return; }

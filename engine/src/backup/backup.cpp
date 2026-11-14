@@ -46,6 +46,7 @@ bool copy_to_store(const std::string& src_host, store::Store& st, const std::str
     if (in < 0) { err = "lecture " + std::string(std::strerror(errno)); return false; }
     auto w = st.create(dst, err);
     if (!w) { ::close(in); return false; }
+    w->size_hint(expect);
     std::vector<char> buf(chunk);
     Sha256 h;
     std::uint64_t copied = 0;
@@ -438,6 +439,12 @@ Result restore(const RestoreRequest& req, const ProgressFn& progress, const std:
     if (!st.stat(fs::join(meta_dir, "complete"), done)) meta_dir = fs::join(req.bundle, "_pbc");
     if (!st.stat(fs::join(meta_dir, "complete"), done)) { res.error = "sauvegarde incomplète"; return res; }
     if (!st.read_small(fs::join(meta_dir, "manifest.json"), text) || !Json::parse(text, m)) { res.error = "manifeste illisible"; return res; }
+    // Une sauvegarde complète de la PS5 ne se remet jamais fichier par fichier à son emplacement d'origine (fichiers
+    // système, comptes, bases) : seulement dans un dossier choisi, pour consultation, en attendant l'assistant guidé.
+    if (m["item"]["key"].as_string() == "system:full-backup" && req.target.empty()) {
+        res.error = "sauvegarde complète de la PS5 : elle se remet par l'assistant de restauration guidée, pas fichier par fichier";
+        return res;
+    }
 
     Progress pr;
     for (const auto& f : m["files"].items()) {

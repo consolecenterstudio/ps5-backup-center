@@ -8,16 +8,19 @@
   <img src="../assets/screenshots/tv-home-current.png" alt="PS5 Backup Center — Écran d’accueil" width="88%">
 </p>
 
-<p><strong>Version 2.99.5</strong> · Gardez la même progression des émulateurs Switch et Switch 2 sur vos deux PS5, agissez sur plusieurs jeux de l'autre PS5 d'un coup, et soutenez le projet avec le ♥ en haut à droite. L'application cherche et installe elle-même ses mises à jour.</p>
+<p><strong>Version 3.0.0</strong> · NAS en WebDAV, stockage dans le nuage et clavier complet.</p>
 
 <p align="center">
-  <a href="../../CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/documented%20version-2.99.5-7cc4ff?style=flat-square&labelColor=0a1729"></a>
+  <a href="../../CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/documented%20version-3.0.0-7cc4ff?style=flat-square&labelColor=0a1729"></a>
   <a href="../../LICENSE"><img alt="Licence : GPL-3.0-or-later" src="https://img.shields.io/badge/licence-GPL--3.0--or--later-3d8bff?style=flat-square&labelColor=0a1729"></a>
   <img alt="Plateforme : PS5" src="https://img.shields.io/badge/plateforme-PS5%20(homebrew)-e8f1fb?style=flat-square&labelColor=0a1729">
   <img alt="Langues" src="https://img.shields.io/badge/langues-19-f0b867?style=flat-square&labelColor=0a1729">
   <img alt="Compilation" src="https://img.shields.io/badge/compilation-reproductible-5fd39a?style=flat-square&labelColor=0a1729">
   <img alt="C++20" src="https://img.shields.io/badge/C%2B%2B-20-7cc4ff?style=flat-square&labelColor=0a1729">
 </p>
+
+**Suivez-nous** · [X @CCenterStudio](https://x.com/CCenterStudio) · [YouTube @ConsoleCenterStudio](https://www.youtube.com/@ConsoleCenterStudio) · [Reddit @ConsoleCenterStudio](https://www.reddit.com/user/ConsoleCenterStudio/)
+
 
 <p align="center">
   <b>Sauvegarder, comparer et restaurer les parties et les jeux de votre PS5 — et les sauvegardes Switch, Switch 2 et d'émulateurs autour.</b><br>
@@ -118,7 +121,8 @@ Il fait partie de **[PS5 Center](../product-family.fr.md)**, une petite famille 
 
 ### Bibliothèque, appareils, interface
 - **Une seule bibliothèque** — jeux PS5 et PS4, applications, ROM des émulateurs connus (plus la détection générique), noms et icônes officiels, même pour un jeu dont il ne reste que la sauvegarde ; chaque jeu montre son stockage et son vrai disque.
-- **Appareils** — disques USB, NAS et PC (partages **SMB 2/3**, FTP, **FTPS** quand il est proposé), Switch, autres PS5. Se connecter, parcourir, choisir le dossier, tester, enregistrer.
+- **Appareils** — disques USB, NAS (Synology, QNAP ou tout serveur en **FTP / FTPS, SMB ou WebDAV**), Switch, autres PS5. Se connecter, parcourir, choisir le dossier, tester, enregistrer. Chaque NAS sert aux sauvegardes, à la synchro, ou aux deux.
+- **Le nuage** — Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2, pCloud, Koofr, Nextcloud ; Google Drive, OneDrive et Dropbox avec votre propre compte, connecté depuis votre téléphone (activation dans une prochaine mise à jour). S'utilise comme un NAS.
 - **L'Accueil comme centre de notifications** — ce qu'il faut sauvegarder, les copies plus récentes, les doublons, l'état de la synchro, les tâches en cours avec le temps restant.
 - **Télé et web au même niveau** — téléphone ou ordinateur, associé par un code à 6 chiffres ; **19 langues**, 8 thèmes, sons.
 - **Mises à jour toutes seules** — recherchées automatiquement sur ce dépôt, annoncées à l'Accueil, installées automatiquement si vous le voulez ; seuls les fichiers modifiés, vérifiés, version précédente gardée pour revenir en arrière ; aussi depuis une clé USB, sans réseau.
@@ -214,7 +218,7 @@ L'app cherche toute seule les nouvelles versions sur ce dépôt et affiche une b
 | **Switch 2** (émulateur Églantine) | ✅ Disponible | Ses jeux (.nup / .nsp / .xci) dans la Bibliothèque sous *Switch 2*, avec jaquettes et sauvegardes ; réglages partagés entre PS5. |
 | Switch en USB (Hekate UMS) | Prévu | Mode stockage de masse via Hekate ; le MTP (haze, DBI) n'est pas lisible par la PS5. |
 | **NAS / FTP** | ✅ Disponible | Synology, QNAP, tout serveur FTP. **FTPS** (TLS explicite) quand il est proposé ; certificats auto-signés du réseau local acceptés, empreinte notée. |
-| SFTP · NFS · WebDAV · cloud | 🗓 Prévu | SFTP d'abord. |
+| SFTP · NFS | 🗓 Prévu | SFTP d'abord. |
 | Disques USB | ✅ Disponible | Reconnus par leur index témoin, même s'ils changent de port. |
 
 ### Émulateurs
@@ -247,6 +251,8 @@ D'après le catalogue du moteur (`engine/src/scan/emulators_catalog.cpp`) — RO
 | Compilation | Reproductible : deux compilations depuis zéro donnent le même moteur, octet pour octet. |
 
 ## Feuille de route
+
+**Nouveau dans la 3.0** · NAS en WebDAV, « Utilisé pour » par NAS, services S3 et WebDAV dans le nuage et clavier complet.
 
 **En développement** : même progression des émulateurs sur les deux PS5 (ProsperoEden, Églantine) ; installer un jeu sur l'autre PS5 depuis sa bibliothèque ; réveil par le réseau (Wake-on-LAN).
 

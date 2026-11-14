@@ -49,6 +49,31 @@
    "uri": "solana:EyiGLmxw1b1AZxhVmpfP4cXYGTDuYJaWXonvKww2hDaD"
   }
  ],
- "supporters": [],
- "goals": []
+ "supporters": [
+  {
+   "name": "Pingitux",
+   "message": "",
+   "via": "",
+   "date": "2026-11",
+   "backer": true
+  }
+ ],
+ "goals": [
+  {
+   "id": "ps5-center",
+   "name": "PS5 Center",
+   "currency": "USD",
+   "target": 2500,
+   "raised": 540,
+   "supporters": 1,
+   "pitch": "L'orchestrateur de vos PS5 : toutes vos consoles, pilotées depuis n'importe laquelle.",
+   "features": [
+    "Jouer à distance sur n'importe quelle PS5, depuis une autre",
+    "Mettre à jour et redémarrer toutes les consoles d'un coup",
+    "Lancer, fermer et installer des jeux à distance"
+   ]
+  }
+ ],
+ "updated": 20261113,
+ "messages_url": "https://github.com/consolecenterstudio/ps5-backup-center/discussions/2"
 }

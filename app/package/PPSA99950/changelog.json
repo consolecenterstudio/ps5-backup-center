@@ -1,6 +1,469 @@
 {
  "versions": [
   {
+   "version": "3.0.0",
+   "date": "2026-11-14",
+   "title": "PS5 Backup Center 3",
+   "new": [
+    "Stockage dans le nuage (Appareils › Nuage) : Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2 ou tout autre service S3, choisis par leur nom ; l'adresse se remplit toute seule.",
+    "pCloud, Koofr et Nextcloud en WebDAV, préréglés.",
+    "Google Drive, OneDrive et Dropbox : chacun connecte son propre compte depuis son téléphone (code QR, connexion chez le service), sans rien taper sur la PS5 ; l'appli n'a accès qu'à son propre dossier. Activation dans une prochaine mise à jour.",
+    "Un stockage dans le nuage s'utilise comme un NAS (sauvegardes, destination, synchro) ; ses clés se collent depuis le téléphone grâce à un code QR.",
+    "NAS en WebDAV (Synology, QNAP, Nextcloud…) à côté de FTP et SMB ; le certificat maison du NAS est accepté une fois puis retenu.",
+    "« Utilisé pour » : chaque NAS sert aux sauvegardes, à la synchro, ou aux deux ; plusieurs synchros possibles avec le même NAS, chacune dans son dossier.",
+    "Tâches : « Voir la sauvegarde », mettre une sauvegarde à la corbeille, cocher plusieurs tâches.",
+    "Communauté : « Messages de la communauté », « Laisser un message » et « Suivez-nous » (X, YouTube, Reddit) ; Projets à financer : PS5 Center et sa jauge."
+   ],
+   "improved": [
+    "Clavier complet : caractères spéciaux (R1), majuscules (L1), é è à ç ; chaque bouton montre sa touche de manette.",
+    "NAS en WebDAV bien plus rapide ; un même NAS ajouté par deux protocoles n'est compté qu'une fois, et ses copies indiquent leur moyen.",
+    "Accueil : une seule carte Synchro qui fait défiler chaque appareil ; « Sauvegardes disponibles » ne nomme que les endroits qui en ont vraiment.",
+    "Bibliothèque : toute la rangée de filtres tient à l'écran ; une autre console se voit d'un coup d'œil, avec des noms clairs (« Tous ses jeux », « Absents d'ici », « Aussi ici »).",
+    "Sauvegardes : la Corbeille reste toujours visible, la carte « Interne » apparaît quand il y a des copies, on peut supprimer plusieurs éléments cochés.",
+    "Signaler un problème : trois cartes claires (un bug, une question, une étoile) avec leur code ; Paramètres réordonnés.",
+    "Nouvelles images d'appareils (Nuage, FTP / SMB) à la même hauteur que les autres ; notre logo sur la carte « Mise à jour »."
+   ],
+   "fixed": [
+    "Restaurer depuis un NAS : une sauvegarde complète passe par la restauration guidée.",
+    "NAS : plus de dossier « PBC Backup/PBC Backup » ; à la racine d'un Synology, le test dit de choisir un dossier partagé.",
+    "Sauvegardes : la liste des endroits ne se répète plus sous chaque jeu ; une copie mise à la corbeille disparaît tout de suite.",
+    "Mises à jour : un fichier qui échoue est réessayé une fois ; une version installée mais pas encore active est bien indiquée.",
+    "Petits défauts d'affichage corrigés : textes coupés, codes QR de tailles différentes, étiquettes qui se chevauchaient."
+   ],
+   "web": "sans objet : version de synthèse, aucun changement de code depuis la 2.99.46 (toutes les nouveautés étaient déjà sur la page web)"
+  },
+  {
+   "version": "2.99.46",
+   "date": "2026-11-14",
+   "title": "Lien Reddit définitif, codes QR de même taille",
+   "new": [],
+   "improved": [
+    "Suivez-nous : Reddit ouvre le profil @ConsoleCenterStudio."
+   ],
+   "fixed": [
+    "Soutenir le projet : tous les codes QR ont la même taille (celui du Bitcoin paraissait plus gros)."
+   ],
+   "web": "oui : même lien Reddit sur la page web (les codes QR du web étaient déjà de même taille)"
+  },
+  {
+   "version": "2.99.45",
+   "date": "2026-11-14",
+   "title": "Suivez-nous : X, YouTube, Reddit",
+   "new": [
+    "Paramètres › Soutenir le projet : une rangée « Suivez-nous » avec X, YouTube et Reddit (Discord bientôt) ; Croix sur une pastille affiche son code à scanner."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : même rangée « Suivez-nous » sur la page web, qui ouvre les profils"
+  },
+  {
+   "version": "2.99.43",
+   "date": "2026-11-14",
+   "title": "Retour à l'affichage de la 2.99.41",
+   "new": [],
+   "improved": [
+    "Ajouter un appareil : l'image de la Switch est un peu plus grande (+20 %)."
+   ],
+   "fixed": [
+    "Ajouter un appareil : l'image du Disque USB reprend sa place de la 2.99.41."
+   ],
+   "web": "sans objet : retour à la 2.99.41 sur la page web ; la Switch y a déjà la bonne taille"
+  },
+  {
+   "version": "2.99.41",
+   "date": "2026-11-14",
+   "title": "Le cœur de la police",
+   "new": [],
+   "improved": [
+    "En haut de l'écran : le cœur « Soutenir le projet » est le même que celui de « Quoi de neuf », en plus grand."
+   ],
+   "fixed": [],
+   "web": "sans objet : la page web utilise déjà le cœur de la police"
+  },
+  {
+   "version": "2.99.40",
+   "date": "2026-11-14",
+   "title": "Cœur redessiné, images à la bonne taille",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "En haut de l'écran : le cœur « Soutenir le projet » est un vrai cœur, aux courbes continues jusqu'à la pointe.",
+    "Ajouter un appareil : Nuage, FTP / SMB et Disque USB sont rognés sur ce qui se voit ; ils ont la même hauteur que les autres images, et le Disque USB est centré."
+   ],
+   "web": "oui : mêmes images rognées sur la page web (le cœur de la page web est dessiné par le navigateur)"
+  },
+  {
+   "version": "2.99.39",
+   "date": "2026-11-14",
+   "title": "Cœur bien centré",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "En haut de l'écran : le cœur « Soutenir le projet » est symétrique et centré dans son rond (il paraissait décalé et coupé)."
+   ],
+   "web": "sans objet : la page web utilise un cœur dessiné par le navigateur"
+  },
+  {
+   "version": "2.99.38",
+   "date": "2026-11-14",
+   "title": "Disque USB en plus grand",
+   "new": [],
+   "improved": [
+    "Appareils › Ajouter un appareil : l'image du Disque USB (la PS5 et son disque) est affichée en plus grand, comme le Nuage et FTP / SMB."
+   ],
+   "fixed": [],
+   "web": "oui : même image agrandie sur la page web"
+  },
+  {
+   "version": "2.99.37",
+   "date": "2026-11-14",
+   "title": "Nuage et FTP / SMB en plus grand",
+   "new": [],
+   "improved": [
+    "Appareils › Ajouter un appareil : les images du Nuage et de FTP / SMB, plus larges que hautes, sont affichées en plus grand et occupent la même place que les autres."
+   ],
+   "fixed": [],
+   "web": "oui : mêmes images agrandies sur la page web"
+  },
+  {
+   "version": "2.99.36",
+   "date": "2026-11-14",
+   "title": "Logos plus lisibles sur les icônes Nuage et FTP / SMB",
+   "new": [],
+   "improved": [
+    "Appareils : sur les icônes Nuage et FTP / SMB, les logos sont plus gros et posés sur le nuage ou le dossier, lisibles sur la télé."
+   ],
+   "fixed": [],
+   "web": "oui : mêmes images sur la page web"
+  },
+  {
+   "version": "2.99.35",
+   "date": "2026-11-14",
+   "title": "Icônes HD : Nuage et FTP / SMB avec leurs logos",
+   "new": [],
+   "improved": [
+    "Appareils : le Nuage reprend son image HD avec les logos de Google Drive, OneDrive, Dropbox, Amazon (AWS), Backblaze et MEGA ; FTP / SMB reprend son dossier HD avec Windows, Mac et Linux."
+   ],
+   "fixed": [],
+   "web": "oui : mêmes images sur la page web"
+  },
+  {
+   "version": "2.99.34",
+   "date": "2026-11-14",
+   "title": "Nouvelles icônes : Nuage et FTP / SMB",
+   "new": [],
+   "improved": [
+    "Appareils : nouvelle image pour le Nuage (un nuage posé sur des disques) et pour FTP / SMB (un dossier réseau devant un ordinateur portable)."
+   ],
+   "fixed": [],
+   "web": "oui : mêmes images sur la page web"
+  },
+  {
+   "version": "2.99.33",
+   "date": "2026-11-14",
+   "title": "Dropbox",
+   "new": [
+    "Nuage › Dropbox : chacun connecte son propre compte depuis son téléphone (code QR, « Autoriser », puis coller le code donné par Dropbox) ; l'appli n'a accès qu'à son dossier."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : même connexion sur la page web, et la page du téléphone ouverte par le code QR"
+  },
+  {
+   "version": "2.99.32",
+   "date": "2026-11-13",
+   "title": "Plus de services dans le nuage, par leur nom",
+   "new": [
+    "Nuage : Wasabi, Cloudflare R2, Scaleway, OVHcloud et Synology C2 (clés S3), pCloud, Koofr et Nextcloud (compte WebDAV) se choisissent par leur nom ; l'adresse se remplit toute seule."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : même liste de services et mêmes réglages préremplis sur la page web"
+  },
+  {
+   "version": "2.99.31",
+   "date": "2026-11-13",
+   "title": "Google Drive et OneDrive",
+   "new": [
+    "Paramètres › Appareils › Nuage : connectez Google Drive ou OneDrive sans rien taper sur la PS5. Un code QR et un code court : la connexion (e-mail, mot de passe, code de validation) se fait sur votre téléphone, chez Google ou Microsoft.",
+    "L'appli n'a accès qu'à son propre dossier. Ensuite, le compte sert aux sauvegardes et, si vous le voulez, à la synchro, comme un NAS ; la place libre s'affiche."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : même connexion par code et même réglage sur la page web (Appareils › Nuage)"
+  },
+  {
+   "version": "2.99.30",
+   "date": "2026-11-13",
+   "title": "Clavier : caractères spéciaux et touches de la manette",
+   "new": [],
+   "improved": [
+    "Clavier : une page de caractères spéciaux (R1), les majuscules (L1) et les lettres accentuées é è à ç ; chaque bouton montre la touche de la manette qui fait la même chose (L1, R1, △, □, R2)."
+   ],
+   "fixed": [],
+   "web": "sans objet : la page web utilise le clavier de l'appareil (téléphone, ordinateur)"
+  },
+  {
+   "version": "2.99.29",
+   "date": "2026-11-13",
+   "title": "Stockage dans le nuage : Amazon S3 et Backblaze B2",
+   "new": [
+    "Paramètres › Appareils › Nuage : ajoutez un stockage Amazon S3, Backblaze B2 ou un autre service S3 (Wasabi, MinIO…). Il sert aux sauvegardes et, si vous le voulez, à la synchro, comme un NAS.",
+    "Les clés se collent depuis le téléphone : un code QR ouvre la page web directement sur le bon formulaire."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : même ajout d'un stockage S3 sur la page web (Appareils › Nuage)"
+  },
+  {
+   "version": "2.99.27",
+   "date": "2026-11-13",
+   "title": "Filtres de la Bibliothèque plus courts",
+   "new": [],
+   "improved": [
+    "Bibliothèque : « Émulateur » et « Emplacement » n'affichent leur valeur que lorsqu'un choix est fait ; toute la rangée de filtres tient à l'écran.",
+    "Bibliothèque d'une autre console : « Tous ses jeux / Absents d'ici / Aussi ici » remplace « Ici : tout », et « Actualiser » remplace « Relire »."
+   ],
+   "fixed": [],
+   "web": "oui : mêmes libellés courts et mêmes noms sur la page web"
+  },
+  {
+   "version": "2.99.25",
+   "date": "2026-11-13",
+   "title": "Endroits sans répétition",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Sauvegardes : sous chaque jeu, la liste des endroits ne se répète plus ; l'autre PS5 n'est nommée qu'une fois et un NAS partagé avec elle n'apparaît plus deux fois.",
+    "Mises à jour : un fichier qui ne se télécharge pas du premier coup est réessayé une fois avant d'abandonner."
+   ],
+   "web": "oui : même liste d'endroits sous chaque jeu sur la page web"
+  },
+  {
+   "version": "2.99.24",
+   "date": "2026-11-13",
+   "title": "Flèche des endroits à sa place",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Sauvegardes : la flèche › vers les autres endroits est collée à la dernière carte d'endroit, plus à la Corbeille."
+   ],
+   "web": "sans objet : la page web fait défiler les endroits, sans flèche"
+  },
+  {
+   "version": "2.99.23",
+   "date": "2026-11-13",
+   "title": "Chaque NAS sert à ce que vous choisissez",
+   "new": [
+    "Paramètres › Appareils : pour chaque NAS, « Utilisé pour » : Sauvegardes et Synchro, Sauvegardes seulement ou Synchro seulement. Un même NAS peut avoir une entrée par usage (ex. FTP pour les sauvegardes, WebDAV pour la synchro).",
+    "Synchro : plusieurs synchros avec le même NAS, chacune dans son dossier ; deux synchros dans le même dossier sont refusées avec une explication."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : même réglage, mêmes étiquettes et même tri sur la page web"
+  },
+  {
+   "version": "2.99.22",
+   "date": "2026-11-13",
+   "title": "Notre logo sur la carte Mise à jour",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Accueil : la carte « Mise à jour » montre le logo de PS5 Backup Center au lieu d'une case violette."
+   ],
+   "web": "oui : même logo sur la carte de la page web"
+  },
+  {
+   "version": "2.99.21",
+   "date": "2026-11-13",
+   "title": "Carte Interne dans Sauvegardes",
+   "new": [],
+   "improved": [
+    "Sauvegardes : la carte « Interne » apparaît quand le disque interne garde des copies ; la Corbeille reste toujours visible à droite."
+   ],
+   "fixed": [],
+   "web": "sans objet : la page web montre déjà l'interne quand il garde des copies"
+  },
+  {
+   "version": "2.99.20",
+   "date": "2026-11-13",
+   "title": "Pastilles d'avant, Paramètres réordonnés",
+   "new": [],
+   "improved": [
+    "Paramètres : Nouveautés en premier, Remerciements tout en bas (Signaler un problème, Projets à financer et Soutenir le projet juste avant)."
+   ],
+   "fixed": [
+    "Bibliothèque : retour aux pastilles de filtres d'avant, bien espacées."
+   ],
+   "web": "oui : même ordre des Paramètres"
+  },
+  {
+   "version": "2.99.19",
+   "date": "2026-11-13",
+   "title": "Accueil, Bibliothèque et Sauvegardes plus clairs",
+   "new": [],
+   "improved": [
+    "Accueil › Sauvegardes disponibles : la pastille ne nomme que les endroits qui ont vraiment des sauvegardes (Ici, NAS, l'autre PS5).",
+    "Bibliothèque : « Console : cette PS5 · 1 autre › » montre qu'on peut regarder une autre console.",
+    "Sauvegardes : la Corbeille reste toujours visible au bout de la rangée des endroits."
+   ],
+   "fixed": [
+    "Bibliothèque : toute la rangée de filtres tient à l'écran ; « Tout » ne disparaît plus quand on va jusqu'à « Console »."
+   ],
+   "web": "oui : même pastille ; Corbeille toujours visible sur téléphone"
+  },
+  {
+   "version": "2.99.18",
+   "date": "2026-11-13",
+   "title": "Retour à l'affichage de la 2.99.16",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Accueil et Bibliothèque : retour à l'affichage de la 2.99.16 (les essais de la 2.99.17 sont retirés)."
+   ],
+   "web": "oui : même retour"
+  },
+  {
+   "version": "2.99.16",
+   "date": "2026-11-13",
+   "title": "Bibliothèque : filtres corrigés",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Bibliothèque : traverser les types pour aller jusqu'à Console ne laisse plus le filtre sur « Ignorés », et la rangée de filtres glisse pour que « Console » reste entière."
+   ],
+   "web": "sans objet : rangée de filtres de la télé (le web a ses propres menus)"
+  },
+  {
+   "version": "2.99.15",
+   "date": "2026-11-13",
+   "title": "Synchro : chaque appareil défile",
+   "new": [],
+   "improved": [
+    "Accueil : dans la carte Synchro, chaque appareil défile avec son image (PS5, NAS), comme les jeux dans les autres cartes."
+   ],
+   "fixed": [
+    "Mises à jour : une version installée mais pas encore active affiche « Installée, active au redémarrage du moteur » au lieu de « À jour »."
+   ],
+   "web": "oui : même carte et même état"
+  },
+  {
+   "version": "2.99.14",
+   "date": "2026-11-13",
+   "title": "Carte Synchro : titre court",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Accueil : la carte Synchro sans jeu choisi affiche « Aucun jeu choisi » en titre et la liste des appareils dessous (le titre n'est plus coupé)."
+   ],
+   "web": "oui : même carte"
+  },
+  {
+   "version": "2.99.13",
+   "date": "2026-11-13",
+   "title": "Accueil : une seule carte Synchro",
+   "new": [],
+   "improved": [
+    "Accueil › À faire : une seule carte Synchro au lieu d'une par appareil ; les jeux à mettre à niveau d'abord, et les appareils sans jeu choisi regroupés en une ligne."
+   ],
+   "fixed": [],
+   "web": "oui : même carte regroupée"
+  },
+  {
+   "version": "2.99.12",
+   "date": "2026-11-13",
+   "title": "Signaler un problème plus clair",
+   "new": [],
+   "improved": [
+    "Signaler un problème : trois cartes de même taille (un bug, une question ou une idée, une étoile), chacune avec son code et ce qu'il ouvre ; Croix agrandit le code ; les versions à recopier dessous."
+   ],
+   "fixed": [],
+   "web": "oui : les mêmes trois cartes avec des boutons"
+  },
+  {
+   "version": "2.99.11",
+   "date": "2026-11-13",
+   "title": "PS5 Center mieux présenté",
+   "new": [],
+   "improved": [
+    "Projets à financer : PS5 Center présenté comme l'orchestrateur de vos PS5 (jouer à distance, mettre à jour, redémarrer), ses trois points forts visibles et la jauge arrondie comme sur le web."
+   ],
+   "fixed": [],
+   "web": "oui : même liste de projets (support.json)"
+  },
+  {
+   "version": "2.99.10",
+   "date": "2026-11-13",
+   "title": "Messages de la communauté, PS5 Center à financer",
+   "new": [
+    "Soutenir le projet : « Messages de la communauté », avec les messages laissés sur GitHub et un code pour laisser le vôtre.",
+    "Projets à financer : PS5 Center, objectif 2 500 $, avec sa jauge."
+   ],
+   "improved": [
+    "Signaler un problème : codes QR pour les Discussions et « Une étoile sur GitHub », comme sur la page web."
+   ],
+   "fixed": [],
+   "web": "oui : Messages de la communauté et bouton Laisser un message"
+  },
+  {
+   "version": "2.99.9",
+   "date": "2026-11-13",
+   "title": "Tâches : agir sur la sauvegarde, cocher, étiquettes",
+   "new": [
+    "Tâches › Détails : « Voir la sauvegarde » ouvre Toutes les versions, et « Mettre cette sauvegarde à la corbeille » (Carré maintenu 5 s) fait la même chose que dans Sauvegardes.",
+    "Tâches : cochez-en plusieurs (L2, case sur le web) pour les retirer de la liste ou mettre leurs sauvegardes à la corbeille."
+   ],
+   "improved": [
+    "Sauvegardes : avec des éléments cochés, Carré propose de les supprimer (aperçu puis Carré maintenu 5 s).",
+    "Les copies sur un NAS indiquent son moyen : « NAS (FTP) », « NAS (WebDAV) »."
+   ],
+   "fixed": [],
+   "web": "oui : Détails d'une tâche, cases à cocher et barre de sélection"
+  },
+  {
+   "version": "2.99.8",
+   "date": "2026-11-13",
+   "title": "Synchro plus lisible, dossier PBC Backup reconnu",
+   "new": [],
+   "improved": [
+    "Synchro : le texte des petites bulles (Parties actives, Émulateurs, Applis, Réglages, DLC) tient dans sa bulle."
+   ],
+   "fixed": [
+    "NAS : si le dossier choisi est « PBC Backup » lui-même, les sauvegardes y vont directement (plus de « PBC Backup/PBC Backup ») et le même NAS ajouté par un autre protocole est bien reconnu."
+   ],
+   "web": "sans objet : bulles de la télé ; le moteur sert aussi le web"
+  },
+  {
+   "version": "2.99.7",
+   "date": "2026-11-13",
+   "title": "WebDAV plus rapide, un même NAS compté une fois",
+   "new": [],
+   "improved": [
+    "NAS en WebDAV : bien plus rapide, une seule connexion gardée ouverte pour toute la sauvegarde au lieu d'une par requête, et les dossiers déjà créés ne sont plus redemandés.",
+    "Un même NAS ajouté par deux protocoles (FTP et WebDAV, par exemple) n'est compté qu'une fois : ses sauvegardes ne sont plus vues en double, ni dans le résumé, ni dans Synchro.",
+    "Parties : le texte précise que c'est la vraie synchro des parties (PS5 ↔ PS5, Switch ↔ émulateur, Switch ↔ Switch)."
+   ],
+   "fixed": [
+    "NAS en WebDAV : à la racine (où un Synology n'accepte que ses dossiers partagés), le dossier n'est plus cru créé ; le test dit de choisir un dossier partagé.",
+    "Une sauvegarde mise à la corbeille sur un NAS disparaît tout de suite de Toutes les versions.",
+    "Appareils : l'étiquette du protocole ne chevauche plus le nom de l'appareil."
+   ],
+   "web": "oui : un même NAS une fois dans Synchro ; texte de Parties"
+  },
+  {
+   "version": "2.99.6",
+   "date": "2026-11-13",
+   "title": "NAS en WebDAV",
+   "new": [
+    "Appareils : un NAS peut maintenant s'ajouter en WebDAV (Synology, QNAP, Nextcloud…). Dans le formulaire, Protocole propose FTP, SMB ou WebDAV ; le port suit tout seul. Le certificat maison du NAS est accepté une fois puis retenu : s'il change, la connexion est refusée."
+   ],
+   "improved": [],
+   "fixed": [
+    "Restaurer depuis le NAS : une sauvegarde complète de la PS5 n'est plus remise fichier par fichier à son emplacement d'origine (elle passe par la restauration guidée) ; la restaurer dans un dossier choisi reste possible."
+   ],
+   "web": "oui : le même choix WebDAV dans le formulaire de l'appareil"
+  },
+  {
    "version": "2.99.5",
    "date": "2026-11-13",
    "title": "Plusieurs jeux d'un coup sur l'autre PS5",

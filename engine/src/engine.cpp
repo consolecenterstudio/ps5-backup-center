@@ -3,6 +3,10 @@
 #include "store/peer.hpp"
 #include "core/memory.hpp"
 #include "store/smb.hpp"
+#include "store/cloud.hpp"
+#include "store/drives.hpp"
+#include "store/s3.hpp"
+#include "store/webdav.hpp"
 
 #include <algorithm>
 #include <netinet/in.h>
@@ -172,7 +176,7 @@ Engine::Engine(std::string state_dir, std::string app_dir) : dir_(std::move(stat
     scanner_.add(std::move(roms));
 }
 
-Engine::~Engine() { stop(); }
+Engine::~Engine() { stop(); store::cloud::set_rotation_hook(nullptr); }
 
 bool Engine::start() {
     {   // Démarrage : fichier des chargeurs pour l'appli ; copie chez Payload Manager à jour si l'option est active.
@@ -260,6 +264,7 @@ bool Engine::start() {
     scanner_.load_cache(fs::host(fs::join(dir_, "scan-cache.json")));
     // Après une restauration de sauvegarde, la console a changé : on relit l'inventaire.
     remotes_->load();
+    store::cloud::set_rotation_hook([this](const std::string& o, const std::string& n) { remotes_->rotate_secret(o, n); });
     plans_->load();
     plans_->refresh_next(now_unix(), utc_offset());
     queue_->open_place = [this](const std::string& id, std::string& err) { return open_files_place(id, err); };
@@ -740,6 +745,7 @@ bool copy_tree(store::Store& src, const std::string& from, store::Store& dst, co
         if (!r) return false;
         auto w = dst.create(b, err);
         if (!w) return false;
+        w->size_hint(e.size);
         std::vector<char> buf(1u << 20);
         for (;;) {
             if (stop) { w->abort(); err = "arrêtée"; return false; }
@@ -1046,12 +1052,12 @@ void Engine::plans_loop() {
                 if (!sync_configured(inst)) continue;
                 for (const char* k : {"copies", "parties", "dlc", "apps", "emu"}) { if (quit_) break; OpMark op("synchro préparée d'avance"); plan_cached(k, inst, std::string(k) == "copies"); }
             }
-            const Json rem = remotes_json();
-            for (const auto& r : rem.items()) {
+            for (const auto& r : remotes_->list()) {
                 if (quit_) break;
-                if (r["type"].as_string() != "ftp" && r["type"].as_string() != "smb") continue;
-                if (!sync_configured(r["id"].as_string())) continue;  // NAS sans synchro configurée : à la demande
-                for (const char* k : {"copies", "parties", "apps"}) { if (quit_) break; plan_cached(k, r["id"].as_string(), std::string(k) == "copies"); }  // NAS : sauvegardes, parties, dépôt d'applis
+                if (r.type == "switch" || !r.for_sync()) continue;  // NAS qui ne sert pas à la synchro
+                if (!remotes_->same_as(r.id, "sync").empty()) continue;  // même NAS par un autre protocole : déjà préparé
+                if (!sync_configured(r.id)) continue;  // NAS sans synchro configurée : à la demande
+                for (const char* k : {"copies", "parties", "apps"}) { if (quit_) break; plan_cached(k, r.id, std::string(k) == "copies"); }  // NAS : sauvegardes, parties, dépôt d'applis
             }
         }
         memory::purge();  // la mémoire libérée retourne au système (jeux et applis doivent pouvoir se lancer)
@@ -1737,12 +1743,21 @@ bool Engine::set_emulator_settings(const std::string& id, const Json& settings) 
 // choisir le dossier sans le taper. Rien n'est gardé.
 Json Engine::browse_config(const Json& body, std::string& error) {
     store::FtpConfig cfg = store::FtpConfig::from_json(body);
+    if (body["type"].as_string() == "s3" && cfg.service != "other" && cfg.service != "r2") cfg.host = store::s3_endpoint(cfg);
+    if (body["type"].as_string() == "gdrive" || body["type"].as_string() == "onedrive" || body["type"].as_string() == "dropbox") {
+        store::Remote linked;
+        linked.type = body["type"].as_string();
+        if (!body["link"].as_string().empty() && !take_link(body, linked, error)) return Json();
+        cfg.password = linked.ftp.password;
+        cfg.host = linked.type;
+    }
     if (cfg.host.empty()) { error = "adresse manquante"; return Json(); }
     const std::string id = body["id"].as_string();
     store::Remote known;
     if (cfg.password.empty() && !id.empty() && remotes_->find(id, known)) cfg.password = known.ftp.password;
-    const bool smb = body["type"].as_string() == "smb" || (body["type"].as_string() == "switch" && cfg.proto == "smb");
-    auto st = smb ? store::smb(cfg, error) : store::ftp(cfg, error);
+    if (body["type"].as_string() == "webdav" && cfg.pin.empty() && !id.empty() && remotes_->find(id, known)) cfg.pin = known.ftp.pin;
+    if (body["type"].as_string() == "webdav" && cfg.pin.empty() && !store::webdav_trust(cfg, error)) return Json();
+    auto st = store::connect(body["type"].as_string(), cfg, error);
     if (!st) return Json();
     return list_store(*st, body["path"].as_string(), error);
 }
@@ -1755,7 +1770,9 @@ bool Engine::test_config(const Json& body, std::string& error) {
     r.ftp = store::FtpConfig::from_json(body);
     const std::string id = body["id"].as_string();
     store::Remote known;
+    if (!body["link"].as_string().empty() && !take_link(body, r, error)) return false;
     if (r.ftp.password.empty() && !id.empty() && remotes_->find(id, known)) r.ftp.password = known.ftp.password;
+    if (r.type == "webdav" && !store::webdav_trust(r.ftp, error)) return false;  // certificat maison du NAS accepté pour ce test
     return store::Remotes::test(r, error);
 }
 
@@ -1831,8 +1848,10 @@ Json Engine::places_json() {
     for (const auto& r : remotes_->list()) {
         Json j = Json::object();
         j.set("id", r.id);
-        j.set("type", r.type == "smb" ? std::string("ftp") : r.type);  // NAS SMB ou FTP : même rôle partout (sauvegardes, synchro, transferts)
+        j.set("type", r.type == "smb" || r.type == "webdav" || r.type == "s3" || r.type == "gdrive" || r.type == "onedrive" || r.type == "dropbox" ? std::string("ftp") : r.type);  // NAS FTP, SMB, WebDAV ou stockage S3 : même rôle partout (sauvegardes, synchro, transferts)
         j.set("protocol", r.type);
+        j.set("use", r.use.empty() ? std::string("both") : r.use);  // Sauvegardes et Synchro, ou l'un des deux
+        j.set("same_as", remotes_->same_as(r.id, "sync"));  // Synchro : même dossier du même NAS qu'un autre appareil, vide sinon
         j.set("mount", r.address());
         j.set("label", r.name);
         j.set("free", static_cast<std::uint64_t>(0));
@@ -2366,6 +2385,9 @@ Json Engine::remote_index(const std::string& id, bool fresh) {
             for (const auto& b : all.items()) seen.insert(b["bundle"].as_string());
             const std::string pbc = fs::join(root, "PBC Backup");
             fs::Entry pe;
+            if (fs::basename(root) == "PBC Backup")  // dossier de l'appareil = « PBC Backup » lui-même : son index est là
+                for (const auto& b : backup::read_index(*st, root)["backups"].items())
+                    if (seen.insert(b["bundle"].as_string()).second) all.push(b);
             if (st->stat(pbc, pe) && pe.dir) {
                 auto add = [&](const Json& list) {
                     for (const auto& b : list.items()) {
@@ -2448,6 +2470,9 @@ bool Engine::add_remote(const Json& body, std::string& id, std::string& error) {
     r.type = body["type"].as_string().empty() ? "ftp" : body["type"].as_string();
     r.name = body["name"].as_string();
     r.ftp = store::FtpConfig::from_json(body);
+    const std::string use = body["use"].as_string();  // « both » (défaut), « backups » ou « sync »
+    if (use == "backups" || use == "sync") r.use = use;
+    if (!body["link"].as_string().empty() && !take_link(body, r, error)) return false;  // Google Drive, OneDrive
     if (!remotes_->add(r, id, error)) return false;
     ++revision_;
     return true;
@@ -2458,6 +2483,9 @@ bool Engine::update_remote(const std::string& id, const Json& body, std::string&
     r.type = body["type"].as_string();
     r.name = body["name"].as_string();
     r.ftp = store::FtpConfig::from_json(body);
+    const std::string use = body["use"].as_string();  // « both » (défaut), « backups » ou « sync »
+    if (use == "backups" || use == "sync") r.use = use;
+    if (!body["link"].as_string().empty() && !take_link(body, r, error)) return false;  // compte reconnecté
     if (!remotes_->update(id, r, error)) return false;
     ++revision_;
     return true;
@@ -2983,7 +3011,7 @@ Json Engine::backups_summary(const std::string& account, bool with_peers) {
     {
         std::vector<std::pair<std::string, std::string>> plist;  // id, nom affiché
         { MuGuard l(mu_, __FILE__, __LINE__); for (const auto& pl : places_) plist.push_back({pl.id, pl.label}); }
-        for (const auto& r : remotes_->list()) if (r.type != "switch") plist.push_back({r.id, r.name});
+        for (const auto& r : remotes_->list()) if (r.type != "switch" && r.for_backups() && remotes_->same_as(r.id, "backups").empty()) plist.push_back({r.id, r.tagged()});  // un même NAS compté une fois
         std::map<std::string, Json> full;  // clé de l'élément → entrée
         std::map<std::string, std::string> labels;
         for (const auto& [pid, plabel] : plist) {
@@ -3043,7 +3071,7 @@ Json Engine::backups_summary(const std::string& account, bool with_peers) {
             if (!aid.empty()) for (const char* pf : {"ps5", "ps4"}) aid_local.emplace(std::string(pf) + "|" + aid, std::string(pf) + ":" + la.user_id);
         }
         std::set<std::string> my_nas;
-        for (const auto& r : remotes_->list()) my_nas.insert(r.name);
+        for (const auto& r : remotes_->list()) { my_nas.insert(r.name); my_nas.insert(r.tagged()); }  // elle les nomme « NAS (FTP) »
         std::vector<Json> gv(games.items().begin(), games.items().end());
         for (const auto& [inst, x] : pb.members()) {
             const std::string pname = x["name"].as_string();
@@ -3179,7 +3207,7 @@ Json Engine::ignore_title(const Json& body, std::string& error) {
         // … et backups complets (jeu, appli, homebrew, ROM) de chaque disque et NAS.
         std::vector<std::string> place_ids;
         { MuGuard l(mu_, __FILE__, __LINE__); for (const auto& pl : places_) if (pl.type == Place::Type::usb) place_ids.push_back(pl.id); }
-        for (const auto& r : remotes_->list()) if (r.type != "switch") place_ids.push_back(r.id);  // NAS / FTP de backups
+        for (const auto& r : remotes_->list()) if (r.type != "switch" && r.for_backups() && remotes_->same_as(r.id, "backups").empty()) place_ids.push_back(r.id);  // NAS / FTP de backups (un même NAS une fois)
         for (const auto& pid : place_ids) {
             const Json idx = backups_json(pid);
             for (const auto& b : idx["backups"].items())
@@ -3890,7 +3918,7 @@ std::unique_ptr<store::Store> Engine::version_store(const std::string& place_id,
         if (!remotes_->find(place_id, r)) { error = "appareil inconnu"; return nullptr; }
         std::string root = r.ftp.root.empty() ? "/" : r.ftp.root;
         if (root.size() > 1 && root.back() == '/') root.pop_back();
-        path = bundle.find('/') == std::string::npos ? fs::join(fs::join(root, "PBC Backup"), bundle) : fs::join(root, bundle);
+        path = bundle.find('/') == std::string::npos ? fs::join(r.folder(), bundle) : fs::join(root, bundle);
         return remotes_->open(place_id, error);
     }
     Place place;
@@ -3905,9 +3933,8 @@ std::unique_ptr<store::Store> Engine::version_store(const std::string& place_id,
 void Engine::pbc_root(const std::string& place_id, const std::string& path, std::string& root, std::string& rel) {
     if (place_id.rfind("remote:", 0) == 0) {
         store::Remote r;
-        std::string top = remotes_->find(place_id, r) && !r.ftp.root.empty() ? r.ftp.root : "/";
-        if (top.size() > 1 && top.back() == '/') top.pop_back();
-        root = fs::join(top, "PBC Backup");
+        if (remotes_->find(place_id, r)) root = r.folder();  // « <dossier>/PBC Backup », ou le dossier lui-même s'il s'appelle ainsi
+        else root = "/PBC Backup";
     } else {
         Place place;
         std::string err;
@@ -3976,11 +4003,43 @@ Json Engine::trash_restore(const Json& body, std::string& error) {
     st->mkdirs(back.substr(0, back.rfind('/')));
     if (!st->rename(from, back)) { error = "remise en place impossible"; return Json(); }
     log("trash restore place=%s to=%s", place_id.c_str(), back.c_str());
-    if (place_id.rfind("remote:", 0) == 0) { std::lock_guard<std::mutex> l(remote_index_mu_); remote_index_.erase(place_id); }
+    if (place_id.rfind("remote:", 0) == 0) { backup::rebuild_index(*st, root); std::lock_guard<std::mutex> l(remote_index_mu_); remote_index_.erase(place_id); }
     else backup::rebuild_index(root);
     ++revision_;
     Json out = Json::object();
     out.set("restored", back);
+    return out;
+}
+
+Json Engine::task_backup(const std::string& task_id, std::string& error) {
+    tasks::Task t;
+    if (!queue_->get(task_id, t) || t.type != tasks::Type::backup) { error = "tâche inconnue"; return Json(); }
+    if (t.state != tasks::State::done || t.bundle.empty()) { error = "cette tâche n'a pas fini sa sauvegarde"; return Json(); }
+    const std::string remote = t.request["remote"].as_string(), folder = t.request["folder"].as_string();
+    std::string rel;
+    if (!remote.empty()) {  // relatif à la racine de l'appareil (version_store)
+        store::Remote r;
+        if (!remotes_->find(remote, r)) { error = "appareil inconnu (oublié ?)"; return Json(); }
+        std::string root = r.ftp.root.empty() ? "/" : r.ftp.root;
+        if (root.size() > 1 && root.back() == '/') root.pop_back();
+        const std::string pre = root == "/" ? "/" : root + "/";
+        if (t.bundle.rfind(pre, 0) != 0) { error = "sauvegarde hors du dossier de l'appareil"; return Json(); }
+        rel = t.bundle.substr(pre.size());
+    } else {  // disque de la console : relatif à son dossier de sauvegardes
+        if (folder.empty() || t.bundle.rfind(folder + "/", 0) != 0) { error = "emplacement de la sauvegarde inconnu"; return Json(); }
+        rel = t.bundle.substr(folder.size() + 1);
+    }
+    std::string path;
+    auto st = version_store(remote.empty() ? t.request["disk_id"].as_string() : remote, rel, path, error);
+    if (!st) return Json();
+    fs::Entry e;
+    if (!st->stat(path, e) || !e.dir) { error = "cette sauvegarde n'est plus là (supprimée ou déplacée)"; return Json(); }
+    Json out = Json::object();
+    out.set("place", remote.empty() ? t.request["disk_id"].as_string() : remote);
+    out.set("bundle", rel);
+    out.set("title_id", t.request["item"]["title_id"]);
+    out.set("item", t.request["item"]["key"]);
+    out.set("title", t.title);
     return out;
 }
 
@@ -4036,7 +4095,14 @@ Json Engine::version_action(const std::string& action, const Json& body, std::st
     } else { error = "action inconnue"; return Json(); }
     // Les listes changent : index local refait, cache du NAS oublié.
     if (action != "measure") {
-        if (place_id.rfind("remote:", 0) == 0) { std::lock_guard<std::mutex> l(remote_index_mu_); remote_index_.erase(place_id); }
+        if (place_id.rfind("remote:", 0) == 0) {
+            // Le NAS garde aussi son index.json : refait tout de suite, sinon la version mise à la corbeille réapparaît.
+            std::string root, rel;
+            pbc_root(place_id, path, root, rel);
+            backup::rebuild_index(*st, root);
+            std::lock_guard<std::mutex> l(remote_index_mu_);
+            remote_index_.erase(place_id);
+        }
         else {
             Place place;
             std::string err, folder;
@@ -4126,9 +4192,10 @@ Json Engine::saves_overview(bool include_ignored) {
         for (const char* pf : {"ps5", "ps4"}) same_person.emplace(std::string(pf) + "|" + aid, std::string(pf) + ":" + la.user_id);
     }
     for (const auto& r : remotes_->list()) {  // appareils réseau : index gardé en cache
+        if (!r.for_backups() || !remotes_->same_as(r.id, "backups").empty()) continue;  // synchro seulement, ou le même NAS par un autre protocole : comptés une fois
         Place p;
         p.id = r.id;
-        p.label = r.name;
+        p.label = r.tagged();  // « NAS (FTP) » : qui est quoi, partout où la copie apparaît
         p.mount = "remote";
         places.push_back(p);
     }

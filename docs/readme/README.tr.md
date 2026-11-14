@@ -16,7 +16,9 @@
 
 Nelerin yedeklenmesi gerektiğini görün, mevcut kopyaları karşılaştırın ve cihazlar arasındaki aktarımı düzenleyin. PS5 Backup Center envanteri, yedekleri, eşitlemeyi ve aktarımları TV’de ve tarayıcıda birleştirir.
 
-**2.99.5 · GPL-3.0-or-later · 19 · 8**
+**3.0.0 · GPL-3.0-or-later · 19 · 8**
+
+**Bizi takip edin** · [X @CCenterStudio](https://x.com/CCenterStudio) · [YouTube @ConsoleCenterStudio](https://www.youtube.com/@ConsoleCenterStudio) · [Reddit @ConsoleCenterStudio](https://www.reddit.com/user/ConsoleCenterStudio/)
 
 Özgür yazılım. Abonelik yok.
 
@@ -29,6 +31,12 @@ Nelerin yedeklenmesi gerektiğini görün, mevcut kopyaları karşılaştırın 
 ## Kitaplık · Eşitleme
 
 Saklanan yedekler ve etkin oyun kayıtları farklıdır. PS5’ler arasında veya NAS ile tutulacak kopyaları seçin. Yerel kullanıcı kimlikleri farklı olabilir: hedef hesap önemlidir. Switch ↔ Eden / ProsperoEden, Switch üzerinde JKSV ve ftpd kullanır. Uygulamalar ve ayarlar kendi kurallarına sahiptir. Tam oyunlar Aktarımlar bölümündedir.
+
+## 3.0’daki yenilikler
+
+- Cihazlardan NAS veya konsol ekleyip kaydetmeden kimliğini kontrol edin. NAS için desteklenen protokolü seçip bağlantıyı test edin ve klasörü belirleyin. PS5’ler arasında eşleştirme kodunu onaylayın; Switch için ftpd ve JKSV dışa aktarımı hazırlayın. FTP / FTPS, SMB ve WebDAV desteklenir. “Kullanım”, NAS’ın kayıtlar, eşitleme ya da ikisi için kullanılacağını belirler.
+- Bulut için Cihazlar › Bulut’u açın: bir S3 hizmeti (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) seçip anahtarlarını girin — QR kod aynı formu telefonunuzda açar, böylece onları yapıştırabilirsiniz — ya da hesabınızla pCloud, Koofr, Nextcloud’u seçin. Google Drive, OneDrive ve Dropbox telefonunuzdan kendi hesabınızla bağlanır (etkinleştirme gelecek bir güncellemede).
+- Tam ekran klavyesi.
 
 ## 2.98'deki yenilikler
 

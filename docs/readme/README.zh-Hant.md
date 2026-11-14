@@ -16,7 +16,9 @@
 
 找出需要備份的內容，比較現有副本，並安排裝置之間的資料交換。PS5 Backup Center 在電視與瀏覽器中整合內容清單、備份、同步和傳輸。
 
-**2.99.5 · GPL-3.0-or-later · 19 · 8**
+**3.0.0 · GPL-3.0-or-later · 19 · 8**
+
+**追蹤我們** · [X @CCenterStudio](https://x.com/CCenterStudio) · [YouTube @ConsoleCenterStudio](https://www.youtube.com/@ConsoleCenterStudio) · [Reddit @ConsoleCenterStudio](https://www.reddit.com/user/ConsoleCenterStudio/)
 
 自由軟體，無需訂閱。
 
@@ -29,6 +31,12 @@
 ## 遊戲庫 · 同步
 
 保存的備份副本與目前使用的遊戲存檔不同。選擇在兩台 PS5 之間或與 NAS 保持一致的副本。本機使用者 ID 可能不同，因此必須確認目標帳號。Switch ↔ Eden / ProsperoEden 在 Switch 端使用 JKSV 和 ftpd。應用程式與支援的設定有各自的比較規則。完整遊戲透過「傳輸」處理。
+
+## 3.0 新功能
+
+- 在裝置頁面新增NAS或主機，儲存前核對身分。NAS需選擇支援的協定、測試連線並選定資料夾。兩台PS5之間確認配對碼；Switch需準備ftpd和JKSV匯出。支援FTP / FTPS、SMB和WebDAV。「用途」決定NAS用於存檔、同步或兩者兼用。
+- 如需使用雲端，開啟裝置 › 雲端：選擇S3服務（Amazon S3、Backblaze B2、Wasabi、Cloudflare R2、Scaleway、OVHcloud、Synology C2…）並輸入其金鑰——QR碼會在手機上開啟同一表單，方便貼上——或以你的帳號使用pCloud、Koofr、Nextcloud。Google Drive、OneDrive和Dropbox在手機上以你自己的帳號連線（將在後續更新中啟用）。
+- 完整的螢幕鍵盤.
 
 ## 2.98 新功能
 

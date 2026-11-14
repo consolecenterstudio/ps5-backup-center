@@ -581,21 +581,34 @@ void Updater::run_install() {
         ++revision_;
         const std::string dst = fs::host(fs::join(stage, f.path));
         fs::mkdirs(std::string(fs::dirname(dst)));
-        FILE* out = std::fopen(dst.c_str(), "wb");
-        if (!out) { set_state("error", "écriture impossible : " + f.path); return; }
         Sha256 h;
         std::uint64_t got = 0;
-        const std::string fetch_error = fetch_file(url, f.path, [&](const char* p, std::size_t n) {
-            if (std::fwrite(p, 1, n, out) != n) return false;
-            h.add(p, n);
-            got += n;
-            { std::lock_guard<std::mutex> l(mu_); done_ += n; }
-            if ((got & ((1u << 20) - 1)) < n) ++revision_;  // environ un avancement par Mo
-            return true;
-        });
-        const bool flushed = std::fflush(out) == 0 && ::fsync(fileno(out)) == 0;
-        std::fclose(out);
-        if (!fetch_error.empty() || !flushed) { set_state("error", f.path + " : " + (fetch_error.empty() ? "écriture incomplète" : fetch_error)); return; }
+        // Un essai de plus si le téléchargement échoue (ex. 404 passager du cache d'un fichier fraîchement publié).
+        for (int attempt = 0;; ++attempt) {
+            FILE* out = std::fopen(dst.c_str(), "wb");
+            if (!out) { set_state("error", "écriture impossible : " + f.path); return; }
+            h = Sha256();
+            { std::lock_guard<std::mutex> l(mu_); done_ -= got; }
+            got = 0;
+            const std::string fetch_error = fetch_file(url, f.path, [&](const char* p, std::size_t n) {
+                if (std::fwrite(p, 1, n, out) != n) return false;
+                h.add(p, n);
+                got += n;
+                { std::lock_guard<std::mutex> l(mu_); done_ += n; }
+                if ((got & ((1u << 20) - 1)) < n) ++revision_;  // environ un avancement par Mo
+                return true;
+            });
+            const bool flushed = std::fflush(out) == 0 && ::fsync(fileno(out)) == 0;
+            std::fclose(out);
+            if (fetch_error.empty() && flushed) break;
+            if (attempt == 0 && !fetch_error.empty()) {
+                log("update: %s : %s, nouvel essai", f.path.c_str(), fetch_error.c_str());
+                std::this_thread::sleep_for(std::chrono::seconds(3));
+                continue;
+            }
+            set_state("error", f.path + " : " + (fetch_error.empty() ? "écriture incomplète" : fetch_error));
+            return;
+        }
         if (got != f.size || h.hex() != f.sha256) { set_state("error", "fichier altéré pendant le téléchargement : " + f.path); return; }
     }
     // 2. Installation, réversible. La version en place est gardée dans update-previous (ses fichiers remplacés dans

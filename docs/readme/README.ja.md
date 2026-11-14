@@ -16,7 +16,9 @@
 
 バックアップが必要な内容を見つけ、既存のコピーを比較し、機器間のデータ交換を整理します。PS5 Backup Center は、一覧表示、バックアップ、同期、転送をテレビとブラウザーにまとめます。
 
-**2.99.5 · GPL-3.0-or-later · 19 · 8**
+**3.0.0 · GPL-3.0-or-later · 19 · 8**
+
+**フォロー** · [X @CCenterStudio](https://x.com/CCenterStudio) · [YouTube @ConsoleCenterStudio](https://www.youtube.com/@ConsoleCenterStudio) · [Reddit @ConsoleCenterStudio](https://www.reddit.com/user/ConsoleCenterStudio/)
 
 自由なソフトウェア。定額料金なし。
 
@@ -29,6 +31,12 @@
 ## ライブラリー · 同期
 
 保管用バックアップと、プレイ中に使うセーブデータは別のものです。PS5 同士または NAS と維持するコピーを選びます。本体ごとにローカルユーザー ID が異なる場合があるため、受信先アカウントが重要です。Switch ↔ Eden / ProsperoEden では Switch 側で JKSV と ftpd を使います。アプリと対応設定には個別の比較規則があります。ゲーム全体は「転送」で扱います。
+
+## 3.0 の新機能
+
+- 機器の画面でNASか本体を追加し、保存前に相手を確認します。NASでは対応プロトコルを選び、接続テストとフォルダー選択を行います。PS5間はペアリングコードを確認し、SwitchではftpdとJKSVエクスポートを準備します。FTP / FTPS、SMB、WebDAVに対応しています。「用途」で、NASをセーブデータ用、同期用、またはその両方に使うかを選びます。
+- クラウドはデバイス › クラウドを開きます。S3サービス（Amazon S3、Backblaze B2、Wasabi、Cloudflare R2、Scaleway、OVHcloud、Synology C2…）を選んでキーを入力します（QRコードで同じフォームがスマホに開くので、そこに貼り付けられます）。またはpCloud、Koofr、Nextcloudを自分のアカウントで使います。Google Drive、OneDrive、Dropboxはスマホから自分のアカウントで接続します（今後のアップデートで有効になります）。
+- フルスクリーンキーボード.
 
 ## 2.98 の新機能
 

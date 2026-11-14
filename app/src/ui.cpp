@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 
 namespace app {
@@ -30,8 +31,8 @@ const PlanPreset plan_presets[] = {
 // Sections des Paramètres, dans l'ordre affiché (« Nouveautés » en premier, comme BlackBox).
 // Textes de support.json (liste en ligne) traduits à l'affichage
 [[maybe_unused]] const char* support_names[] = {N_("Offrir un cadeau"), N_("cartes cadeaux, abonnements, matériel"), N_("carte, PayPal")};
-enum Section { sec_general, sec_news, sec_sources, sec_ignored, sec_accounts, sec_devices, sec_updates, sec_diag, sec_thanks, sec_report, sec_goals, sec_support, section_count };
-const char* section_names[] = {N_("Général"), N_("Nouveautés"), N_("Sources et émulateurs"), N_("Éléments ignorés"), N_("Utilisateurs"), N_("Appareils"), N_("Mises à jour et démarrage"), N_("Diagnostic et à propos"), N_("Remerciements"), N_("Signaler un problème"), N_("Projets à financer"), N_("Soutenir le projet")};
+enum Section { sec_news, sec_general, sec_sources, sec_ignored, sec_accounts, sec_devices, sec_updates, sec_diag, sec_report, sec_goals, sec_support, sec_thanks, section_count };
+const char* section_names[] = {N_("Nouveautés"), N_("Général"), N_("Sources et émulateurs"), N_("Éléments ignorés"), N_("Utilisateurs"), N_("Appareils"), N_("Mises à jour et démarrage"), N_("Diagnostic et à propos"), N_("Signaler un problème"), N_("Projets à financer"), N_("Soutenir le projet"), N_("Remerciements")};
 // Texte de recherche : minuscules, sans accents (é → e, ç → c…), pour « pokemon » = « Pokémon ».
 std::string fold(const std::string& in) {
     static const char* from[] = {"à", "â", "ä", "á", "ã", "é", "è", "ê", "ë", "î", "ï", "í", "ô", "ö", "ó", "õ", "ù", "û", "ü", "ú", "ç", "ñ",
@@ -411,7 +412,7 @@ bool Ui::update(const InputState& in, std::uint64_t now) {
     key_sound(k);
     if (k & key::touchpad) {  // pavé tactile : retour à l'Accueil, d'où qu'on soit (rien n'est annulé en cours de route)
         if (!kb_open_ && !hold_open_ && !mg_deleting_) {
-            whats_new_.clear(); popup_ = false; sheet_ = false; rsheet_ = false; br_open_ = false; pe_open_ = false; pp_open_ = false; em_open_ = false; ed_open_ = false;
+            whats_new_.clear(); popup_ = false; sheet_ = false; rsheet_ = false; br_open_ = false; pe_open_ = false; pp_open_ = false; em_open_ = false; ed_open_ = false; cl_open_ = false;
             mg_preview_ = false; mg_ign_open_ = false; sy_pick_ = false; loupe_ = false;
             tab_ = home; home_zone_ = 0;
             return true;
@@ -423,6 +424,7 @@ bool Ui::update(const InputState& in, std::uint64_t now) {
     if (pe_open_) { input_plan_editor(k); return true; }
     if (pp_open_) { input_item_plans(k); return true; }
     if (em_open_) { input_emulator(k); return true; }
+    if (cl_open_) { input_cloud_link(k); return true; }
     if (ed_open_) { input_editor(k); return true; }
     if (popup_) { input_popup(k); return true; }
     if (guide_) { if (k & (key::cross | key::circle)) guide_ = false; return true; }
@@ -483,13 +485,19 @@ void Ui::input_library(std::uint32_t k) {
     const auto items = visible_items();
     if (lib_zone_ == 0) {  // rangée de filtres
         constexpr int chips = kind_count + 4;  // Tout, PS5, PS4, Applications, ROM, Émulateur, Emplacement, Actualiser, Console
+        const int was = lib_filter_;
         if (k & key::left) lib_filter_ = std::max(0, lib_filter_ - 1);
         if (k & key::right) lib_filter_ = std::min(chips - 1, lib_filter_ + 1);
-        // Les types (Tout, PS5, PS4, Applications, ROM) s'appliquent dès qu'on passe dessus, comme des onglets.
+        // Les types (Tout, PS5, PS4, Applications, ROM, Ignorés) s'appliquent dès qu'on passe dessus, comme des onglets.
+        // Mais si on ne fait que les traverser pour aller aux réglages (Émulateur… Console), on garde le type d'avant :
+        // sinon on arrivait toujours sur « Ignorés ».
+        if (lib_kind_before_ < 0) lib_kind_before_ = kind_;
+        if (was >= kind_count && lib_filter_ < kind_count) lib_kind_before_ = kind_;  // on revient dans les types
         if ((k & (key::left | key::right)) && lib_filter_ < kind_count && kind_ != lib_filter_) { kind_ = lib_filter_; grid_ = grid_top_ = 0; }
-        if (k & (key::down | key::circle)) lib_zone_ = 1;
+        if (was < kind_count && lib_filter_ >= kind_count && kind_ != lib_kind_before_) { kind_ = lib_kind_before_; grid_ = grid_top_ = 0; }
+        if (k & (key::down | key::circle)) { lib_zone_ = 1; lib_kind_before_ = kind_; }
         if (k & key::cross) {
-            if (lib_filter_ < kind_count) { kind_ = lib_filter_; lib_zone_ = 1; }
+            if (lib_filter_ < kind_count) { kind_ = lib_filter_; lib_kind_before_ = kind_; lib_zone_ = 1; }
             // Émulateur / emplacement : chaque appui passe au suivant, directement dans la rangée (sans fenêtre).
             else if (lib_filter_ == kind_count) app_ = (app_ + 1) % (static_cast<int>(app_filters().size()) + 1);
             else if (lib_filter_ == kind_count + 1 && !lib_peer_.empty()) lib_presence_ = (lib_presence_ + 1) % 3;
@@ -624,15 +632,33 @@ void Ui::input_library(std::uint32_t k) {
 
 // ---- Clavier à l'écran ----
 namespace {
+// Trois pages : lettres (avec les accents utiles), majuscules (L1), caractères spéciaux (R1).
 const char* const kb_keys[4][10] = {{"a", "z", "e", "r", "t", "y", "u", "i", "o", "p"},
                                     {"q", "s", "d", "f", "g", "h", "j", "k", "l", "m"},
-                                    {"w", "x", "c", "v", "b", "n", "'", "-", ".", ":"},
+                                    {"w", "x", "c", "v", "b", "n", "é", "è", "à", "ç"},
                                     {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"}};
 const char* const kb_shift_keys[4][10] = {{"A", "Z", "E", "R", "T", "Y", "U", "I", "O", "P"},
                                           {"Q", "S", "D", "F", "G", "H", "J", "K", "L", "M"},
-                                          {"W", "X", "C", "V", "B", "N", "_", "/", "@", "?"},
-                                          {"!", "#", "$", "%", "&", "*", "+", "=", "(", ")"}};
-const char* const kb_actions[3] = {N_("Espace"), N_("Effacer"), N_("Terminé")};
+                                          {"W", "X", "C", "V", "B", "N", "É", "È", "À", "Ç"},
+                                          {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"}};
+const char* const kb_sym_keys[4][10] = {{"!", "@", "#", "$", "%", "&", "*", "(", ")", "?"},
+                                        {"-", "_", "=", "+", "/", "\\", "|", "~", "^", "\""},
+                                        {".", ",", ":", ";", "'", "`", "[", "]", "{", "}"},
+                                        {"<", ">", "€", "£", "°", "§", "µ", "²", "«", "»"}};
+// Services S3 proposés par leur nom : identifiant pour le moteur, nom affiché, région par défaut.
+struct S3Service { const char* id; const char* name; const char* region; };
+const S3Service kS3Services[] = {{"aws", "Amazon S3", "eu-west-3"}, {"b2", "Backblaze B2", "us-west-004"}, {"wasabi", "Wasabi", "eu-central-1"},
+                                 {"r2", "Cloudflare R2", "auto"}, {"scaleway", "Scaleway", "fr-par"}, {"ovh", "OVHcloud", "gra"},
+                                 {"c2", "Synology C2", "eu-002"}, {"other", N_("Autre S3"), ""}};
+const S3Service& s3_service(const std::string& id) {
+    for (const auto& x : kS3Services) if (id == x.id) return x;
+    return kS3Services[0];
+}
+// L'adresse se saisit pour « Autre S3 » ; pour Cloudflare R2, c'est le n° de compte. Ailleurs : d'après la région.
+bool s3_host_typed(const std::string& id) { return id == "other" || id == "r2"; }
+// Rangée du bas : chaque bouton porte la touche de la manette qui fait la même chose.
+const char* const kb_actions[5] = {N_("Maj"), "#+=", N_("Espace"), N_("Effacer"), N_("Terminé")};
+const char* const kb_action_keys[5] = {"L1", "R1", nullptr, nullptr, "R2"};  // △ et □ : dessinés (icon)
 }  // namespace
 
 void Ui::open_takeover(const std::string& from, const std::string& user_id, const std::string& target_name) {
@@ -652,7 +678,7 @@ void Ui::open_keyboard(std::string title, std::string text, std::function<void(c
     kb_apply_ = std::move(apply);
     kb_done_ = nullptr;
     kb_row_ = kb_col_ = 0;
-    kb_shift_ = kb_secret_ = false;
+    kb_shift_ = kb_sym_ = kb_secret_ = false;
 }
 
 void Ui::input_keyboard(std::uint32_t k) {
@@ -664,21 +690,27 @@ void Ui::input_keyboard(std::uint32_t k) {
         kb_text_.resize(n);
         changed();
     };
-    const int cols = kb_row_ == 4 ? 3 : 10;
+    const int cols = kb_row_ == 4 ? 5 : 10;
+    const int from = kb_row_;
     if (k & key::up) kb_row_ = std::max(0, kb_row_ - 1);
     if (k & key::down) kb_row_ = std::min(4, kb_row_ + 1);
-    if (k & (key::up | key::down)) kb_col_ = kb_row_ == 4 ? std::min(2, kb_col_ * 3 / 10) : std::min(9, kb_col_);
+    if (kb_row_ != from) kb_col_ = kb_row_ == 4 ? std::min(4, kb_col_ / 2) : from == 4 ? std::min(9, kb_col_ * 2) : kb_col_;
     if (k & key::left) kb_col_ = (kb_col_ + cols - 1) % cols;
     if (k & key::right) kb_col_ = (kb_col_ + 1) % cols;
     if (k & key::square) backspace();
     if (k & key::triangle) { kb_text_ += ' '; changed(); }
     if (k & (key::circle | key::options | key::r2)) { kb_open_ = false; if (kb_done_) kb_done_(); return; }  // le texte reste appliqué
     if (k & key::l2) { kb_text_.clear(); changed(); }
-    if (k & key::l1) kb_shift_ = !kb_shift_;
+    auto shift = [&] { kb_shift_ = !kb_shift_; kb_sym_ = false; };
+    auto sym = [&] { kb_sym_ = !kb_sym_; kb_shift_ = false; };
+    if (k & key::l1) shift();
+    if (k & key::r1) sym();
     if (k & key::cross) {
-        if (kb_row_ < 4) { if (kb_text_.size() < 60) { kb_text_ += (kb_shift_ ? kb_shift_keys : kb_keys)[kb_row_][kb_col_]; changed(); } }
-        else if (kb_col_ == 0) { kb_text_ += ' '; changed(); }
-        else if (kb_col_ == 1) backspace();
+        if (kb_row_ < 4) { if (kb_text_.size() < 60) { kb_text_ += (kb_sym_ ? kb_sym_keys : kb_shift_ ? kb_shift_keys : kb_keys)[kb_row_][kb_col_]; changed(); } }
+        else if (kb_col_ == 0) shift();
+        else if (kb_col_ == 1) sym();
+        else if (kb_col_ == 2) { kb_text_ += ' '; changed(); }
+        else if (kb_col_ == 3) backspace();
         else { kb_open_ = false; if (kb_done_) kb_done_(); }
     }
 }
@@ -701,18 +733,26 @@ void Ui::draw_keyboard(Surface& s) {
             const int kx = gx + c * (kw + 8), ky = gy + r * (kh + 8);
             const bool on = kb_row_ == r && kb_col_ == c;
             s.rect(kx, ky, kw, kh, on ? color::text : rgb(255, 255, 255, 22), 14);
-            const std::string label = (kb_shift_ ? kb_shift_keys : kb_keys)[r][c];
+            const std::string label = (kb_sym_ ? kb_sym_keys : kb_shift_ ? kb_shift_keys : kb_keys)[r][c];
             s.text(font_, kx + (kw - Surface::measure(label, large)) / 2, ky + 12, label, large, on ? color::bg : color::text);
         }
-    const int aw = (10 * kw + 9 * 8 - 2 * 8) / 3, ay = gy + 4 * (kh + 8);
-    for (int c = 0; c < 3; ++c) {
+    // Rangée du bas : 5 boutons de même largeur, alignés sur les touches ; chacun montre sa touche de manette.
+    const int aw = (10 * kw + 9 * 8 - 4 * 8) / 5, ay = gy + 4 * (kh + 8);
+    for (int c = 0; c < 5; ++c) {
         const int ax = gx + c * (aw + 8);
-        const bool on = kb_row_ == 4 && kb_col_ == c;
-        s.rect(ax, ay, aw, kh, on ? color::text : c == 2 ? rgb(61, 139, 255, 120) : rgb(255, 255, 255, 22), 14);
-        s.text(font_, ax + (aw - Surface::measure(tr(kb_actions[c]), body)) / 2, ay + 16, tr(kb_actions[c]), body, on ? color::bg : color::text);
+        const bool on = kb_row_ == 4 && kb_col_ == c, lit = (c == 0 && kb_shift_) || (c == 1 && kb_sym_);
+        s.rect(ax, ay, aw, kh, on ? color::text : lit ? rgb(61, 139, 255, 200) : c == 4 ? rgb(61, 139, 255, 120) : rgb(255, 255, 255, 22), 14);
+        const char* label = c == 1 ? kb_actions[c] : tr(kb_actions[c]);
+        const int bw = kb_action_keys[c] ? Surface::measure(kb_action_keys[c], small) + 20 : 34;
+        const int lw = Surface::measure(label, body), cx = ax + (aw - (bw + 10 + lw)) / 2;
+        if (kb_action_keys[c]) {  // L1, R1, R2 : petite pastille avec le nom de la touche
+            s.rect(cx, ay + 15, bw, 32, on ? color::bg : rgb(12, 27, 46), 16);
+            s.text(font_, cx + 10, ay + 17, kb_action_keys[c], small, on ? color::text : rgb(200, 214, 230));
+        } else icon(s, c == 2 ? 3 : 2, cx + 4, ay + 18, color::text);  // △ Espace, □ Effacer
+        s.text(font_, cx + bw + 10, ay + 16, label, body, on || lit ? (on ? color::bg : color::text) : color::text);
     }
     s.rect(0, 996, 1920, 84, color::bg, 0);  // les aides de l'écran du dessous laissent la place
-    draw_footer(s, {{0, tr("Taper")}, {2, tr("Effacer")}, {3, tr("Espace")}, {-1, kb_shift_ ? tr("L1 minuscules") : tr("L1 majuscules et symboles")}, {-1, tr("L2 tout effacer")}, {1, tr("Terminé")}});
+    draw_footer(s, {{0, tr("Taper")}, {-1, tr("L2 tout effacer")}, {1, tr("Fermer (le texte reste)")}});
 }
 
 void Ui::open_popup(int kind, std::string title, std::vector<std::string> options, int selected) {
@@ -1031,7 +1071,7 @@ void Ui::input_sheet(std::uint32_t k) {
         int sel = 0;
         for (std::size_t i = 0; i < places.size(); ++i) {
             const auto& p = places[i];
-            if (p.type == "switch") continue;  // une Switch est une source de sauvegardes, pas une destination de backup
+            if (p.type == "switch" || p.use == "sync") continue;  // Switch : une source ; NAS « Synchro seulement » : pas une destination de backup
             dest_places_.push_back(static_cast<int>(i));
             if (dest_ == static_cast<int>(i) + 1) sel = static_cast<int>(dest_places_.size());
             opts.push_back(p.label + (p.type == "ftp" ? std::string("  ·  ") + tr("réseau") : "  ·  " + trf("%s libres", size_text(p.free).c_str())));
@@ -1203,7 +1243,7 @@ void Ui::input_sync(std::uint32_t k) {
 void Ui::input_tasks(std::uint32_t k) {
     std::vector<const Task*> list;
     for (auto it = snap_->tasks.rbegin(); it != snap_->tasks.rend(); ++it) if (in_group(it->state, tasks_group_)) list.push_back(&*it);
-    if (filter_bar(k, tasks_group_, 5, tasks_row_)) { tasks_action_ = 0; return; }
+    if (filter_bar(k, tasks_group_, 5, tasks_row_)) { tasks_action_ = 0; tasks_sel_.clear(); return; }
     if (tasks_group_ == 4) { input_plans(k); return; }
     const int n = static_cast<int>(list.size());
     if (k & key::up) { tasks_row_ = std::max(0, tasks_row_ - 1); tasks_action_ = 0; }
@@ -1211,6 +1251,13 @@ void Ui::input_tasks(std::uint32_t k) {
     if (k & key::left) tasks_action_ = std::max(0, tasks_action_ - 1);
     if (k & key::right) tasks_action_ = std::min(1, tasks_action_ + 1);
     if ((k & key::triangle) && tasks_group_ >= 1 && tasks_group_ <= 3 && n > 0) { clear_tasks(tasks_group_); return; }
+    if ((k & key::l2) && tasks_row_ < n) {  // L2 : cocher (tâches finies seulement)
+        const Task& t = *list[static_cast<std::size_t>(tasks_row_)];
+        if (in_group(t.state, 0)) { toast(tr("Une tâche en cours ne se coche pas")); return; }
+        if (!tasks_sel_.erase(t.id)) tasks_sel_.insert(t.id);
+        return;
+    }
+    if ((k & key::options) && !tasks_sel_.empty()) { tasks_selection_menu(); return; }
     if ((k & key::options) && tasks_row_ < n) {  // Options : retirer cette tâche de la liste (terminée, en échec ou annulée)
         const Task& t = *list[static_cast<std::size_t>(tasks_row_)];
         if (t.state == "done" || t.state == "failed" || t.state == "cancelled") {
@@ -1239,6 +1286,56 @@ void Ui::input_tasks(std::uint32_t k) {
         if (a && std::string(a) == "details") { task_details(t); return; }
         if (a) model_.command("POST", "/api/v2/tasks/" + t.id + "/" + a, "{}");
     }
+}
+
+// Tâches cochées : retirer de la liste, mettre à la corbeille les sauvegardes qu'elles ont faites, tout (dé)cocher.
+void Ui::tasks_selection_menu() {
+    std::vector<std::string> ids, backups;
+    for (const auto& t : snap_->tasks) {
+        if (!tasks_sel_.count(t.id)) continue;
+        ids.push_back(t.id);
+        if (t.type == "backup" && t.state == "done") backups.push_back(t.id);
+    }
+    std::vector<std::pair<std::string, std::function<void()>>> acts;
+    acts.push_back({trf("Retirer de la liste (%d)", static_cast<int>(ids.size())), [this, ids] {
+        for (const auto& id : ids) model_.command("POST", "/api/v2/tasks/" + id + "/remove", "{}");
+        tasks_sel_.clear();
+        toast(trf("%d tâche(s) retirée(s) de la liste", static_cast<int>(ids.size())));
+    }});
+    if (!backups.empty())
+        acts.push_back({trf("Mettre leurs sauvegardes à la corbeille… (%d)", static_cast<int>(backups.size())), [this, backups] {
+            open_hold_confirm(trf("Mettre %d sauvegarde(s) à la corbeille ?", static_cast<int>(backups.size())),
+                              tr("Les sauvegardes faites par ces tâches vont dans la corbeille de leur disque ou de leur NAS pendant 30 jours. Les tâches restent dans la liste."),
+                              [this, backups] { tasks_trash_next(backups, 0, 0, 0); });
+        }});
+    std::vector<std::string> all;
+    for (const auto& t : snap_->tasks) if (in_group(t.state, tasks_group_) && !in_group(t.state, 0)) all.push_back(t.id);
+    acts.push_back({tr("Tout cocher"), [this, all] { tasks_sel_.insert(all.begin(), all.end()); }});
+    acts.push_back({tr("Tout décocher"), [this] { tasks_sel_.clear(); }});
+    acts.push_back({tr("Fermer"), [] {}});
+    open_actions(trf("%d coché(s)", static_cast<int>(ids.size())), std::move(acts));
+    popup_note_ = tr("Retirer de la liste ne touche à aucun fichier.");
+}
+
+// Une sauvegarde après l'autre (le NAS répond une requête à la fois) : retrouvée par sa tâche, puis corbeille.
+void Ui::tasks_trash_next(std::vector<std::string> ids, std::size_t i, int done, int failed) {
+    if (i >= ids.size()) {
+        post_toast(failed ? trf("%d sauvegarde(s) mise(s) à la corbeille · %d introuvable(s) ou refusée(s)", done, failed)
+                          : trf("%d sauvegarde(s) mise(s) à la corbeille (30 jours)", done));
+        post_ui([this] { tasks_sel_.clear(); overview_loaded_ = 0; });
+        return;
+    }
+    model_.command("POST", "/api/v2/tasks/" + ids[i] + "/backup", "{}", [this, ids, i, done, failed](const std::string& e, const std::string& body) {
+        pbc::Json j;
+        if (!e.empty() || !pbc::Json::parse(body, j)) { tasks_trash_next(ids, i + 1, done, failed + 1); return; }
+        pbc::Json b = pbc::Json::object();
+        b.set("place", j["place"]);
+        b.set("bundle", j["bundle"]);
+        b.set("confirm", true);
+        model_.command("POST", "/api/v2/backups/delete", b.dump(), [this, ids, i, done, failed](const std::string& e2, const std::string&) {
+            tasks_trash_next(ids, i + 1, done + (e2.empty() ? 1 : 0), failed + (e2.empty() ? 0 : 1));
+        });
+    });
 }
 
 // ---- Plans programmés (télé) : liste, lancer maintenant, pause, et création par modèles ----
@@ -1398,9 +1495,28 @@ void Ui::input_settings(std::uint32_t k) {
         if (k & key::down) set_row_ = std::min(std::max(0, static_cast<int>(news_.size()) - 1), set_row_ + 1);
     }
     if (set_section_ == sec_devices && (k & key::cross)) { tab_ = destinations; set_zone_ = 0; return; }  // réglages des appareils : onglet Appareils
-    if (set_section_ == sec_report || set_section_ == sec_goals) { if (k & key::left) set_zone_ = 0; return; }
+    if (set_section_ == sec_goals) { if (k & key::left) set_zone_ = 0; return; }
+    if (set_section_ == sec_report) {  // trois cartes : Croix agrandit le code
+        if (k & key::left) { if (set_row_ == 0) set_zone_ = 0; else set_row_ = set_row_ - 1; return; }
+        if (k & key::right) set_row_ = std::min(2, set_row_ + 1);
+        if (k & key::cross) support_big_ = true;
+        return;
+    }
     if (set_section_ == sec_support) {  // soutenir : une carte par moyen, Croix agrandit son code QR
         const int n = static_cast<int>(support_["links"].items().size() + support_["crypto"].items().size());
+        const int nf = static_cast<int>(support_["follow"].items().size());  // Suivez-nous : rangée du bas (lignes n à n + nf - 1)
+        if (set_row_ >= n && nf > 0) {
+            const int i = set_row_ - n;
+            if (k & key::left) { if (i == 0) set_zone_ = 0; else --set_row_; return; }
+            if (k & key::right) set_row_ = n + std::min(nf - 1, i + 1);
+            if (k & key::up) set_row_ = 0;
+            if (k & key::cross) {
+                const Json& f = support_["follow"].items()[static_cast<std::size_t>(std::min(i, nf - 1))];
+                if (f["qr"].items().empty()) toast(tr("Bientôt disponible.")); else support_big_ = true;
+            }
+            return;
+        }
+        if ((k & key::down) && nf > 0) { set_row_ = n; return; }
         if (k & key::left) { if (set_row_ == 0) set_zone_ = 0; else set_row_ = set_row_ - 1; return; }
         if (k & key::right) set_row_ = std::min(std::max(0, n - 1), set_row_ + 1);
         if ((k & key::cross) && n > 0) {
@@ -1851,14 +1967,14 @@ void Ui::draw_header(Surface& s) {
     if (last < nt - 1) s.text(font_, a1 + 6, 44, "›", body, color::accent);     // et à droite
     // Soutenir le projet : un petit cœur, juste avant la loupe.
     {
-        const int hx = 1920 - margin - 56 - 140, hy = 34, cx = hx + 28, cy = hy + 30;
+        const int hx = 1920 - margin - 56 - 140, hy = 34, cx = hx + 28, cy = hy + 28;  // centre du rond
         if (heart_) for (int g = 3; g >= 1; --g) s.rect(hx - g * 4, hy - g * 4, 56 + g * 8, 56 + g * 8, rgb(255, 94, 91, 26), 28 + g * 4);
         s.rect(hx, hy, 56, 56, heart_ ? rgb(255, 255, 255, 40) : rgb(255, 255, 255, 16), 28);
         s.outline(hx, hy, 56, 56, heart_ ? rgb(255, 94, 91) : rgb(255, 255, 255, 30), 28, heart_ ? 3 : 1);
-        const std::uint32_t c = rgb(255, 94, 91);
-        s.rect(cx - 13, cy - 13, 15, 15, c, 7);   // lobe gauche
-        s.rect(cx - 2, cy - 13, 15, 15, c, 7);    // lobe droit
-        for (int i = 0; i < 12; ++i) s.rect(cx - 12 + i, cy - 5 + i, 25 - 2 * i, 2, c, 0);  // pointe
+        // Le cœur « ♥ » de la police, comme dans « Quoi de neuf » (dessiné par le typographe : courbes parfaites), en grand
+        // et centré dans le rond.
+        const int gw = Surface::measure("♥", large);
+        s.text(font_, cx - gw / 2, cy - 19, "♥", large, rgb(255, 94, 91));
         if (heart_) {
             const char* t = tr("Soutenir le projet");
             const int tw = 36 + Surface::measure(t, small), tx = std::min(hx + 28 - tw / 2, 1920 - margin - tw);
@@ -2068,7 +2184,22 @@ std::vector<Ui::Shelf> Ui::home_shelves() const {
         }
         Shelf bk{tr("Sauvegardes disponibles"), {}};
         bk.bk_first = 0;
-        bk.away = tr("ailleurs : ici, NAS, autres PS5");
+        {   // seulement les endroits qui ont vraiment une de ces sauvegardes : « Ici », « NAS », le nom de l'autre PS5
+            bool here = false, nas = false;
+            std::vector<std::string> peers;
+            for (const auto& g : home_bk_games_)
+                for (const auto& c : g["copies"].items()) {
+                    if (c["on_peer"].as_bool()) { const std::string pn = c["peer_name"].as_string(); if (!pn.empty() && std::find(peers.begin(), peers.end(), pn) == peers.end()) peers.push_back(pn); }
+                    else if (c["place"].as_string().rfind("remote:", 0) == 0) nas = true;
+                    else here = true;
+                }
+            std::string w;
+            auto add = [&w](const std::string& x) { w += (w.empty() ? "" : " · ") + x; };
+            if (here) add(tr("Ici"));
+            if (nas) add("NAS");
+            for (const auto& pn : peers) add(pn);
+            bk.away = w;
+        }
         for (const auto& it : home_bk_items_) bk.items.push_back(&it);
         if (!bk.items.empty()) out.push_back(std::move(bk));
     }
@@ -2153,16 +2284,16 @@ std::vector<Ui::HomeCard> Ui::home_cards() const {
             const bool dl = u.state == "downloading" && u.bytes_total;
             const int pct = dl ? static_cast<int>(std::min<std::uint64_t>(100, u.bytes_done * 100 / u.bytes_total)) : 0;
             out.push_back({tr("MISE À JOUR"), dl ? trf("Téléchargement… %d %%", pct) : u.state == "downloading" ? std::string(tr("Téléchargement…")) : std::string(tr("Installation…")), "", color::accent, 8,
-                           {{"", dl ? update_progress_text(u) : from.empty() ? std::string(tr("Backup Center se met à jour")) : from}}});
+                           {{"pbc:logo", dl ? update_progress_text(u) : from.empty() ? std::string(tr("Backup Center se met à jour")) : from}}});
         } else if (u.engine_restart_needed && !u.installed.empty()) {
             out.push_back({tr("MISE À JOUR"), trf("%s installée", u.installed.c_str()), "", color::ok, 7,
-                           {{"", (from.empty() ? std::string() : from + " · ") + tr("Croix : relancer le moteur")}}});
+                           {{"pbc:logo", (from.empty() ? std::string() : from + " · ") + tr("Croix : relancer le moteur")}}});
         } else if (u.state == "available" && !u.available.empty()) {  // trouvée par la recherche automatique ou manuelle
             out.push_back({tr("MISE À JOUR"), trf("%s disponible", u.available.c_str()), "", color::accent, 10,
-                           {{"", tr("Croix : installer")}}});
+                           {{"pbc:logo", tr("Croix : installer")}}});
         } else if (!snap_->version.empty() && version_cmp(snap_->version, app_version) > 0) {  // moteur à jour, appli ouverte ancienne (pas l'inverse)
             out.push_back({tr("MISE À JOUR"), trf("%s en marche", snap_->version.c_str()), "", color::ok, 9,
-                           {{"", tr("Croix : rouvrir l'appli pour la voir")}}});
+                           {{"pbc:logo", tr("Croix : rouvrir l'appli pour la voir")}}});
         }
     }
     {   // Une copie plus récente que la partie sur la console (jouée ailleurs, sur l'autre PS5…) : à restaurer ?
@@ -2203,24 +2334,37 @@ std::vector<Ui::HomeCard> Ui::home_cards() const {
         c.eta.push_back("");
         out.push_back(std::move(c));
     } else {
+        // Une seule carte Synchro (comme Sauvegardes) : d'abord les appareils avec des jeux à mettre à niveau (leurs jaquettes
+        // défilent), puis « au même niveau », et une seule ligne pour tous ceux sans jeu choisi. Croix : le premier à traiter.
+        int need_total = 0, first = -1, same_first = -1;
+        Games g, same;
+        Games idle;  // un appareil sans jeu choisi par ligne, avec son image (PS5 ou NAS) : ils défilent dans la carte
         for (std::size_t i = 0; i < sync_plans_.size(); ++i) {
             const auto& [name, pl] = sync_plans_[i];
             const char* dev_key = pl["peer"].as_string().rfind("remote:", 0) == 0 ? "dev:nas" : "dev:ps5";  // l'image de l'autre côté : NAS ou PS5
-            // Seuls les jeux SUIVIS comptent : aucun suivi → bulle neutre, qui rappelle que la synchro existe.
             int chosen = 0, n = 0;
-            Games g;  // les jeux à mettre à jour défilent avec leur jaquette : « ↓ » arrive ici, « ↑ » part là-bas
             for (const auto& t : pl["titles"].items()) {
                 chosen += t["followed"].as_bool();
                 if (!sy_needs(t)) continue;
                 ++n;
-                if (g.size() < 12) g.push_back({"title:" + t["title_id"].as_string(), std::string(t["state"].as_string() == "pull" ? "↓ " : "↑ ") + t["title"].as_string()});
+                if (g.size() < 12) g.push_back({"title:" + t["title_id"].as_string(), std::string(t["state"].as_string() == "pull" ? "↓ " : "↑ ") + t["title"].as_string() + " · " + name});
             }
-            if (!chosen) {
-                out.push_back({trf("SYNCHRO · %s", name.c_str()), tr("Aucun jeu choisi"), "", color::muted, 100 + static_cast<int>(i), {{dev_key, tr("Choisissez les jeux à garder au même niveau")}}});
-                continue;
+            if (!chosen) { idle.push_back({dev_key, trf("%s · aucun jeu choisi", name.c_str())}); continue; }
+            if (n) { need_total += n; if (first < 0) first = static_cast<int>(i); continue; }
+            same.push_back({dev_key, trf("%s : les mêmes sauvegardes des deux côtés", name.c_str())});
+            if (same_first < 0) same_first = static_cast<int>(i);
+        }
+        if (!sync_plans_.empty()) {
+            const std::string head = sync_plans_.size() > 1 ? trf("SYNCHRO · %d appareils", static_cast<int>(sync_plans_.size())) : std::string(tr("SYNCHRO"));
+            if (need_total) {
+                g.insert(g.end(), idle.begin(), idle.end());
+                out.push_back({head, trf("%d jeu(x) à mettre à niveau", need_total), "", color::warn, 100 + first, g});
+            } else if (!same.empty()) {
+                same.insert(same.end(), idle.begin(), idle.end());
+                out.push_back({head, tr("Tout est au même niveau"), "", color::ok, 100 + same_first, same});
+            } else {
+                out.push_back({head, tr("Aucun jeu choisi"), "", color::muted, 100, idle});  // titre court ; chaque appareil défile avec son image
             }
-            if (n == 0) { out.push_back({trf("SYNCHRO · %s", name.c_str()), tr("Tout est au même niveau"), "", color::ok, 100 + static_cast<int>(i), {{dev_key, tr("Les mêmes sauvegardes des deux côtés")}}}); continue; }
-            out.push_back({trf("SYNCHRO · %s", name.c_str()), trf("%d jeu(x) à mettre à jour", n), "", color::warn, 100 + static_cast<int>(i), g});
         }
     }
     {   // tâches : une bulle par sorte (compression, transfert, décompression…), en cours d'abord, avec l'avancement
@@ -2358,8 +2502,8 @@ void Ui::load_sync_plans() {
     if ((peer_games_.size() || has_nas) && (!sync_plans_at_ || now_ - sync_plans_at_ > (failed ? 10000u : 15000u)  /* le moteur prépare les plans d'avance : relire souvent ne coûte rien */)) {  // PS5 jumelées et NAS
         sync_plans_at_ = now_ ? now_ : 1;
         for (const auto& pl : snap_->places) {
-            if (pl.type != "ftp") continue;  // un NAS : la synchro des sauvegardes entre cette console et lui
-            const std::string id = pl.id, name = pl.label;
+            if (pl.type != "ftp" || pl.use == "backups" || !pl.same_as.empty()) continue;  // un NAS qui sert à la synchro (un dossier une fois) : la synchro des sauvegardes entre cette console et lui
+            const std::string id = pl.id, name = sy_nas_name(pl);
             model_.command("GET", "/api/v2/sync/copies/plan?peer=" + id + "&full=1", "", [this, name](const std::string& e, const std::string& body) {
                 Json j;
                 if (!e.empty() || !Json::parse(body, j) || j.has("error")) return;
@@ -2644,6 +2788,8 @@ void Ui::draw_home(Surface& s) {
                     const int dev = key == "dev:ps5" ? dev_internal : key == "dev:switch" ? dev_switch : key == "dev:nas" ? dev_nas : -1;  // bulle d'un appareil : son image
                     if (dev >= 0 && devices_[dev].valid()) {
                         s.image(devices_[dev], kx + 30, ky + 28, kh - 56, kh - 56);  // sans fond : l'image seule
+                    } else if (key == "pbc:logo" && logo_.valid()) {  // mise à jour de Backup Center : notre logo
+                        s.image(logo_, kx + 30, ky + 28, kh - 56, kh - 56, 0);
                     } else {
                         const Item* found = find_or_stand_in(key, title, "", stand_in);
                         cover(s, *found, kx + 30, ky + 28, kh - 56, false);
@@ -2759,30 +2905,57 @@ void Ui::draw_library(Surface& s) {
             m = found ? std::next(m) : lib_marks_.erase(m);
         }
     }
-    static const char* const presence[3] = {N_("Ici : tout"), N_("Manque ici"), N_("Aussi ici")};
+    static const char* const presence[3] = {N_("Tous ses jeux"), N_("Absents d'ici"), N_("Aussi ici")};
     std::string chips[kind_count + 4] = {tr("Tout"), "PS5", "PS4", tr("Applications"), "ROM", tr("Ignorés"),
-                                         trf("Émulateur : %s", (app_ ? apps[static_cast<std::size_t>(app_ - 1)] : std::string(tr("tous"))).c_str()),
-                                         lib_peer_.empty() ? trf("Emplacement : %s", (place_ ? snap_->places[static_cast<std::size_t>(place_ - 1)].label : std::string(tr("tous"))).c_str())
-                                                           : std::string(tr(presence[lib_presence_])),
-                                         lib_peer_.empty() ? std::string(tr("Actualiser")) : std::string(tr("Relire")),
-                                         trf("Console : %s", lib_peer_.empty() ? tr("cette PS5") : lib_peer_name_.c_str())};
-    int x = margin;
+                                         // sur « tous », le nom seul : toute la rangée tient à l'écran
+                                         app_ ? trf("Émulateur : %s", apps[static_cast<std::size_t>(app_ - 1)].c_str()) : std::string(tr("Émulateur")),
+                                         !lib_peer_.empty() ? std::string(tr(presence[lib_presence_]))
+                                         : place_ ? trf("Emplacement : %s", snap_->places[static_cast<std::size_t>(place_ - 1)].label.c_str()) : std::string(tr("Emplacement")),
+                                         tr("Actualiser"),
+                                         [&] {  // on voit qu'il y a d'autres consoles sans avoir à cliquer
+                                             int others = 0;
+                                             if (link_peers_.is_array()) for (const auto& p : link_peers_.items()) others += p["paired"].as_bool();
+                                             if (!lib_peer_.empty()) others = std::max(0, others - 1) + 1;  // l'autre côté : cette PS5 compte
+                                             std::string c = trf("Console : %s", lib_peer_.empty() ? tr("cette PS5") : lib_peer_name_.c_str());
+                                             if (others) c += "  " + (others == 1 ? std::string(tr("· 1 autre ›")) : trf("· %d autres ›", others));
+                                             return c;
+                                         }()};
+    // Pastilles resserrées si la rangée dépasse (nom de console long) ; en dernier recours elle glisse.
+    int pad = 36;
+    {
+        int total = 34;
+        for (int i = 0; i < kind_count + 4; ++i) total += Surface::measure(chips[i], body) + pad + (i >= kind_count ? 16 : 6);
+        const int over = total - (1920 - 2 * margin);
+        if (over > 0) pad = std::max(16, pad - (over + kind_count + 3) / (kind_count + 4));
+    }
+    int shift = 0;
+    {
+        int xx = margin, right = 0;
+        for (int i = 0; i < kind_count + 4; ++i) {
+            if (i == kind_count) xx += 34;
+            const int w = Surface::measure(chips[i], body) + pad;
+            if (i == lib_filter_) right = xx + w;
+            xx += w + (i >= kind_count ? 16 : 6);
+        }
+        if (lib_zone_ == 0 && right > 1920 - margin) shift = right - (1920 - margin);
+    }
+    int x = margin - shift;
     const int y = 300;
     // Les types forment un groupe (une pastille de fond) ; les autres réglages sont des bulles séparées.
     {
         int gw = 12;
-        for (int i = 0; i < kind_count; ++i) gw += Surface::measure(chips[i], body) + 36 + 6;
+        for (int i = 0; i < kind_count; ++i) gw += Surface::measure(chips[i], body) + pad + 6;
         s.rect(x - 6, y - 6, gw, 56, rgb(255, 255, 255, 16), 28);
     }
     for (int i = 0; i < kind_count + 4; ++i) {
-        const int w = Surface::measure(chips[i], body) + 36;
+        const int w = Surface::measure(chips[i], body) + pad;
         const bool selected = (i < kind_count && kind_ == i) || (i == kind_count + 3 && !lib_peer_.empty());
         const bool focused = lib_zone_ == 0 && lib_filter_ == i;
         if (i == kind_count) x += 34;  // de l'air entre le groupe des types et les réglages
         if (selected) s.rect(x, y, w, 44, color::text, 22);
         else if (i >= kind_count) { s.rect(x, y, w, 44, rgb(255, 255, 255, 16), 22); s.outline(x, y, w, 44, rgb(255, 255, 255, 30), 22, 1); }
         if (focused) s.outline(x - 4, y - 4, w + 8, 52, color::accent, 26, 3);
-        s.text(font_, x + 18, y + 6, chips[i], body, selected ? color::bg : i >= kind_count ? color::text : color::muted);
+        s.text(font_, x + pad / 2, y + 6, chips[i], body, selected ? color::bg : i >= kind_count ? color::text : color::muted);
         x += w + (i >= kind_count ? 16 : 6);
     }
     // Rangées, aérées comme l'Accueil ; la rangée choisie remonte sous les filtres.
@@ -3032,13 +3205,29 @@ void Ui::draw_destinations(Surface& s) {
     }
     for (const auto& r : remotes_all_.items()) {
         const bool sw = r["type"].as_string() == "switch";
-        card(sw ? dev_switch : dev_nas, false);  // un appareil FTP enregistré = un NAS (boîtier)
+        const bool drive = r["type"].as_string() == "gdrive" || r["type"].as_string() == "onedrive" || r["type"].as_string() == "dropbox";
+        const bool s3 = r["type"].as_string() == "s3" || drive;  // stockage dans le nuage : image du nuage
+        card(sw ? dev_switch : s3 ? dev_cloud : dev_nas, false);  // un appareil FTP enregistré = un NAS (boîtier)
         const int tx = x + 200, tw = cw - 220;
-        const char* tag = sw ? "Switch" : "FTP";
-        card_title(s, tx, y, r["name"].as_string(), tw - 80);
+        const std::string service = r["config"]["service"].as_string();
+        const char* tag = sw ? "Switch" : drive ? (r["type"].as_string() == "gdrive" ? "Drive" : r["type"].as_string() == "dropbox" ? "Dropbox" : "OneDrive") : s3 ? (service == "b2" ? "B2" : "S3") : r["type"].as_string() == "webdav" ? "WebDAV" : "FTP";
+        card_title(s, tx, y, r["name"].as_string(), cw - 20 - Surface::measure(tag, small) - 16 - (tx - x));  // le nom s'arrête avant l'étiquette
         s.text(font_, x + cw - 20 - Surface::measure(tag, small), y + 30, tag, small, sw ? rgb(255, 120, 120) : color::accent);
-        s.text(font_, tx, y + 66, r["config"]["host"].as_string() + ":" + std::to_string(r["config"]["port"].as_int()), small, color::muted, tw);
-        s.text(font_, tx, y + 110, sw ? tr("Options : ses parties, synchroniser") : tr("Destination de sauvegarde"), small, color::text, tw);
+        const std::string where = drive ? r["config"]["bucket"].as_string() : !s3 ? r["config"]["host"].as_string() + ":" + std::to_string(r["config"]["port"].as_int())
+            : (service == "b2" ? std::string("Backblaze B2") : service == "other" ? r["config"]["host"].as_string() : std::string("Amazon S3")) +
+              (r["config"]["region"].as_string().empty() ? std::string() : " · " + r["config"]["region"].as_string()) + " · " + r["config"]["bucket"].as_string();
+        s.text(font_, tx, y + 66, where, small, color::muted, tw);
+        if (sw) s.text(font_, tx, y + 110, tr("Options : ses parties, synchroniser"), small, color::text, tw);
+        else {  // à quoi il sert : étiquettes allumées (vert) ou éteintes (grises)
+            const std::string use = r["use"].as_string();
+            int ux = tx;
+            for (const auto& [label, on] : {std::pair<const char*, bool>{tr("Sauvegardes"), use != "sync"}, {tr("Synchro"), use != "backups"}}) {
+                const int lw = Surface::measure(label, small) + 28;
+                s.rect(ux, y + 104, lw, 36, on ? rgb(46, 160, 100, 60) : rgb(255, 255, 255, 18), 18);
+                s.text(font_, ux + 14, y + 108, label, small, on ? color::ok : color::muted);
+                ux += lw + 10;
+            }
+        }
         next();
     }
     for (const auto& pc : peer_cards()) {  // autres PS5 jumelées : leurs disques, comme s'ils étaient branchés ici
@@ -3170,7 +3359,7 @@ void Ui::draw_destinations(Surface& s) {
     static const Add adds[] = {{dev_internal, "PlayStation 5", N_("une autre PS5"), false}, {dev_internal, N_("PS5 à distance"), N_("par Internet"), false},
                                {dev_usb, N_("Disque USB"), N_("disque externe"), false}, {dev_switch, "Switch", N_("réseau ou USB"), false},
                                {dev_synology, "Synology", "NAS", false}, {dev_qnap, "QNAP", "NAS", false},
-                               {dev_network, "FTP / SMB", N_("PC, serveur"), false}, {dev_cloud, N_("Cloud"), N_("Drive, OneDrive…"), false}};
+                               {dev_network, "FTP / SMB", N_("PC, serveur"), false}, {dev_cloud, N_("Cloud"), N_("Drive, OneDrive, S3…"), false}};
     constexpr int count = 8;
     const int aw = (1920 - 2 * margin - (count - 1) * 14) / count;
     for (int i = 0; i < count; ++i) {
@@ -3181,7 +3370,13 @@ void Ui::draw_destinations(Surface& s) {
         const Image& img = devices_[adds[i].dev];
         if (adds[i].logo) {  // logo de marque, en grand (le logo est centré dans son carré)
             if (img.valid()) s.image(img, ax + aw / 2 - 70, ay + 58 - 70, 140, 140);  // centré sur la zone des images
-        } else if (img.valid()) s.image(img, ax + aw / 2 - 42, ay + 6, 84, 84);
+        } else if (img.valid()) {
+            // Nuage, FTP / SMB et Disque USB sont plus larges que hauts : dans le même carré de 84, ils ne prenaient que la moitié
+            // de la hauteur. Carré plus grand, même centre : ils occupent la place des autres images, sans toucher au texte.
+            // Hauteur visible ≈ celle des NAS (84) : Nuage (1,33 fois plus large que haut) 112, FTP / SMB (1,45) 122.
+            const int is = adds[i].dev == dev_cloud ? 112 : adds[i].dev == dev_network ? 122 : adds[i].dev == dev_usb ? 90 : adds[i].dev == dev_switch ? 100 : 84;
+            s.image(img, ax + aw / 2 - is / 2, ay + 48 - is / 2, is, is);
+        }
         {  // logo de marque : « NAS » en blanc dessous (la marque est déjà dans le logo)
             const int nw = Surface::measure(tr(adds[i].name), body);
             s.text(font_, ax + std::max(8, (aw - nw) / 2), ay + 90, tr(adds[i].name), body, color::text, aw - 16);
@@ -3268,7 +3463,36 @@ void Ui::input_destinations(std::uint32_t k) {
         else if (dest_add_ == 2) toast(tr("Branchez le disque : il apparaît tout seul, et reste reconnu même sur un autre port."));
         else if (dest_add_ == 3) open_editor("", "switch");
         else if (dest_add_ == 4 || dest_add_ == 5 || dest_add_ == 6) open_editor("", "ftp");
-        else toast(tr("Le cloud arrive bientôt."));
+        else {  // Nuage : Amazon S3, Backblaze B2, autre service S3 ; Google Drive et OneDrive ensuite
+            auto s3 = [this](const char* svc) { return [this, svc] { ed_service_ = svc; open_editor("", "s3"); }; };
+            // WebDAV : réglage du NAS, adresse et dossier déjà remplis.
+            auto dav = [this](const char* name, const char* host, const char* root, const char* hint) {
+                return [this, name, host, root, hint] {
+                    open_editor("", "webdav");
+                    ed_fields_[0].second = name;
+                    ed_fields_[1].second = host;
+                    ed_fields_[2].second = "443";
+                    ed_fields_[5].second = root;
+                    toast(tr(hint));
+                };
+            };
+            std::vector<std::pair<std::string, std::function<void()>>> items = {{"Google Drive", [this] { open_cloud_link("gdrive"); }}, {"OneDrive", [this] { open_cloud_link("onedrive"); }},
+                                                                           {"Dropbox", [this] { open_cloud_link("dropbox"); }}};
+            std::vector<std::string> subs = {tr("connexion par code"), tr("connexion par code"), tr("depuis le téléphone")};
+            for (const auto& x : kS3Services) {
+                if (std::string(x.id) == "other") continue;
+                items.push_back({x.name, s3(x.id)});
+                subs.push_back(tr("clés S3"));
+            }
+            items.push_back({"pCloud", dav("pCloud", "webdav.pcloud.com", "/", N_("pCloud : e-mail et mot de passe du compte. Compte européen : ewebdav.pcloud.com."))});
+            items.push_back({"Koofr", dav("Koofr", "app.koofr.net", "/dav/Koofr", N_("Koofr : e-mail et un mot de passe d'appli (Koofr › Réglages › Mots de passe)."))});
+            items.push_back({"Nextcloud", dav("Nextcloud", "", "/remote.php/dav/files/", N_("Nextcloud : adresse de votre serveur ; ajoutez votre identifiant à la fin du dossier."))});
+            for (int i = 0; i < 3; ++i) subs.push_back(tr("compte WebDAV"));
+            items.push_back({tr("Autre S3"), s3("other")});
+            subs.push_back(tr("MinIO, iDrive e2…"));
+            open_actions(tr("Ajouter un stockage dans le nuage"), std::move(items));
+            popup_subs_ = std::move(subs);
+        }
     }
 }
 
@@ -3774,12 +3998,13 @@ void Ui::wan_test(const std::string& inst, const std::string& name) {
 
 void Ui::open_editor(const std::string& id, const std::string& type) {
     ed_open_ = true;
+    ed_link_.clear();
     ed_busy_ = ed_forget_armed_ = false;
     ed_id_ = id;
     ed_type_ = type.empty() ? "ftp" : type;
     ed_row_ = 0;
     const bool sw = ed_type_ == "switch";
-    std::string name, host, port = sw ? "5000" : "21", user = sw ? "anonymous" : "", root = "/", layout = "pbc", proto = "ftp";
+    std::string name, host, port = sw ? "5000" : "21", user = sw ? "anonymous" : "", root = "/", layout = "pbc", proto = "ftp", use, region, bucket;
     for (const auto& r : remotes_all_.items())
         if (r["id"].as_string() == id) {
             name = r["name"].as_string();
@@ -3788,15 +4013,194 @@ void Ui::open_editor(const std::string& id, const std::string& type) {
             user = r["config"]["user"].as_string();
             root = r["config"]["root"].as_string();
             if (r["config"]["layout"].as_string() == "platform") layout = "platform";
-            if (r["type"].as_string() == "smb") ed_type_ = "smb";
+            if (r["type"].as_string() == "smb" || r["type"].as_string() == "webdav") ed_type_ = r["type"].as_string();
             if (r["config"]["proto"].as_string() == "smb") proto = "smb";
+            if (r["type"].as_string() == "gdrive" || r["type"].as_string() == "onedrive" || r["type"].as_string() == "dropbox") { ed_type_ = r["type"].as_string(); bucket = r["config"]["bucket"].as_string(); }
+            if (r["type"].as_string() == "s3") {
+                ed_type_ = "s3";
+                ed_service_ = r["config"]["service"].as_string();
+                region = r["config"]["region"].as_string();
+                bucket = r["config"]["bucket"].as_string();
+            }
+            use = r["use"].as_string();
         }
+    if (ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox") {  // compte connecté par code : rien à saisir que le nom et l'usage
+        ed_fields_ = {{N_("Compte"), bucket}, {N_("Nom"), name.empty() ? bucket : name}, {N_("Dossier"), root},
+                      {N_("Utilisé pour"), id.empty() || use == "backups" ? N_("Sauvegardes seulement") : use == "sync" ? N_("Synchro seulement") : N_("Sauvegardes et Synchro")}};
+        return;
+    }
+    if (ed_type_ == "s3") {  // stockage S3 : clés au lieu d'une adresse et d'un mot de passe ; « Sauvegardes seulement » par défaut
+        ed_service_ = s3_service(ed_service_).id;
+        if (id.empty()) region = s3_service(ed_service_).region;
+        ed_fields_ = {{N_("Nom"), name}, {N_("Service"), s3_service(ed_service_).name},
+                      {N_("Adresse du service"), s3_host_typed(ed_service_) ? host : ""}, {N_("Région"), region}, {N_("Compartiment"), bucket},
+                      {N_("Clé d'accès"), user == "anonymous" ? "" : user}, {N_("Clé secrète"), ""}, {N_("Dossier"), root},
+                      {N_("Utilisé pour"), id.empty() || use == "backups" ? N_("Sauvegardes seulement") : use == "sync" ? N_("Synchro seulement") : N_("Sauvegardes et Synchro")}};
+        ed_qr_ = Json();
+        model_.command("GET", "/api/v2/web-link?place=cloud", "", [this](const std::string& e, const std::string& body) {  // coller les clés depuis un téléphone
+            Json j;
+            if (e.empty() && Json::parse(body, j)) { std::lock_guard<std::mutex> l(async_mu_); pending_ed_qr_ = j; has_pending_ed_qr_ = true; }
+        });
+        return;
+    }
     ed_fields_ = {{N_("Nom"), name}, {N_("Adresse IP"), host}, {N_("Port"), port}, {N_("Utilisateur"), user}, {N_("Mot de passe"), ""}, {N_("Dossier"), root}};
     // Rangement des backups (NAS / FTP) : dossier « PBC Backup » ou par plateforme (« PS5 backup/… »).
     if (!sw) ed_fields_.push_back({N_("Rangement"), layout == "platform" ? N_("Par plateforme (PS5 backup…)") : N_("Dossier PBC Backup")});
-    // Protocole du NAS : FTP (FTPS si proposé) ou SMB (partages Windows / Synology / QNAP) — bascule à la Croix.
+    // Protocole du NAS : FTP (FTPS si proposé), SMB (partages Windows / Synology / QNAP) ou WebDAV (https) — Croix : suivant.
     // Switch : FTP (ftpd, sphaira) ou SMB (serveur SMB sur la Switch, ou dossier JKSV partagé ailleurs).
-    ed_fields_.push_back({N_("Protocole"), (sw ? proto == "smb" : ed_type_ == "smb") ? "SMB" : "FTP"});
+    ed_fields_.push_back({N_("Protocole"), (sw ? proto == "smb" : ed_type_ == "smb") ? "SMB" : ed_type_ == "webdav" ? "WebDAV" : "FTP"});
+    // À quoi sert ce NAS : Sauvegardes, Synchro ou les deux (une autre entrée du même NAS peut servir à autre chose).
+    if (!sw) ed_fields_.push_back({N_("Utilisé pour"), use == "backups" ? N_("Sauvegardes seulement") : use == "sync" ? N_("Synchro seulement") : N_("Sauvegardes et Synchro")});
+}
+
+Json Ui::ed_s3_body() const {
+    Json c = Json::object();
+    const std::string use = ed_field("Utilisé pour");
+    c.set("type", "s3");
+    c.set("id", ed_id_);
+    c.set("service", ed_service_);
+    c.set("name", ed_field("Nom"));
+    c.set("host", s3_host_typed(ed_service_) ? ed_field("Adresse du service") : std::string());
+    c.set("region", ed_field("Région"));
+    c.set("bucket", ed_field("Compartiment"));
+    c.set("user", ed_field("Clé d'accès"));
+    c.set("password", ed_field("Clé secrète"));
+    c.set("root", ed_field("Dossier").empty() ? std::string("/") : ed_field("Dossier"));
+    c.set("use", use == "Sauvegardes seulement" ? "backups" : use == "Synchro seulement" ? "sync" : "both");
+    return c;
+}
+
+Json Ui::ed_drive_body() const {
+    Json c = Json::object();
+    const std::string use = ed_field("Utilisé pour");
+    c.set("type", ed_type_);
+    c.set("id", ed_id_);
+    if (!ed_link_.empty()) c.set("link", ed_link_);
+    c.set("name", ed_field("Nom"));
+    c.set("root", ed_field("Dossier").empty() ? std::string("/") : ed_field("Dossier"));
+    c.set("use", use == "Sauvegardes seulement" ? "backups" : use == "Synchro seulement" ? "sync" : "both");
+    return c;
+}
+
+// ---- Google Drive, OneDrive : connexion par code ----
+
+void Ui::open_cloud_link(const std::string& provider) {
+    cl_open_ = true;
+    cl_provider_ = provider;
+    cl_id_.clear(); cl_code_.clear(); cl_url_.clear(); cl_error_.clear();
+    cl_state_ = "starting";
+    cl_qr_ = Json();
+    cl_polling_ = false;
+    Json b = Json::object();
+    b.set("provider", provider);
+    model_.command("POST", "/api/v2/cloud/link", b.dump(), [this](const std::string& e, const std::string& body) {
+        Json j;
+        if (e.empty()) Json::parse(body, j);
+        if (!e.empty()) j.set("error", e);
+        j.set("started", true);
+        std::lock_guard<std::mutex> l(async_mu_);
+        pending_cl_ = j;
+        has_pending_cl_ = true;
+    });
+}
+
+void Ui::input_cloud_link(std::uint32_t k) {
+    if (k & key::circle) { cl_open_ = false; return; }
+    if ((k & key::square) && cl_state_ != "starting") open_cloud_link(cl_provider_);  // nouveau code
+}
+
+void Ui::draw_cloud_link(Surface& s) {
+    {
+        std::lock_guard<std::mutex> l(async_mu_);
+        if (has_pending_cl_) {
+            has_pending_cl_ = false;
+            const Json j = std::move(pending_cl_);
+            if (j["started"].as_bool()) {
+                if (!j["error"].as_string().empty()) { cl_state_ = "error"; cl_error_ = j["error"].as_string(); }
+                else { cl_state_ = "pending"; cl_next_ = 0; cl_id_ = j["id"].as_string(); cl_code_ = j["user_code"].as_string(); cl_url_ = j["url"].as_string(); cl_qr_ = j["qr"]; }
+            } else {
+                cl_polling_ = false;
+                const std::string st = j["state"].as_string();
+                if (!st.empty()) cl_state_ = st;
+                cl_status_ = j;
+                if (st == "error") cl_error_ = j["error"].as_string();
+            }
+        }
+    }
+    if (cl_state_ == "ok") {  // accepté : le réglage du compte s'ouvre, connexion reprise à l'enregistrement
+        cl_open_ = false;
+        const std::string link = cl_id_, account = cl_status_["account"].as_string();
+        open_editor("", cl_provider_);
+        ed_link_ = link;
+        for (auto& f : ed_fields_) if (f.first == "Compte" || f.first == "Nom") f.second = account;
+        if (cl_status_["total"].as_int() > 0)
+            toast(trf("Compte connecté : %s libres sur %s", size_text(static_cast<std::uint64_t>(cl_status_["free"].as_int())).c_str(), size_text(static_cast<std::uint64_t>(cl_status_["total"].as_int())).c_str()));
+        return;
+    }
+    const bool waiting = cl_state_ == "pending" || cl_state_ == "waiting_code" || cl_state_ == "checking";  // Dropbox : le téléphone fait le reste
+    if (waiting && !cl_polling_ && now_ >= cl_next_ && !cl_id_.empty()) {  // la télé demande toutes les 2 s si c'est accepté
+        cl_polling_ = true;
+        cl_next_ = now_ + 2000;
+        model_.command("GET", "/api/v2/cloud/link?id=" + cl_id_, "", [this](const std::string& e, const std::string& body) {
+            Json j;
+            if (e.empty()) Json::parse(body, j);
+            std::lock_guard<std::mutex> l(async_mu_);
+            pending_cl_ = j;
+            has_pending_cl_ = true;
+        });
+    }
+    const bool g = cl_provider_ == "gdrive", dbx = cl_provider_ == "dropbox";
+    const char* name = g ? "Google Drive" : dbx ? "Dropbox" : "OneDrive";
+    s.rect(0, 0, 1920, 1080, rgb(2, 8, 20, 170));
+    const int w = 1240, h = 640, x = (1920 - w) / 2, y = 170;
+    s.rect(x + 10, y + 14, w, h, rgb(0, 0, 0, 120), 30);
+    s.rect(x, y, w, h, color::panel, 30);
+    s.outline(x, y, w, h, color::line, 30, 2);
+    if (devices_[dev_cloud].valid()) s.image(devices_[dev_cloud], x + 36, y + 26, 96, 96);
+    s.text(font_, x + 150, y + 36, trf("Connecter %s", name), large, color::text);
+    s.text(font_, x + 150, y + 84, tr("Rien à taper ici : la connexion se fait sur votre téléphone, chez le service."), small, color::muted, w - 190);
+    const int qs = 340, qx = x + 50, qy = y + 160;
+    const auto& rows = cl_qr_.items();
+    const int m = static_cast<int>(rows.size());
+    if (m) {
+        const double cell = qs / (m + 4.0);  // fractionnaire : tous les codes ont la même taille
+        s.exact_colors(true);
+        s.rect(qx, qy, qs, qs, rgb(255, 255, 255), 12);
+        for (int r = 0; r < m; ++r) {
+            const std::string& line = rows[static_cast<std::size_t>(r)].as_string();
+            for (int c = 0; c < m && c < static_cast<int>(line.size()); ++c)
+                if (line[static_cast<std::size_t>(c)] == '1') s.rect(qx + static_cast<int>((c + 2) * cell), qy + static_cast<int>((r + 2) * cell), static_cast<int>((c + 3) * cell) - static_cast<int>((c + 2) * cell), static_cast<int>((r + 3) * cell) - static_cast<int>((r + 2) * cell), rgb(0, 0, 0), 0);
+        }
+        s.exact_colors(false);
+    } else if (cl_state_ == "starting") spinner(s, qx + qs / 2, qy + qs / 2, 30);
+    const int tx = qx + qs + 50, tw = x + w - 50 - tx;
+    int ty = qy;
+    if (cl_state_ == "error") {
+        for (const auto& line : wrap(trf("Connexion impossible : %s", cl_error_.c_str()), body, tw)) { s.text(font_, tx, ty, line, body, color::bad); ty += 40; }
+    } else if (dbx) {  // pas de code court : tout se fait sur la page de la console, ouverte par le code QR
+        for (const char* step : {N_("1. Scannez le code avec votre téléphone."), N_("2. Sur le téléphone : « Se connecter à Dropbox », votre compte, « Autoriser »."),
+                                 N_("3. Dropbox affiche un code : copiez-le et collez-le sur la page.")})
+            for (const auto& line : wrap(tr(step), body, tw)) { s.text(font_, tx, ty, line, body, color::muted); ty += 40; }
+        const int sy = qy + qs - 30;
+        if (cl_state_ == "expired") s.text(font_, tx, sy, tr("Code expiré. Carré : nouveau code."), body, color::warn, tw);
+        else { spinner(s, tx + 16, sy + 18, 14); s.text(font_, tx + 44, sy, tr("En attente du téléphone…"), body, color::accent, tw - 44); }
+    } else {
+        std::string url = cl_url_;
+        for (const char* pre : {"https://", "http://", "www."}) if (url.rfind(pre, 0) == 0) url = url.substr(std::strlen(pre));
+        s.text(font_, tx, ty, tr("1. Scannez le code avec votre téléphone, ou ouvrez :"), body, color::muted, tw);
+        s.text(font_, tx, ty + 42, url.empty() ? std::string("…") : url, large, color::accent, tw);
+        s.text(font_, tx, ty + 110, tr("2. Saisissez ce code :"), body, color::muted, tw);
+        s.rect(tx, ty + 154, std::min(tw, 420), 84, rgb(255, 255, 255, 18), 18);
+        s.text(font_, tx + 28, ty + 168, cl_code_.empty() ? std::string("…") : cl_code_, large, color::text);
+        for (const auto& line : wrap(tr("3. Connectez-vous (e-mail, mot de passe, code de validation…) et acceptez."), body, tw)) { s.text(font_, tx, ty + 262, line, body, color::muted); ty += 40; }
+        const int sy = qy + qs - 30;
+        if (cl_state_ == "denied") s.text(font_, tx, sy, tr("Refusé sur le téléphone. Carré : nouveau code."), body, color::bad, tw);
+        else if (cl_state_ == "expired") s.text(font_, tx, sy, tr("Code expiré. Carré : nouveau code."), body, color::warn, tw);
+        else { spinner(s, tx + 16, sy + 18, 14); s.text(font_, tx + 44, sy, tr("En attente de votre accord…"), body, color::accent, tw - 44); }
+    }
+    s.text(font_, x + 50, y + h - 56, tr("L'appli n'aura accès qu'à son propre dossier, jamais à vos autres fichiers."), small, color::muted, w - 100);
+    s.rect(0, 996, 1920, 84, color::bg, 0);
+    draw_footer(s, {{2, tr("Nouveau code")}, {1, tr("Annuler")}});
 }
 
 std::string Ui::ed_field(const char* name) const {
@@ -3816,15 +4220,39 @@ void Ui::input_editor(std::uint32_t k) {
     if (k & key::down) ed_row_ = std::min(fields + actions - 1, ed_row_ + 1);
     if (k & key::circle) { ed_open_ = false; return; }
     if (!(k & key::cross)) return;
-    if (ed_row_ < fields && ed_fields_[static_cast<std::size_t>(ed_row_)].first == "Protocole") {  // FTP ↔ SMB (le port suit)
+    if (ed_row_ < fields && ed_fields_[static_cast<std::size_t>(ed_row_)].first == "Compte") { toast(tr("Pour changer de compte : Oublier, puis reconnecter.")); return; }
+    if (ed_type_ == "s3" && ed_row_ < fields && ed_fields_[static_cast<std::size_t>(ed_row_)].first == "Service") {  // Amazon → Backblaze → autre
+        const std::string before = ed_service_;
+        constexpr int count = sizeof kS3Services / sizeof kS3Services[0];
+        int i = 0;
+        while (i < count && before != kS3Services[i].id) ++i;
+        ed_service_ = kS3Services[(i + 1) % count].id;
+        ed_fields_[1].second = s3_service(ed_service_).name;
+        if (ed_fields_[3].second == s3_service(before).region) ed_fields_[3].second = s3_service(ed_service_).region;
+        if (s3_host_typed(before) != s3_host_typed(ed_service_)) ed_fields_[2].second.clear();
+        if (ed_service_ == "other") toast(tr("Autre S3 : saisissez l'adresse du service (ex. https://s3.example.com)."));
+        if (ed_service_ == "r2") toast(tr("Cloudflare R2 : saisissez votre n° de compte (tableau de bord Cloudflare › R2)."));
+        return;
+    }
+    if (ed_type_ == "s3" && ed_row_ < fields && ed_fields_[static_cast<std::size_t>(ed_row_)].first == "Adresse du service" && !s3_host_typed(ed_service_)) {
+        toast(tr("Ce service : l'adresse se déduit de la région."));
+        return;
+    }
+    if (ed_row_ < fields && ed_fields_[static_cast<std::size_t>(ed_row_)].first == "Protocole") {  // FTP → SMB → WebDAV (le port suit)
         auto& v = ed_fields_[static_cast<std::size_t>(ed_row_)].second;
-        const bool to_smb = v != "SMB";
-        v = to_smb ? "SMB" : "FTP";
-        const bool sw = ed_type_ == "switch";  // une Switch reste une Switch : seul le protocole change
-        if (!sw) ed_type_ = to_smb ? "smb" : "ftp";
-        const char* ftp_port = sw ? "5000" : "21";
-        if (ed_fields_[2].second == (to_smb ? ftp_port : "445")) ed_fields_[2].second = to_smb ? "445" : ftp_port;
-        if (to_smb) toast(tr("SMB : le premier dossier est le partage (ex. /Partage/Sauvegardes)."));
+        const bool sw = ed_type_ == "switch";  // une Switch reste une Switch : FTP ↔ SMB seulement
+        const std::string next = v == "FTP" ? "SMB" : v == "SMB" && !sw ? "WebDAV" : "FTP";
+        auto port_of = [sw](const std::string& p) { return p == "SMB" ? "445" : p == "WebDAV" ? "5006" : sw ? "5000" : "21"; };
+        if (ed_fields_[2].second == port_of(v)) ed_fields_[2].second = port_of(next);
+        v = next;
+        if (!sw) ed_type_ = next == "SMB" ? "smb" : next == "WebDAV" ? "webdav" : "ftp";
+        if (next == "SMB") toast(tr("SMB : le premier dossier est le partage (ex. /Partage/Sauvegardes)."));
+        if (next == "WebDAV") toast(tr("WebDAV : activez « WebDAV Server » sur le NAS (Synology : port 5006 en https)."));
+        return;
+    }
+    if (ed_row_ < fields && ed_fields_[static_cast<std::size_t>(ed_row_)].first == "Utilisé pour") {  // les deux → Sauvegardes → Synchro
+        auto& v = ed_fields_[static_cast<std::size_t>(ed_row_)].second;
+        v = v == "Sauvegardes et Synchro" ? N_("Sauvegardes seulement") : v == "Sauvegardes seulement" ? N_("Synchro seulement") : N_("Sauvegardes et Synchro");
         return;
     }
     if (ed_row_ < fields && ed_fields_[static_cast<std::size_t>(ed_row_)].first == "Rangement") {  // bascule, sans clavier
@@ -3837,7 +4265,8 @@ void Ui::input_editor(std::uint32_t k) {
     if (ed_row_ < fields && ed_fields_[static_cast<std::size_t>(ed_row_)].first == "Dossier") {
         const int row = ed_row_;
         const std::string start = ed_fields_[static_cast<std::size_t>(row)].second;
-        if (ed_fields_[1].second.empty()) { toast(tr("Saisissez d'abord l'adresse IP de l'appareil")); return; }
+        const bool cloudy = ed_type_ == "s3" || ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox";
+        if (!cloudy && ed_fields_[1].second.empty()) { toast(tr("Saisissez d'abord l'adresse IP de l'appareil")); return; }
         Json c = Json::object();
         c.set("type", ed_type_);
         c.set("id", ed_id_);
@@ -3846,6 +4275,8 @@ void Ui::input_editor(std::uint32_t k) {
         c.set("user", ed_fields_[3].second);
         c.set("password", ed_fields_[4].second);
         c.set("proto", ed_field("Protocole") == "SMB" ? "smb" : "ftp");
+        if (ed_type_ == "s3") c = ed_s3_body();
+        if (ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox") c = ed_drive_body();
         br_open_ = true;
         br_title_ = ed_fields_[0].second.empty() ? ed_fields_[1].second : ed_fields_[0].second;
         br_files_ = false;
@@ -3860,7 +4291,7 @@ void Ui::input_editor(std::uint32_t k) {
         auto& f = ed_fields_[static_cast<std::size_t>(ed_row_)];
         const int row = ed_row_;
         open_keyboard(tr(f.first.c_str()), f.second, [this, row](const std::string& t) { ed_fields_[static_cast<std::size_t>(row)].second = t; });
-        kb_secret_ = f.first == "Mot de passe";
+        kb_secret_ = f.first == "Mot de passe" || f.first == "Clé secrète";
         return;
     }
     const int a = acts[static_cast<std::size_t>(std::min(actions - 1, ed_row_ - fields))];
@@ -3881,11 +4312,16 @@ void Ui::input_editor(std::uint32_t k) {
                            ",\"port\":" + std::to_string(std::atoi(ed_fields_[2].second.c_str())) + ",\"user\":" + json_str(ed_fields_[3].second) +
                            ",\"password\":" + json_str(ed_fields_[4].second) + ",\"root\":" + json_str(ed_fields_[5].second) +
                            ",\"layout\":" + json_str(ed_field("Rangement") == "Par plateforme (PS5 backup…)" ? std::string("platform") : std::string("pbc")) +
-                           ",\"proto\":" + json_str(ed_field("Protocole") == "SMB" ? std::string("smb") : std::string("ftp")) + "}";
+                           ",\"proto\":" + json_str(ed_field("Protocole") == "SMB" ? std::string("smb") : std::string("ftp")) +
+                           ",\"use\":" + json_str(ed_field("Utilisé pour") == "Sauvegardes seulement" ? std::string("backups") : ed_field("Utilisé pour") == "Synchro seulement" ? std::string("sync") : std::string("both")) + "}";
+        if (ed_type_ == "s3") body = ed_s3_body().dump();
+        if (ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox") body = ed_drive_body().dump();
         ed_busy_ = true;
         const std::string path = ed_id_.empty() ? "/api/v2/remotes" : "/api/v2/remotes/" + ed_id_ + "/update";
         model_.command("POST", path, body, [this](const std::string& e, const std::string&) {
-            post_toast(e.empty() ? tr("Appareil enregistré : connexion vérifiée") : trf("Connexion impossible : %s", e.c_str()));
+            // Deux synchros dans le même dossier : le moteur dit laquelle a déjà ce dossier.
+            if (e.rfind("sync_taken:", 0) == 0) post_toast(trf("Ce dossier sert déjà à la synchro de « %s ». Choisissez un autre dossier, ou « Sauvegardes seulement ».", e.substr(11).c_str()));
+            else post_toast(e.empty() ? tr("Appareil enregistré : connexion vérifiée") : trf("Connexion impossible : %s", e.c_str()));
             std::lock_guard<std::mutex> l(async_mu_);
             ed_busy_ = false;
             if (e.empty()) { ed_open_ = false; switches_loaded_ = 0; }
@@ -3897,6 +4333,8 @@ void Ui::input_editor(std::uint32_t k) {
                            ",\"password\":" + json_str(ed_fields_[4].second) + ",\"root\":" + json_str(ed_fields_[5].second) +
                            ",\"layout\":" + json_str(ed_field("Rangement") == "Par plateforme (PS5 backup…)" ? std::string("platform") : std::string("pbc")) +
                            ",\"proto\":" + json_str(ed_field("Protocole") == "SMB" ? std::string("smb") : std::string("ftp")) + "}";
+        if (ed_type_ == "s3") body = ed_s3_body().dump();
+        if (ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox") body = ed_drive_body().dump();
         model_.command("POST", "/api/v2/remotes/test-config", body, [this](const std::string& e, const std::string&) {
             post_toast(e.empty() ? tr("Connexion réussie : vous pouvez enregistrer") : e);
             std::lock_guard<std::mutex> l(async_mu_);
@@ -3920,19 +4358,27 @@ void Ui::draw_editor(Surface& s) {
     s.rect(x + 10, y + 14, w, h, rgb(0, 0, 0, 120), 30);
     s.rect(x, y, w, h, color::panel, 30);
     s.outline(x, y, w, h, color::line, 30, 2);
-    const bool sw = ed_type_ == "switch";
-    if (devices_[sw ? dev_switch : dev_nas].valid()) s.image(devices_[sw ? dev_switch : dev_nas], x + 36, y + 26, 96, 96);
-    s.text(font_, x + 150, y + 36, ed_id_.empty() ? (sw ? tr("Ajouter une Switch") : ed_type_ == "smb" ? tr("Ajouter un partage SMB") : tr("Ajouter un serveur FTP")) : tr("Régler l'appareil"), large, color::text);
-    s.text(font_, x + 150, y + 82, sw ? tr("Sur la Switch : ftpd ouvert, l'adresse s'affiche en haut de son écran.") : tr("Adresse, port et compte du serveur (NAS, PC…)."), small, color::muted, w - 190);
+    const bool sw = ed_type_ == "switch", s3 = ed_type_ == "s3", drive = ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox";
+    const int dev = sw ? dev_switch : s3 || drive ? dev_cloud : dev_nas;
+    if (devices_[dev].valid()) s.image(devices_[dev], x + 36, y + 26, 96, 96);
+    const std::string s3_title = trf("Ajouter un stockage %s", ed_service_ == "other" ? "S3" : s3_service(ed_service_).name);
+    s.text(font_, x + 150, y + 36, drive ? (ed_type_ == "gdrive" ? "Google Drive" : ed_type_ == "dropbox" ? "Dropbox" : "OneDrive") : ed_id_.empty() ? (sw ? tr("Ajouter une Switch") : s3 ? s3_title.c_str() : ed_type_ == "smb" ? tr("Ajouter un partage SMB") : ed_type_ == "webdav" ? tr("Ajouter un NAS en WebDAV") : tr("Ajouter un serveur FTP")) : tr("Régler l'appareil"), large, color::text);
+    if (s3 || drive) {  // deux lignes : la mise en garde reste lisible en entier
+        int ly = y + 78;
+        for (const auto& line : wrap(tr("Par Internet : plus lent qu'un NAS. Le service peut facturer le stockage et les téléchargements."), small, w - 190)) { s.text(font_, x + 150, ly, line, small, color::muted); ly += 30; }
+    } else s.text(font_, x + 150, y + 82, sw ? tr("Sur la Switch : ftpd ouvert, l'adresse s'affiche en haut de son écran.") : tr("Adresse, port et compte du serveur (NAS, PC…)."), small, color::muted, w - 190);
     int yy = y + 146;
     for (int i = 0; i < static_cast<int>(ed_fields_.size()); ++i) {
         const bool on = ed_row_ == i;
         s.rect(x + 36, yy, w - 72, 58, on ? color::panel2 : rgb(255, 255, 255, 10), 14);
         if (on) s.outline(x + 36, yy, w - 72, 58, color::accent, 14, 3);
-        s.text(font_, x + 60, yy + 14, tr(ed_fields_[static_cast<std::size_t>(i)].first.c_str()), body, color::muted);
+        const bool r2_account = ed_type_ == "s3" && ed_service_ == "r2" && ed_fields_[static_cast<std::size_t>(i)].first == "Adresse du service";
+        s.text(font_, x + 60, yy + 14, r2_account ? tr("N° de compte") : tr(ed_fields_[static_cast<std::size_t>(i)].first.c_str()), body, color::muted);
         std::string v = ed_fields_[static_cast<std::size_t>(i)].second;
-        if (ed_fields_[static_cast<std::size_t>(i)].first == "Mot de passe") v = v.empty() ? (ed_id_.empty() ? tr("(aucun)") : tr("(inchangé)")) : std::string(v.size(), '*');
-        else if (ed_fields_[static_cast<std::size_t>(i)].first == "Rangement") v = tr(v.c_str());
+        const std::string& fname = ed_fields_[static_cast<std::size_t>(i)].first;
+        if (fname == "Mot de passe" || fname == "Clé secrète") v = v.empty() ? (ed_id_.empty() ? tr("(aucun)") : tr("(inchangé)")) : std::string(v.size(), '*');
+        else if (fname == "Rangement" || fname == "Utilisé pour" || fname == "Service") v = tr(v.c_str());
+        else if (fname == "Adresse du service" && !s3_host_typed(ed_service_)) v = tr("d'après la région");
         s.text(font_, x + 330, yy + 14, v.empty() ? "—" : v, body, color::text, w - 400);
         yy += 66;
     }
@@ -3949,6 +4395,32 @@ void Ui::draw_editor(Surface& s) {
         s.rect(ax, yy + 16, aw, 56, on ? color::text : a == 0 ? rgb(61, 139, 255, 140) : a == 2 ? rgb(255, 123, 123, 60) : rgb(255, 255, 255, 22), 28);
         s.text(font_, ax + 22, yy + 29, label, body, on ? color::bg : color::text);
         ax += aw + 14;
+    }
+    if (s3) {  // à droite : coller les clés depuis un téléphone ou un ordinateur (page web, formulaire déjà ouvert)
+        {
+            std::lock_guard<std::mutex> l(async_mu_);
+            if (has_pending_ed_qr_) { ed_qr_ = std::move(pending_ed_qr_); has_pending_ed_qr_ = false; }
+        }
+        const auto& rows = ed_qr_["qr"].items();
+        const int m = static_cast<int>(rows.size()), px = x + w + 30, pw = 1920 - px - 30;
+        if (m && pw >= 300) {
+            const int qs = std::min(pw, 340);
+            int ty = y + 40;
+            for (const auto& line : wrap(tr("Plus simple : vos clés depuis le téléphone"), body, pw)) { s.text(font_, px, ty, line, body, color::text); ty += 40; }
+            ty += 6;
+            for (const auto& line : wrap(tr("Scannez : la page web s'ouvre sur ce formulaire, où vous collez les clés."), small, pw)) { s.text(font_, px, ty, line, small, color::muted); ty += 30; }
+            const int top = ty + 16;
+            const double cell = qs / (m + 4.0);  // fractionnaire : tous les codes ont la même taille
+            s.exact_colors(true);  // un code QR se scanne en noir sur blanc
+            s.rect(px, top, qs, qs, rgb(255, 255, 255), 10);
+            for (int r = 0; r < m; ++r) {
+                const std::string& line = rows[static_cast<std::size_t>(r)].as_string();
+                for (int c = 0; c < m && c < static_cast<int>(line.size()); ++c)
+                    if (line[static_cast<std::size_t>(c)] == '1') s.rect(px + static_cast<int>((c + 2) * cell), top + static_cast<int>((r + 2) * cell), static_cast<int>((c + 3) * cell) - static_cast<int>((c + 2) * cell), static_cast<int>((r + 3) * cell) - static_cast<int>((r + 2) * cell), rgb(0, 0, 0), 0);
+            }
+            s.exact_colors(false);
+            s.text(font_, px, top + qs + 16, ed_qr_["url"].as_string(), small, color::muted, pw);
+        }
     }
     if (ed_busy_) { spinner(s, x + 56, y + h - 40, 16); s.text(font_, x + 86, y + h - 52, tr("Connexion à l'appareil…"), body, color::accent, w - 120); }
     else s.text(font_, x + 36, y + h - 50, tr("Enregistrer teste d'abord la connexion : rien n'est gardé si elle échoue."), small, color::muted, w - 72);
@@ -4428,7 +4900,7 @@ std::vector<std::size_t> Ui::pt_rows() const {
 void Ui::draw_parties(Surface& s) {
     {   // ce que montre l'onglet, en une phrase (à côté du titre)
         const int tw = s.text(font_, margin, 112, tr("Parties"), title, color::text);
-        s.text(font_, margin + tw + 28, 140, tr("Les parties actives SUR la console, par compte : à sauvegarder, à restaurer, à nettoyer."), small, color::muted, 1920 - 2 * margin - tw - 28 - 200);
+        s.text(font_, margin + tw + 28, 140, tr("Les parties actives, par joueur, en vraie synchro : PS5 ↔ PS5, Switch ↔ émulateur, Switch ↔ Switch. À sauvegarder, à restaurer, à nettoyer."), small, color::muted, 1920 - 2 * margin - tw - 28 - 200);
     }
     if (!overview_loaded_ || now_ - overview_loaded_ > 5000) load_overview();
     if (!switches_loaded_ || now_ - switches_loaded_ > 15000) load_remotes();
@@ -5164,8 +5636,9 @@ void Ui::draw_tasks(Surface& s) {
         const bool focused = static_cast<int>(i) == tasks_row_ && !bar_;
         s.rect(margin, y, 1920 - 2 * margin, 124, color::panel, 18);
         if (focused) s.outline(margin - 4, y - 4, 1920 - 2 * margin + 8, 132, color::accent, 22, 3);
-        // Image de l'élément à gauche (s'il est connu de la bibliothèque).
+        // Image de l'élément à gauche (s'il est connu de la bibliothèque). Cochée (L2) : une case devant.
         int tx = margin + 28;
+        if (!tasks_sel_.empty() && !in_group(t.state, 0)) { draw_checkbox(s, margin + 14, y + 62, tasks_sel_.count(t.id) != 0, false); }
         {
             const Item* found = nullptr;
             for (const auto& it : snap_->items) if (!t.item.empty() && (it.key == t.item || it.title_id == t.item)) { found = &it; break; }
@@ -5228,9 +5701,11 @@ void Ui::draw_tasks(Surface& s) {
         y += 140;
     }
     if (list.empty()) s.text(font_, margin, 320, tr("Rien ici. Choisissez un élément dans la bibliothèque pour lancer une sauvegarde."), large, color::muted);
-    draw_footer(s, {{0, tr("Action")}, {2, trf("Voir : %s", tr(group_names[(tasks_group_ + 1) % 5])).c_str()},
-                    {3, tasks_group_ >= 1 && tasks_group_ <= 3 && !list.empty() ? tr("Vider la liste") : ""},
-                    {-1, tasks_group_ >= 1 && tasks_group_ <= 3 && !list.empty() ? tr("Options : retirer") : ""}, {1, tr("Maintenir 2 s : quitter")}});
+    if (!tasks_sel_.empty()) draw_checked(s, static_cast<int>(tasks_sel_.size()));
+    const bool finished = tasks_group_ >= 1 && tasks_group_ <= 3 && !list.empty();
+    draw_footer(s, {{0, tr("Action")}, {-1, finished ? tr("L2 : cocher") : ""}, {2, trf("Voir : %s", tr(group_names[(tasks_group_ + 1) % 5])).c_str()},
+                    {3, finished ? tr("Vider la liste") : ""},
+                    {-1, !tasks_sel_.empty() ? tr("Options : la sélection") : finished ? tr("Options : retirer") : ""}, {1, tr("Maintenir 2 s : quitter")}});
 }
 
 namespace {
@@ -5269,8 +5744,37 @@ void Ui::task_details(const Task& t) {
     if (!t.error.empty()) line(std::string(tr("Erreur :")) + " " + t.error);
     const std::string id = t.id;
     std::vector<std::pair<std::string, std::function<void()>>> acts;
+    if (t.type == "backup" && t.state == "done") {  // la sauvegarde faite par cette tâche : la voir, la mettre à la corbeille
+        acts.push_back({tr("Voir la sauvegarde (Toutes les versions)"), [this, id] {
+            model_.command("POST", "/api/v2/tasks/" + id + "/backup", "{}", [this](const std::string& e, const std::string& body) {
+                pbc::Json j;
+                if (!e.empty() || !pbc::Json::parse(body, j)) { post_toast(e.empty() ? std::string(tr("Réponse illisible")) : e); return; }
+                post_ui([this, j] { open_versions("", j["title_id"].as_string(), j["title"].as_string(), j["item"].as_string()); });
+            });
+        }});
+        acts.push_back({tr("Mettre cette sauvegarde à la corbeille…"), [this, id] {
+            model_.command("POST", "/api/v2/tasks/" + id + "/backup", "{}", [this](const std::string& e, const std::string& body) {
+                pbc::Json j;
+                if (!e.empty() || !pbc::Json::parse(body, j)) { post_toast(e.empty() ? std::string(tr("Réponse illisible")) : e); return; }
+                post_ui([this, j] {
+                    open_hold_confirm(trf("Mettre « %s » à la corbeille ?", j["title"].as_string().c_str()),
+                                      tr("La sauvegarde faite par cette tâche va dans la corbeille de son disque ou de son NAS pendant 30 jours. La tâche reste dans la liste."),
+                                      [this, j] {
+                                          pbc::Json b = pbc::Json::object();
+                                          b.set("place", j["place"]);
+                                          b.set("bundle", j["bundle"]);
+                                          b.set("confirm", true);
+                                          model_.command("POST", "/api/v2/backups/delete", b.dump(), [this](const std::string& e2, const std::string&) {
+                                              post_toast(e2.empty() ? tr("Sauvegarde mise à la corbeille (30 jours)") : e2);
+                                              overview_loaded_ = 0;
+                                          });
+                                      });
+                });
+            });
+        }});
+    }
     if (t.state != "running" && t.state != "queued" && t.state != "paused")
-        acts.push_back({tr("Retirer de la liste"), [this, id] { model_.command("POST", "/api/v2/tasks/" + id + "/remove", "{}"); }});
+        acts.push_back({tr("Retirer de la liste (la sauvegarde reste)"), [this, id] { model_.command("POST", "/api/v2/tasks/" + id + "/remove", "{}"); }});
     acts.push_back({tr("Fermer"), [] {}});
     open_actions(t.title.empty() ? std::string(task_kind(t.type)) : t.title, std::move(acts));
     popup_note_ = n;
@@ -5589,7 +6093,8 @@ void Ui::draw_settings(Surface& s) {
             kv(tr("Application télé / moteur"), std::string(app_version) + "  /  " + (snap_->version.empty() ? "—" : snap_->version), y + 20);
             kv(tr("Installée sur la console"), u.installed.empty() ? "—" : u.installed, y + 62);
             kv(tr("Dernière version"), u.available.empty() ? "—" : u.available, y + 104);
-            kv(tr("État"), state_text(u.state), y + 146);
+            // Installée mais le moteur tourne encore sur l'ancienne version : le dire, plutôt qu'« À jour ».
+            kv(tr("État"), u.engine_restart_needed && !u.installed.empty() ? tr("Installée, active au redémarrage du moteur") : state_text(u.state), y + 146);
             int yy = y + 188;
             if (msg) { s.text(font_, x + 24, yy, u.message, small, u.state == "error" ? color::bad : color::muted, w - 48); yy += 40; }
             if (progress) {
@@ -5642,7 +6147,7 @@ void Ui::draw_settings(Surface& s) {
             }
             break;
         }
-        case sec_report: {  // un code QR vers le formulaire GitHub, et ce qu'il faut y recopier
+        case sec_report: {  // trois cartes : un bug (formulaire), une question ou une idée (Discussions), une étoile ; versions dessous
             if (!status_requested_) {
                 status_requested_ = true;
                 model_.command("GET", "/api/v2/status", "", [this](const std::string& e, const std::string& body) {
@@ -5651,33 +6156,60 @@ void Ui::draw_settings(Surface& s) {
                     else status_requested_ = false;
                 });
             }
-            heading(tr("Signaler un problème"), tr("Un bug, une idée ? Scannez le code avec votre téléphone : le formulaire s'ouvre sur GitHub."));
-            const int qs = 300;
-            static const Json qr = [] {  // https://github.com/consolecenterstudio/ps5-backup-center/issues/new/choose
-                Json j;
-                Json::parse(R"QR(["1111111010110011110110101100001111111", "1000001011010000100100100010101000001", "1011101010100111001101110111101011101", "1011101001101001110001001101101011101", "1011101010000010000100000010101011101", "1000001000010100100011010100101000001", "1111111010101010101010101010101111111", "0000000001011000111010110101100000000", "1001111110001101000100010010110010111", "1010110001011110101000110101000110110", "0100101000101011110111110101101100001", "1000000000011010110110010011000001111", "1001001110001001000000011000101101001", "1001110111111011001000010111000011000", "0010111101010111001100100001111011111", "0001110011001001100110011001111101100", "0111011001100011011010111101001000111", "0001010011001100010000100111110100100", "0011001010000010110100111101110010001", "1100000110101101101100110101011001001", "0100001101001110010110010001111111000", "0010110011011111011101110011010010100", "1011011110101101000001011001100101001", "0110010100001100101010100010010111101", "1000011101101111010110001001001100000", "1011110100000010011000010011110110100", "1110011110110101001111000011011100011", "1010100001000010100110010000001011100", "1001101000110011100010101101111110110", "0000000010101101011111100001100010110", "1111111011111111011110010100101010011", "1000001011101111100100110101100010011", "1011101011000000101110011011111110011", "1011101011001110010101111000111001101", "1011101000011010000000110111110010001", "1000001001110001010110101010001011111", "1111111011101100101000011000111100001"])QR", j);
-                return j;
-            }();
-            s.exact_colors(true);
-            s.rect(x, y, qs, qs, rgb(255, 255, 255), 14);
-            const int m = static_cast<int>(qr.items().size()), cell = m ? qs / (m + 4) : 1, off = (qs - cell * m) / 2;
-            for (int r = 0; r < m; ++r) {
-                const std::string& line = qr.items()[static_cast<std::size_t>(r)].as_string();
-                for (int c = 0; c < m && c < static_cast<int>(line.size()); ++c)
-                    if (line[static_cast<std::size_t>(c)] == '1') s.rect(x + off + c * cell, y + off + r * cell, cell, cell, rgb(0, 0, 0), 0);
+            if (!support_requested_) {  // les codes QR viennent du moteur (avec la liste de soutien)
+                support_requested_ = true;
+                model_.command("GET", "/api/v2/support", "", [this](const std::string& e, const std::string& body) {
+                    Json j;
+                    if (e.empty() && Json::parse(body, j)) { std::lock_guard<std::mutex> l(async_mu_); pending_support_ = j; has_pending_support_ = true; }
+                    else support_requested_ = false;
+                });
             }
-            s.exact_colors(false);
-            const int tx = x + qs + 40, tw = w - qs - 40;
-            s.text(font_, tx, y + 4, tr("À recopier dans votre message"), body, color::text, tw);
-            auto line = [&](const std::string& k, const std::string& v, int yy) {
-                s.text(font_, tx, yy, k, small, color::muted, tw / 2);
-                s.text(font_, tx + tw / 2, yy, v, small, color::text, tw / 2);
+            heading(tr("Signaler un problème"), tr("Scannez le code qui correspond avec votre téléphone : la page s'ouvre sur GitHub."));
+            const Json& cq = support_["community"];
+            struct Card { const char* qr; const char* title; const char* text; };
+            static const Card cards[3] = {{"issues_qr", N_("Un bug"), N_("Le formulaire de signalement. Recopiez les versions ci-dessous.")},
+                                          {"discussions_qr", N_("Une question, une idée"), N_("Les Discussions : posez votre question ou proposez une idée.")},
+                                          {"star_qr", N_("★ Une étoile"), N_("Le projet vous plaît : une étoile sur GitHub l'aide à être trouvé.")}};
+            auto draw_qr = [&](const Json& q, int qx, int qy, int size) {
+                const auto& rows = q.items();
+                s.exact_colors(true);  // noir sur blanc, quel que soit le thème
+                s.rect(qx, qy, size, size, rgb(255, 255, 255), 12);
+                const int m = static_cast<int>(rows.size());
+                if (m) {
+                    const double cell = size / (m + 4.0);  // fractionnaire : tous les codes ont la même taille
+                    for (int r = 0; r < m; ++r) {
+                        const std::string& line = rows[static_cast<std::size_t>(r)].as_string();
+                        for (int c = 0; c < m && c < static_cast<int>(line.size()); ++c)
+                            if (line[static_cast<std::size_t>(c)] == '1') s.rect(qx + static_cast<int>((c + 2) * cell), qy + static_cast<int>((r + 2) * cell), static_cast<int>((c + 3) * cell) - static_cast<int>((c + 2) * cell), static_cast<int>((r + 3) * cell) - static_cast<int>((r + 2) * cell), rgb(0, 0, 0), 0);
+                    }
+                }
+                s.exact_colors(false);
             };
-            line(tr("Version de l'appli"), PBC_VERSION, y + 60);
-            line(tr("Moteur"), snap_->version.empty() ? std::string(tr("non connecté")) : snap_->version, y + 100);
-            line(tr("Système de la console"), status_info_["firmware"].as_string().empty() ? std::string("—") : status_info_["firmware"].as_string(), y + 140);
-            s.text(font_, tx, y + 196, "github.com/consolecenterstudio/ps5-backup-center/issues", small, color::accent, tw);
-            para(s, font_, tx, y + 240, tr("Questions, idées et remerciements : l'onglet Discussions du même dépôt."), small, color::muted, tw, 2, 30);
+            const int gap = 24, cw = (w - 2 * gap) / 3, qs = std::min(cw - 48, 300), ch = qs + 190;
+            set_row_ = std::clamp(set_row_, 0, 2);
+            for (int i = 0; i < 3; ++i) {
+                const int cx = x + i * (cw + gap);
+                const bool f = set_zone_ == 1 && set_row_ == i;
+                s.rect(cx, y, cw, ch, f ? color::panel2 : color::panel, 22);
+                s.outline(cx, y, cw, ch, f ? color::accent : color::line, 22, f ? 3 : 1);
+                draw_qr(cq[cards[i].qr], cx + (cw - qs) / 2, y + 24, qs);
+                s.text(font_, cx + 24, y + qs + 44, tr(cards[i].title), body, color::text, cw - 48);
+                para(s, font_, cx + 24, y + qs + 92, tr(cards[i].text), small, color::muted, cw - 48, 3, 28);
+            }
+            y += ch + 24;
+            {   // à recopier dans un signalement
+                const std::string v = std::string(tr("Version de l'appli")) + "  " + PBC_VERSION + "     " + tr("Moteur") + "  " +
+                                      (snap_->version.empty() ? std::string(tr("non connecté")) : snap_->version) + "     " + tr("Système de la console") + "  " +
+                                      (status_info_["firmware"].as_string().empty() ? std::string("—") : status_info_["firmware"].as_string());
+                s.rect(x, y, w, 64, color::panel, 18);
+                s.text(font_, x + 24, y + 14, v, small, color::text, w - 48);
+            }
+            if (support_big_) {  // code agrandi, à scanner de loin
+                s.rect(0, 0, 1920, 1080, rgb(4, 10, 20, 235), 0);
+                draw_qr(cq[cards[set_row_].qr], (1920 - 720) / 2, 120, 720);
+                const std::string t = tr(cards[set_row_].title);
+                s.text(font_, (1920 - Surface::measure(t, large)) / 2, 870, t, large, color::text);
+            }
             break;
         }
         case sec_goals:
@@ -5696,18 +6228,18 @@ void Ui::draw_settings(Surface& s) {
                 if (goals.empty()) { para(s, font_, x, y, tr("Bientôt : PS5 Center et PS5 Connector, avec leurs objectifs et une jauge pour suivre la cagnotte."), body, color::muted, w, 3, 40); break; }
                 for (const auto& g : goals) {
                     if (y > 990 - 250) break;
-                    const int ch = 236;
+                    const int ch = 270;  // titre, accroche, 3 points forts, jauge
                     s.rect(x, y, w, ch, color::panel, 22);
                     s.outline(x, y, w, ch, color::line, 22, 2);
                     s.text(font_, x + 28, y + 20, g["name"].as_string(), large, color::text, w / 2);
                     s.text(font_, x + 28, y + 74, g["pitch"].as_string(), small, color::accent, w - 56);
                     int fy = y + 112;
-                    for (const auto& f : g["features"].items()) { if (fy > y + 150) break; s.text(font_, x + 28, fy, "•  " + f.as_string(), small, color::muted, w - 56); fy += 34; }
+                    for (const auto& f : g["features"].items()) { if (fy > y + 180) break; s.text(font_, x + 28, fy, "•  " + f.as_string(), small, color::muted, w - 56); fy += 34; }
                     const std::int64_t tg = std::max<std::int64_t>(1, g["target"].as_int()), rs = g["raised"].as_int();
                     const int gw = w - 56, gy = y + ch - 52, fill = static_cast<int>(std::min<std::int64_t>(gw, gw * rs / tg));
                     s.rect(x + 28, gy, gw, 16, rgb(255, 255, 255, 30), 8);
                     if (fill > 0) s.rect(x + 28, gy, std::max(16, fill), 16, color::ok, 8);
-                    const std::string nums = "$" + std::to_string(rs) + " / $" + std::to_string(tg) + "  ·  " + std::to_string(rs * 100 / tg) + " %" +
+                    const std::string nums = "$" + std::to_string(rs) + " / $" + std::to_string(tg) + "  ·  " + std::to_string((rs * 100 + tg / 2) / tg) + " %"  /* arrondi, comme la page web */ +
                                              (g["supporters"].as_int() ? "  ·  " + trf("%lld soutien(s)", static_cast<long long>(g["supporters"].as_int())) : std::string());
                     s.text(font_, x + w - 28 - Surface::measure(nums, small), y + 26, nums, small, color::text);
                     y += ch + 18;
@@ -5727,13 +6259,13 @@ void Ui::draw_settings(Surface& s) {
                 const int m = static_cast<int>(rows.size());
                 s.rect(qx, qy, size, size, rgb(255, 255, 255), 10);
                 if (!m) return;
-                const int cell = size / (m + 4), off = (size - cell * m) / 2;
+                const double cell = size / (m + 4.0);  // fractionnaire : tous les codes ont la même taille
                 s.exact_colors(true);  // le thème ne doit pas éclaircir le noir : un code QR se scanne en noir sur blanc
                 s.rect(qx, qy, size, size, rgb(255, 255, 255), 10);
                 for (int r = 0; r < m; ++r) {
                     const std::string& line = rows[static_cast<std::size_t>(r)].as_string();
                     for (int c = 0; c < m && c < static_cast<int>(line.size()); ++c)
-                        if (line[static_cast<std::size_t>(c)] == '1') s.rect(qx + off + c * cell, qy + off + r * cell, cell, cell, rgb(0, 0, 0), 0);
+                        if (line[static_cast<std::size_t>(c)] == '1') s.rect(qx + static_cast<int>((c + 2) * cell), qy + static_cast<int>((r + 2) * cell), static_cast<int>((c + 3) * cell) - static_cast<int>((c + 2) * cell), static_cast<int>((r + 3) * cell) - static_cast<int>((r + 2) * cell), rgb(0, 0, 0), 0);
                 }
                 s.exact_colors(false);
             };
@@ -5756,14 +6288,62 @@ void Ui::draw_settings(Surface& s) {
             y += ch + 18;
             s.text(font_, x, y, tr("Crypto : envoyez uniquement sur le réseau indiqué sous chaque code, sinon l'envoi est perdu."), small, color::warn, w);
             y += 52;
-            s.text(font_, x, y, tr("Merci à nos soutiens"), body, color::accent);
+            s.text(font_, x, y, tr("Messages de la communauté"), body, color::accent);
+            const int wall_y = y;
             y += 46;
             const auto& wall = support_["supporters"].items();
-            if (wall.empty()) s.text(font_, x, y, tr("Les premiers soutiens apparaîtront ici, avec le pseudo et le petit mot de leur choix."), small, color::muted, w);
-            for (std::size_t i = 0; i < wall.size() && y < 990 - 40; ++i) {
-                const std::string line = wall[i]["name"].as_string() + (wall[i]["message"].as_string().empty() ? std::string() : "  ·  « " + wall[i]["message"].as_string() + " »");
-                s.text(font_, x, y, line, small, color::text, w);
-                y += 40;
+            const int mq = 170, mw = w - mq - 40;  // à droite : « Laisser un message » (Discussions GitHub)
+            if (wall.empty()) s.text(font_, x, y, tr("Les premiers messages apparaîtront ici. Laissez le vôtre : scannez le code."), small, color::muted, mw);
+            const int fy = 990 - 62;  // rangée « Suivez-nous », en bas à gauche (titre juste au-dessus)
+            for (std::size_t i = 0; i < wall.size() && y < fy - 90; ++i) {
+                const Json& m = wall[i];
+                int lx = x + s.text(font_, x, y, m["name"].as_string(), small, color::text, mw / 3) + 14;
+                if (m["backer"].as_bool()) {
+                    const std::string b = tr("a soutenu le projet");
+                    const int bw = Surface::measure(b, small) + 20;
+                    s.rect(lx, y + 2, bw, 30, rgb(60, 190, 120, 40), 8);
+                    s.text(font_, lx + 10, y + 2, b, small, color::ok);
+                    lx += bw + 14;
+                }
+                std::string rest = m["message"].as_string().empty() ? std::string() : "« " + m["message"].as_string() + " »";
+                if (!m["date"].as_string().empty()) rest += (rest.empty() ? "" : "  ·  ") + m["date"].as_string();
+                if (!rest.empty()) s.text(font_, lx, y, rest, small, color::muted, x + mw - lx);
+                y += 42;
+            }
+            {   // Suivez-nous : une pastille par plateforme (logo, nom, compte) ; grisée « bientôt » tant qu'il n'y a pas de lien
+                const auto& fl = support_["follow"].items();
+                s.text(font_, x, fy - 44, tr("Suivez-nous"), body, color::accent);
+                int fx = x;
+                static const int icons[] = {dev_x, dev_youtube, dev_reddit, dev_discord};
+                for (std::size_t i = 0; i < fl.size() && i < 4; ++i) {
+                    const Json& f = fl[i];
+                    const bool on = f["active"].as_bool(), focus = set_zone_ == 1 && set_row_ == n + static_cast<int>(i);
+                    const std::string name = f["name"].as_string(), sub = on ? f["handle"].as_string() : std::string(tr("bientôt"));
+                    const int pw = 52 + std::max(Surface::measure(name, small), Surface::measure(sub, small)) + 16;
+                    if (fx + pw > x + w - mq - 20) break;
+                    s.rect(fx, fy, pw, 56, focus ? color::panel2 : color::panel, 28);
+                    s.outline(fx, fy, pw, 56, focus ? color::accent : color::line, 28, focus ? 3 : 1);
+                    const Image& ic = devices_[icons[i]];
+                    if (ic.valid()) s.image(ic, fx + 9, fy + 10, 36, 36);
+                    s.text(font_, fx + 52, fy + 2, name, small, on ? color::text : color::muted);
+                    s.text(font_, fx + 52, fy + 26, sub, small, on ? color::muted : color::warn);
+                    fx += pw + 10;
+                }
+            }
+            if (!support_["community"]["messages_qr"].items().empty()) {
+                draw_qr(support_["community"]["messages_qr"], x + w - mq, wall_y + 4, mq);
+                s.text(font_, x + w - mq, wall_y + mq + 12, tr("Laisser un message"), small, color::text, mq + 40);
+            }
+            const Json* big = set_row_ < n ? all[static_cast<std::size_t>(set_row_)]
+                            : set_row_ - n < static_cast<int>(support_["follow"].items().size()) ? &support_["follow"].items()[static_cast<std::size_t>(set_row_ - n)] : nullptr;
+            if (support_big_ && big && (*big)["qr"].items().empty()) support_big_ = false;
+            if (support_big_ && big && set_row_ >= n) {  // Suivez-nous : code agrandi, plateforme et compte
+                const Json& f = *big;
+                s.rect(0, 0, 1920, 1080, rgb(4, 10, 20, 235), 0);
+                draw_qr(f["qr"], (1920 - 720) / 2, 120, 720);
+                const std::string t = f["name"].as_string() + "  ·  " + f["handle"].as_string();
+                s.text(font_, (1920 - Surface::measure(t, large)) / 2, 870, t, large, color::text);
+                s.text(font_, (1920 - Surface::measure(f["url"].as_string(), small)) / 2, 936, f["url"].as_string(), small, color::muted);
             }
             if (support_big_ && set_row_ < n && !(*all[static_cast<std::size_t>(set_row_)])["qr"].items().empty()) {  // code agrandi, à scanner de loin
                 const Json& it = *all[static_cast<std::size_t>(set_row_)];
@@ -5933,6 +6513,7 @@ void Ui::draw(Surface& s) {
     if (mg_ign_open_) draw_mg_ignore(s);
     if (hold_open_) draw_hold_confirm(s);  // par-dessus l'aperçu qui l'a ouvert
     if (ed_open_) draw_editor(s);
+    if (cl_open_) draw_cloud_link(s);
     if (em_open_) draw_emulator(s);
     if (pp_open_) draw_item_plans(s);
     if (pe_open_) draw_plan_editor(s);

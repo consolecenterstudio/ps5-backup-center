@@ -36,6 +36,9 @@ struct InputState {
 // Paragraphe coupé aux mots (ui_synchro.cpp) : renvoie la hauteur occupée.
 int para(Surface& s, const Font& f, int x, int y, const std::string& text, FontSize sz, std::uint32_t c, int w, int max, int lh);
 
+// Lignes d'un paragraphe coupé aux mots (ui_manage.cpp).
+std::vector<std::string> wrap(const std::string& text, FontSize size, int max_w);
+
 class Ui {
 public:
     Ui(Model& model, Covers& covers, Font font, std::string address) : model_(model), covers_(covers), font_(font), address_(std::move(address)) {}
@@ -44,8 +47,8 @@ public:
     void draw(Surface& s);
     void set_logo(Image logo) { logo_ = logo; }
     // Images d'appareils (Destinations) : interne, USB, Switch, NAS, réseau, nuage.
-    enum Device { dev_internal, dev_usb, dev_switch, dev_nas, dev_network, dev_cloud, dev_synology, dev_qnap, dev_consoles, device_count };
-    static constexpr const char* device_files[device_count] = {"internal", "usb", "switch", "nas", "network", "cloud", "synology", "qnap", "consoles"};
+    enum Device { dev_internal, dev_usb, dev_switch, dev_nas, dev_network, dev_cloud, dev_synology, dev_qnap, dev_consoles, dev_x, dev_youtube, dev_reddit, dev_discord, device_count };
+    static constexpr const char* device_files[device_count] = {"internal", "usb", "switch", "nas", "network", "cloud", "synology", "qnap", "consoles", "x", "youtube", "reddit", "discord"};
     void set_device(int i, Image img) { if (i >= 0 && i < device_count) devices_[i] = img; }
     void skip_whats_new() { whats_new_checked_ = true; }  // aperçu Mac : captures sans fenêtre
     bool start_engine_requested() { bool r = start_engine_; start_engine_ = false; return r; }
@@ -190,13 +193,29 @@ private:
     bool heart_ = false;   // focus sur le cœur du haut (L1 / R1), Croix = Soutenir le projet
     bool loupe_ = false;   // focus sur la loupe du haut (L1 / R1), Croix = recherche
     std::string kb_title_, kb_text_, search_;
-    bool kb_shift_ = false;  // majuscules et symboles (L1)
+    bool kb_shift_ = false;  // majuscules (L1)
+    bool kb_sym_ = false;    // caractères spéciaux (R1)
     bool kb_secret_ = false; // mot de passe : points à l'écran
     // Destinations : sélection, et fiche de réglages d'un appareil réseau (Switch, FTP…).
     int dest_zone_ = 0, dest_sel_ = 0, dest_add_ = 0;
     pbc::Json remotes_all_, pending_remotes_all_;
     bool ed_open_ = false, ed_busy_ = false, ed_forget_armed_ = false;
     std::string ed_id_, ed_type_;
+    std::string ed_service_;              // stockage S3 : « aws », « b2 » ou « other »
+    pbc::Json ed_qr_, pending_ed_qr_;          // code QR de la page web (coller les clés depuis un téléphone)
+    bool has_pending_ed_qr_ = false;
+    pbc::Json ed_s3_body() const;              // réglages S3 saisis, pour le moteur
+    pbc::Json ed_drive_body() const;           // Google Drive, OneDrive : réglages saisis + connexion par code
+    std::string ed_link_;                      // connexion par code réussie, reprise par Enregistrer
+    // Connexion par code (Google Drive, OneDrive) : code QR + code court, la télé attend l'accord donné sur le téléphone.
+    void open_cloud_link(const std::string& provider);
+    void input_cloud_link(std::uint32_t k);
+    void draw_cloud_link(Surface& s);
+    bool cl_open_ = false, cl_polling_ = false;
+    std::string cl_provider_, cl_id_, cl_code_, cl_url_, cl_state_, cl_error_;
+    pbc::Json cl_qr_, cl_status_, pending_cl_;
+    bool has_pending_cl_ = false;
+    std::uint64_t cl_next_ = 0;
     std::vector<std::pair<std::string, std::string>> ed_fields_;  // (libellé, valeur)
     int ed_row_ = 0;
     void input_destinations(std::uint32_t k);
@@ -262,6 +281,7 @@ private:
     // Bibliothèque
     int lib_zone_ = 1;              // 0 : filtres, 1 : grille
     int lib_filter_ = 0;            // pastille sélectionnée dans la rangée de filtres
+    int lib_kind_before_ = -1;      // type choisi avant de traverser les types vers les réglages (rendu à la sortie)
     int kind_ = 0, app_ = 0, place_ = 0;
     int grid_ = 0, grid_top_ = 0;
     // Fiche
@@ -349,6 +369,7 @@ private:
     // Onglet Synchro (ui_synchro.cpp) : une carte par appareil (autres PS5, Switch), ses sections et ses boutons.
     struct SyDev { std::string kind, id, name; };
     std::vector<SyDev> sy_devices() const;
+    std::string sy_nas_name(const Place& pl) const;  // nom d'un NAS de synchro, + protocole / dossier s'il y en a deux du même nom
     const pbc::Json* sy_plan_for(const std::string& peer) const;
     static bool sy_needs(const pbc::Json& t);                // ce jeu choisi a-t-il quelque chose à échanger ?
     std::vector<const pbc::Json*> sy_title_rows() const;     // « Choisir les jeux » : filtre et tri
@@ -623,6 +644,9 @@ private:
     void tr_device_card(Surface& s, const TrDevice& d, int x, int y, int w, int h, bool focus, bool chosen);
     // Tâches
     int tasks_group_ = 0, tasks_row_ = 0, tasks_action_ = 0;
+    std::set<std::string> tasks_sel_;  // tâches cochées (L2) : retirer de la liste, mettre leurs sauvegardes à la corbeille
+    void tasks_selection_menu();
+    void tasks_trash_next(std::vector<std::string> ids, std::size_t i, int done, int failed);
     // Paramètres
     int set_section_ = 0, set_zone_ = 0, set_row_ = 0;
     void save_theme_copy();

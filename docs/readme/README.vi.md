@@ -16,7 +16,9 @@
 
 Xác định nội dung cần sao lưu, so sánh các bản sao hiện có và tổ chức trao đổi giữa thiết bị. PS5 Backup Center kết hợp danh mục, sao lưu, đồng bộ và truyền dữ liệu trên TV và trình duyệt.
 
-**2.99.5 · GPL-3.0-or-later · 19 · 8**
+**3.0.0 · GPL-3.0-or-later · 19 · 8**
+
+**Theo dõi chúng tôi** · [X @CCenterStudio](https://x.com/CCenterStudio) · [YouTube @ConsoleCenterStudio](https://www.youtube.com/@ConsoleCenterStudio) · [Reddit @ConsoleCenterStudio](https://www.reddit.com/user/ConsoleCenterStudio/)
 
 Phần mềm tự do. Không cần thuê bao.
 
@@ -29,6 +31,12 @@ Phần mềm tự do. Không cần thuê bao.
 ## Thư viện · Đồng bộ
 
 Bản sao lưu được cất giữ khác với dữ liệu lưu đang dùng để chơi. Chọn bản sao cần duy trì giữa các PS5 hoặc với NAS. ID người dùng cục bộ có thể khác nhau nên tài khoản nhận rất quan trọng. Switch ↔ Eden / ProsperoEden sử dụng JKSV và ftpd trên Switch. Ứng dụng và thiết lập có quy tắc so sánh riêng. Toàn bộ trò chơi dùng mục Truyền dữ liệu.
+
+## Mới trong 3.0
+
+- Thêm NAS hoặc máy trong thiết bị và kiểm tra đúng máy trước khi lưu. Với NAS, chọn giao thức hỗ trợ, thử kết nối và chọn thư mục. Giữa PS5, xác nhận mã ghép đôi; với Switch chuẩn bị ftpd và bản xuất JKSV. Hỗ trợ FTP / FTPS, SMB và WebDAV. “Dùng cho” chọn NAS dùng cho bản lưu, đồng bộ hay cả hai.
+- Với đám mây, mở Thiết bị › Đám mây: chọn một dịch vụ S3 (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) rồi nhập khóa — mã QR mở cùng biểu mẫu trên điện thoại để bạn dán khóa — hoặc pCloud, Koofr, Nextcloud bằng tài khoản của bạn. Google Drive, OneDrive và Dropbox kết nối bằng tài khoản riêng của bạn từ điện thoại (sẽ kích hoạt trong bản cập nhật sắp tới).
+- Bàn phím đầy đủ trên màn hình.
 
 ## Có gì mới ở 2.98
 

@@ -22,6 +22,9 @@
 namespace pbc::link {
 namespace wan { class Service; }
 
+// Adresse IPv4 de cette console sur son réseau local (vide si aucune).
+std::string local_ipv4();
+
 constexpr int kProtocol = 1;
 constexpr std::uint16_t kDiscoveryPort = 52371;
 

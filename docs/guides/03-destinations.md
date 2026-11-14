@@ -11,7 +11,8 @@ Web: the corresponding spaces in the paired browser navigation; use buttons and 
 ## Steps
 
 1. For USB, select the identified disk and verify available space. Use its displayed identity rather than assuming its port number stays the same.
-2. For a NAS, add the device, choose the supported connection type, enter its connection details, test, browse and select the destination folder before saving. FTP and FTPS are supported; SMB is being developed.
+2. For a NAS, add the device, choose the supported connection type, enter its connection details, test, browse and select the destination folder before saving. FTP / FTPS, SMB and WebDAV are supported. « Used for » chooses whether the NAS holds backups, sync, or both.
+   For the cloud, open Devices › Cloud: pick an S3 service (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) and enter its keys — the QR code opens the same form on your phone so you can paste them — or pCloud, Koofr, Nextcloud with your account. Google Drive, OneDrive and Dropbox connect with your own account from your phone (activation in a coming update).
 3. To link two PS5s, open Devices on both, select the discovered console or enter its address, then confirm the pairing code. Inspect the receiving console and disk before sending.
 4. For Switch saves, start ftpd and prepare a JKSV export. Select the device and match the game and Eden / ProsperoEden profile. After sending back, follow the JKSV import instructions.
 5. In Sync choose a device, then Saves, Active progress, Apps, DLC or Settings. Review direction and conflicts before confirming. Whole games opens Transfers. NAS depot mode concerns active progress and apps; DLC and settings are PS5-to-PS5.

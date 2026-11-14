@@ -89,6 +89,23 @@ bool Ui::sy_needs(const Json& t) {
     return t["send_full"].as_bool() && (t["full_push_bytes"].as_int() || t["full_pull_bytes"].as_int());
 }
 
+// Deux synchros sur le même NAS (deux entrées du même nom) : « NAS (WebDAV) », et le dossier si le protocole est le même.
+std::string Ui::sy_nas_name(const Place& pl) const {
+    auto proto = [](const Place& p) { return p.protocol == "webdav" ? std::string("WebDAV") : p.protocol == "smb" ? std::string("SMB") : std::string("FTP"); };
+    auto folder = [](const Place& p) {  // « ftp://hôte:21/Jeux » → « /Jeux »
+        const auto s = p.mount.find("://"), d = s == std::string::npos ? s : p.mount.find('/', s + 3);
+        return d == std::string::npos ? std::string("/") : p.mount.substr(d);
+    };
+    bool same_name = false, same_proto = false;
+    for (const auto& o : snap_->places) {
+        if (o.id == pl.id || o.type != "ftp" || o.use == "backups" || !o.same_as.empty() || o.label != pl.label) continue;
+        same_name = true;
+        same_proto = same_proto || proto(o) == proto(pl);
+    }
+    if (!same_name) return pl.label;
+    return pl.label + " (" + proto(pl) + ")" + (same_proto ? " · " + folder(pl) : std::string());
+}
+
 std::vector<Ui::SyDev> Ui::sy_devices() const {
     std::vector<SyDev> out;
     for (const auto& p : peer_games_.items()) out.push_back({"ps5", p["instance"].as_string(), p["name"].as_string()});
@@ -102,7 +119,7 @@ std::vector<Ui::SyDev> Ui::sy_devices() const {
         out.push_back({"ps5", inst, name});
     }
     for (const auto& [id, name] : switches_) out.push_back({"switch", id, name});
-    for (const auto& pl : snap_->places) if (pl.type == "ftp") out.push_back({"nas", pl.id, pl.label});  // NAS : sauvegardes ↔ NAS
+    for (const auto& pl : snap_->places) if (pl.type == "ftp" && pl.use != "backups" && pl.same_as.empty()) out.push_back({"nas", pl.id, sy_nas_name(pl)});  // NAS qui sert à la synchro (un dossier une fois)
     return out;
 }
 
@@ -596,6 +613,7 @@ void Ui::draw_synchro(Surface& s) {
                                  {N_("Réglages"), N_("La configuration de certaines applis, au cas par cas."), rgb(170, 185, 205)},
                                  {N_("Émulateurs"), N_("La progression la plus récente de ProsperoEden et d'Églantine arrive sur l'autre PS5."), rgb(79, 209, 190)}};
     // Petites cartes : ligne 1 Parties | Émulateurs, ligne 2 Applis | Réglages, ligne 3 DLC (toute la largeur)
+    // Petites bulles (141 px de haut) : titre, état, puis deux lignes d'explication — tout tient dans la bulle.
     static const int col[5] = {0, 0, 0, 1, 1}, row[5] = {0, 1, 2, 1, 0}, target[5] = {2, 3, 4, 5, 6};
     for (int i = 0; i < 5; ++i) {
         const int smw = i == 2 ? 2 * smw0 + gap : smw0;
@@ -604,10 +622,10 @@ void Ui::draw_synchro(Surface& s) {
         if (d.kind == "nas" && i >= 2) {  // DLC, Réglages, Émulateurs : entre deux PS5 seulement
             s.rect(cx, cy, smw, smh, color::panel, 24);
             s.outline(cx, cy, smw, smh, f ? color::accent : color::line, 24, f ? 4 : 1);
-            s.rect(cx + 24, cy + 26, 10, 36, soon[i].c, 5);
-            s.text(font_, cx + 48, cy + 18, tr(soon[i].name), large, color::text, smw - 72);
-            s.text(font_, cx + 48, cy + 64, tr("Entre deux PS5"), small, color::muted);
-            para(s, font_, cx + 24, cy + 96, tr("Cette section se synchronise avec une autre PS5, pas avec un NAS."), small, color::muted, smw - 48, 2, 28);
+            s.rect(cx + 24, cy + 20, 10, 36, soon[i].c, 5);
+            s.text(font_, cx + 48, cy + 12, tr(soon[i].name), large, color::text, smw - 72);
+            s.text(font_, cx + 48, cy + 56, tr("Entre deux PS5"), small, color::muted, smw - 72);
+            para(s, font_, cx + 24, cy + 86, tr("Cette section se synchronise avec une autre PS5, pas avec un NAS."), small, color::muted, smw - 48, 2, 25);
             continue;
         }
         if (i == 2) {  // DLC : ce qui manque d'un côté (lecture seule pour l'instant)
@@ -616,8 +634,8 @@ void Ui::draw_synchro(Surface& s) {
             const std::int64_t nh = dp ? (*dp)["summary"]["to_complete_here"].as_int() : 0, nt = dp ? (*dp)["summary"]["to_complete_there"].as_int() : 0;
             s.rect(cx, cy, smw, smh, color::panel, 24);
             s.outline(cx, cy, smw, smh, f ? color::accent : rgb(255, 178, 60, 90), 24, f ? 4 : 2);
-            s.rect(cx + 24, cy + 26, 10, 36, soon[i].c, 5);
-            s.text(font_, cx + 48, cy + 18, tr(soon[i].name), large, color::text, smw - 72);
+            s.rect(cx + 24, cy + 20, 10, 36, soon[i].c, 5);
+            s.text(font_, cx + 48, cy + 12, tr(soon[i].name), large, color::text, smw - 72);
             std::string line;
             std::uint32_t lc = color::muted;
             const Json& ps2 = parties_status_;
@@ -626,8 +644,8 @@ void Ui::draw_synchro(Surface& s) {
             else if (dp->has("error")) { line = tr("autre PS5 injoignable"); lc = color::warn; }
             else if (nh || nt) { line = trf("%lld jeu(x) à compléter", static_cast<long long>(nh + nt)); lc = color::warn; }
             else { line = tr("rien ne manque"); lc = color::ok; }
-            s.text(font_, cx + 48, cy + 64, line, small, lc, smw - 72);
-            para(s, font_, cx + 24, cy + 96, tr("Les extensions et mises à jour qui manquent d'un côté, sans jamais renvoyer le jeu entier."), small, color::muted, smw - 48, 2, 28);
+            s.text(font_, cx + 48, cy + 56, line, small, lc, smw - 72);
+            para(s, font_, cx + 24, cy + 86, tr("Les extensions et mises à jour qui manquent d'un côté, sans jamais renvoyer le jeu entier."), small, color::muted, smw - 48, 2, 25);
             continue;
         }
         if (i == 3) {  // Réglages : les applis qui ont des réglages (même écran que Applis, filtre « Avec réglages »)
@@ -640,11 +658,11 @@ void Ui::draw_synchro(Surface& s) {
             }
             s.rect(cx, cy, smw, smh, color::panel, 24);
             s.outline(cx, cy, smw, smh, f ? color::accent : rgb(170, 185, 205, 90), 24, f ? 4 : 2);
-            s.rect(cx + 24, cy + 26, 10, 36, soon[i].c, 5);
-            s.text(font_, cx + 48, cy + 18, tr(soon[i].name), large, color::text, smw - 72);
+            s.rect(cx + 24, cy + 20, 10, 36, soon[i].c, 5);
+            s.text(font_, cx + 48, cy + 12, tr(soon[i].name), large, color::text, smw - 72);
             const bool aerr = ap && ap->has("error");
-            s.text(font_, cx + 48, cy + 64, !ap ? std::string(tr("lecture…")) : aerr ? std::string(tr("autre PS5 injoignable")) : moving ? trf("%d à mettre à niveau", moving) : trf("%d appli(s) avec réglages", with), small, aerr || moving ? color::warn : color::muted);
-            para(s, font_, cx + 24, cy + 96, tr("Les réglages des applis : appli + réglages ou réglages seuls, selon un profil par appli."), small, color::muted, smw - 48, 2, 28);
+            s.text(font_, cx + 48, cy + 56, !ap ? std::string(tr("lecture…")) : aerr ? std::string(tr("autre PS5 injoignable")) : moving ? trf("%d à mettre à niveau", moving) : trf("%d appli(s) avec réglages", with), small, aerr || moving ? color::warn : color::muted, smw - 72);
+            para(s, font_, cx + 24, cy + 86, tr("Les réglages des applis : appli + réglages ou réglages seuls, selon un profil par appli."), small, color::muted, smw - 48, 2, 25);
             continue;
         }
         if (i <= 1 || i == 4) {  // Parties actives, Applis, Émulateurs : combien choisis, combien à mettre à niveau, ou l'avancement
@@ -656,8 +674,8 @@ void Ui::draw_synchro(Surface& s) {
             s.rect(cx, cy, smw, smh, color::panel, 24);
             s.rect(cx, cy, smw, smh, rgb(95, 178, 255, 16), 24);
             s.outline(cx, cy, smw, smh, f ? color::accent : rgb(95, 178, 255, 90), 24, f ? 4 : 2);
-            s.rect(cx + 24, cy + 26, 10, 36, soon[i].c, 5);
-            s.text(font_, cx + 48, cy + 18, tr(soon[i].name), large, color::text, smw - 72);
+            s.rect(cx + 24, cy + 20, 10, 36, soon[i].c, 5);
+            s.text(font_, cx + 48, cy + 12, tr(soon[i].name), large, color::text, smw - 72);
             std::string line;
             std::uint32_t lc = color::muted;
             if (ps["state"].as_string() == "running" && ps["peer"].as_string() == d.id && ps["section"].as_string() == sec) { line = trf("En cours : %lld / %lld", static_cast<long long>(ps["done"].as_int()), static_cast<long long>(ps["total"].as_int())); lc = color::accent; }
@@ -666,19 +684,19 @@ void Ui::draw_synchro(Surface& s) {
             else if (!(*pp)["chosen"].as_int()) line = i == 1 ? tr("aucune appli choisie") : tr("aucun jeu choisi");
             else if ((*pp)["need"].as_int()) { line = trf("%lld à mettre à niveau", static_cast<long long>((*pp)["need"].as_int())); lc = color::warn; }
             else { line = tr("au même niveau"); lc = color::ok; }
-            s.text(font_, cx + 48, cy + 64, line, small, lc);
-            para(s, font_, cx + 24, cy + 96, i == 4 ? tr("La sauvegarde la plus récente de ProsperoEden ou d'Églantine arrive sur l'autre PS5 ; l'ancienne est gardée.") : d.kind == "nas" ? (i == 1 ? tr("Le NAS garde la dernière version de chaque appli choisie ; une PS5 en retard l'installe depuis le NAS.")
+            s.text(font_, cx + 48, cy + 56, line, small, lc, smw - 72);
+            para(s, font_, cx + 24, cy + 86, i == 4 ? tr("La sauvegarde la plus récente de ProsperoEden ou d'Églantine arrive sur l'autre PS5 ; l'ancienne est gardée.") : d.kind == "nas" ? (i == 1 ? tr("Le NAS garde la dernière version de chaque appli choisie ; une PS5 en retard l'installe depuis le NAS.")
                                                                         : tr("Le NAS garde la partie la plus récente ; une PS5 en retard la récupère, la sienne d'abord sauvegardée."))
                                                : (i == 1 ? tr("La version la plus récente d'une appli remplace l'ancienne de l'autre côté. Même version : rien.")
-                                                         : tr("La partie la plus récente arrive sur l'autre PS5 ; celle qu'elle remplace est d'abord sauvegardée.")), small, color::muted, smw - 48, 2, 28);
+                                                         : tr("La partie la plus récente arrive sur l'autre PS5 ; celle qu'elle remplace est d'abord sauvegardée.")), small, color::muted, smw - 48, 2, 25);
             continue;
         }
         s.rect(cx, cy, smw, smh, color::panel, 24);
         s.outline(cx, cy, smw, smh, f ? color::accent : color::line, 24, f ? 4 : 1);
-        s.rect(cx + 24, cy + 26, 10, 36, soon[i].c, 5);
-        s.text(font_, cx + 48, cy + 18, tr(soon[i].name), large, color::text, smw - 72);  // le nom entier (« Parties actives »)
-        s.text(font_, cx + 48, cy + 64, tr("Bientôt"), small, soon[i].c);                  // « Bientôt » dessous, à la couleur de la section
-        para(s, font_, cx + 24, cy + 96, tr(soon[i].text), small, color::muted, smw - 48, 2, 28);
+        s.rect(cx + 24, cy + 20, 10, 36, soon[i].c, 5);
+        s.text(font_, cx + 48, cy + 12, tr(soon[i].name), large, color::text, smw - 72);  // le nom entier (« Parties actives »)
+        s.text(font_, cx + 48, cy + 56, tr("Bientôt"), small, soon[i].c);                  // « Bientôt » dessous, à la couleur de la section
+        para(s, font_, cx + 24, cy + 86, tr(soon[i].text), small, color::muted, smw - 48, 2, 25);
     }
     if (sn_zone_ == 0) draw_footer(s, {{0, sn_games_ ? tr("Ouvrir Transferts") : tr("Choisir")}, {-1, tr("Haut / bas : appareils")}});
     else if (sn_target_ == 0) draw_footer(s, {{0, btn.empty() ? tr("Valider") : btn.c_str()}, {-1, tr("Bas : les sections")}, {1, tr("Retour")}});

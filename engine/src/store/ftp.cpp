@@ -1,5 +1,6 @@
 #include <ctime>
 #include "store/ftp.hpp"
+#include "store/s3.hpp"
 
 #include <arpa/inet.h>
 #include <cerrno>
@@ -30,6 +31,10 @@ Json FtpConfig::to_json(bool with_password) const {
     j.set("layout", layout);
     if (!domain.empty()) j.set("domain", domain);
     if (!proto.empty()) j.set("proto", proto);
+    if (!pin.empty()) j.set("pin", pin);
+    if (!bucket.empty()) j.set("bucket", bucket);
+    if (!region.empty()) j.set("region", region);
+    if (!service.empty()) j.set("service", service);
     return j;
 }
 
@@ -44,6 +49,10 @@ FtpConfig FtpConfig::from_json(const Json& j) {
     if (t == "on" || t == "off" || t == "auto") c.tls = t;
     if (j["layout"].as_string() == "platform") c.layout = "platform";
     c.domain = j["domain"].as_string();
+    c.pin = j["pin"].as_string();
+    c.bucket = j["bucket"].as_string();
+    c.region = j["region"].as_string();
+    if (s3_known_service(j["service"].as_string())) c.service = j["service"].as_string();
     if (j["proto"].as_string() == "smb" || j["proto"].as_string() == "ftp") c.proto = j["proto"].as_string();
     return c;
 }

@@ -273,6 +273,7 @@ Result run(const Request& req, const backup::ProgressFn& progress, std::atomic<b
         std::string err;
         auto r = req.src->open(src_path, err);
         auto w = r ? req.dst->create(dst_path, err) : nullptr;
+        if (w) w->size_hint(f.size);
         if (!r || !w) {
             Json x = Json::object(); x.set("file", f.rel); x.set("error", err.empty() ? "ouverture impossible" : err); errors.push(x);
             p.bytes_done += f.size; ++p.files_done;

@@ -35,7 +35,7 @@ struct Item {
     std::string location;   // dossier du jeu sur la console (premier fichier sauvegardé), pour « Parcourir »
     bool ignored = false;   // ignoré : plus sauvegardé ni proposé (Paramètres › Éléments ignorés)
 };
-struct Place { std::string id, type, mount, label; std::uint64_t free = 0, total = 0; bool marked = false; };
+struct Place { std::string id, type, mount, label; std::uint64_t free = 0, total = 0; bool marked = false; std::string protocol, same_as, use; };  // same_as : synchro du même dossier du même NAS par un autre appareil ; use : « both », « backups » ou « sync »
 struct Task {
     std::string id, type, state, title, error;
     std::uint64_t done = 0, total = 0;

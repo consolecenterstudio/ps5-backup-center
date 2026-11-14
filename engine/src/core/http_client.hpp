@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace pbc::http {
 
@@ -39,5 +40,86 @@ Response request_raw(const std::string& method, const std::string& url, const st
 Response put_file(const std::string& url, const std::string& token, const std::string& host_file, std::string& out, int timeout_s = 60);
 // POST multipart d'un fichier (chargeur d'ELF d'Arsenal : POST /elfldr?pipe=0&args=<nom>).
 Response post_file(const std::string& url, const std::string& field, const std::string& filename, const std::string& data);
+
+// --- Requêtes générales (connecteurs cloud : WebDAV, S3, Google Drive, OneDrive…) --------------------------------
+// N'importe quelle méthode, en http:// ou https://, en-têtes libres, en-têtes de la réponse rendus.
+struct Header { std::string name, value; };
+using Headers = std::vector<Header>;
+
+struct Call {
+    std::string method = "GET", url;
+    Headers headers;          // Host, Connection et la longueur du corps sont ajoutés ici
+    bool verify_tls = true;   // false : appareil du réseau local au certificat auto-signé (NAS)
+    std::string pin;          // avec verify_tls=false : empreinte SHA-256 attendue (vide : acceptée, rendue dans Reply)
+    int timeout_s = 30;
+    int redirects = 3;        // suivies pour GET et HEAD seulement
+};
+
+struct Reply {
+    int status = 0;           // 0 : pas de réponse (voir error)
+    Headers headers;          // noms en minuscules
+    std::string body;
+    std::string error;        // erreur réseau / TLS ; un statut HTTP ≠ 2xx n'en est pas une
+    std::string fingerprint;  // certificat du serveur (verify_tls=false)
+    bool ok() const { return error.empty() && status >= 200 && status < 300; }
+    std::string header(const std::string& lower_name) const;
+};
+
+// Corps en mémoire ; réponse gardée en mémoire jusqu'à `limit` octets (au-delà : erreur).
+Reply call(const Call& c, const std::string& body = {}, std::size_t limit = 16u << 20);
+
+// Connexion gardée ouverte entre plusieurs requêtes au même serveur (keep-alive) : une seule poignée de main TLS
+// pour toute une série (WebDAV : création des dossiers, envoi, renommage de chaque fichier). Une connexion à la fois.
+class Conn {
+public:
+    Conn();
+    ~Conn();
+    Conn(const Conn&) = delete;
+    Conn& operator=(const Conn&) = delete;
+    void close();
+    struct State;
+    State* s_;
+};
+Reply call(const Call& c, Conn& conn, const std::string& body = {}, std::size_t limit = 16u << 20);
+// Réponse passée morceau par morceau à `sink` (téléchargement d'un gros fichier) ; Reply.body reste vide si le
+// statut est 2xx (sinon il contient le message d'erreur du serveur, 64 Ko au plus).
+Reply fetch(const Call& c, const std::function<bool(const char*, std::size_t)>& sink);
+
+// Envoi d'un corps en flux (gros fichier, taille connue ou non).
+class Upload {
+public:
+    Upload();
+    ~Upload();
+    Upload(const Upload&) = delete;
+    Upload& operator=(const Upload&) = delete;
+    // length < 0 : taille inconnue, envoi « chunked ». Faux : erreur dans error().
+    bool begin(const Call& c, std::int64_t length);
+    bool write(const char* p, std::size_t n);
+    Reply finish(std::size_t limit = 1u << 20);  // termine le corps et lit la réponse
+    void abort();
+    const std::string& error() const;
+
+private:
+    struct State;
+    State* s_;
+};
+
+// Réception d'un corps en flux, à la demande (lecture d'un gros fichier par morceaux).
+class Download {
+public:
+    Download();
+    ~Download();
+    Download(const Download&) = delete;
+    Download& operator=(const Download&) = delete;
+    // Envoie la requête et lit les en-têtes (redirections suivies pour GET). Reply.body n'est rempli que si le
+    // statut n'est pas 2xx (message du serveur, 64 Ko au plus) ; alors begin rend faux.
+    bool begin(const Call& c, Reply& head);
+    long read(char* p, std::size_t n);  // 0 : fin ; < 0 : erreur
+    void close();
+
+private:
+    struct State;
+    State* s_;
+};
 
 }  // namespace pbc::http

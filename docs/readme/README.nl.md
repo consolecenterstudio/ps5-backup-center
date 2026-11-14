@@ -16,7 +16,9 @@
 
 Ontdek wat een back-up nodig heeft, vergelijk bestaande kopieën en organiseer uitwisselingen tussen apparaten. PS5 Backup Center brengt inventaris, back-ups, synchronisatie en overdrachten samen op je tv en in je browser.
 
-**2.99.5 · GPL-3.0-or-later · 19 · 8**
+**3.0.0 · GPL-3.0-or-later · 19 · 8**
+
+**Volg ons** · [X @CCenterStudio](https://x.com/CCenterStudio) · [YouTube @ConsoleCenterStudio](https://www.youtube.com/@ConsoleCenterStudio) · [Reddit @ConsoleCenterStudio](https://www.reddit.com/user/ConsoleCenterStudio/)
 
 Vrije software. Geen abonnement.
 
@@ -29,6 +31,12 @@ Vrije software. Geen abonnement.
 ## Bibliotheek · Sync
 
 Bewaarde back-ups en actieve spelvoortgang verschillen. Kies kopieën tussen PS5-consoles of met een NAS. Lokale gebruikers-ID’s kunnen verschillen: de doelaccount is belangrijk. Switch ↔ Eden / ProsperoEden gebruikt JKSV en ftpd op Switch. Apps en ondersteunde instellingen hebben eigen regels. Volledige games gaan via Overdrachten.
+
+## Nieuw in 3.0
+
+- Voeg NAS of console toe bij apparaten en controleer de identiteit voor opslaan. Kies voor NAS een ondersteund protocol, test de verbinding en selecteer de map. Bevestig tussen PS5 de koppelcode; bereid bij Switch ftpd en een JKSV-export voor. FTP / FTPS, SMB en WebDAV worden ondersteund. ‘Gebruikt voor’ bepaalt of de NAS saves, sync of beide bewaart.
+- Voor de cloud open je Apparaten › Cloud: kies een S3-dienst (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) en voer de sleutels in — de QR-code opent hetzelfde formulier op je telefoon zodat je ze kunt plakken — of pCloud, Koofr, Nextcloud met je account. Google Drive, OneDrive en Dropbox koppel je met je eigen account vanaf je telefoon (activering in een komende update).
+- Volledig schermtoetsenbord.
 
 ## Nieuw in 2.98
 

@@ -18,6 +18,8 @@ struct Writer {
     virtual bool write(const char* p, std::size_t n) = 0;
     virtual bool commit(std::string& err) = 0;
     virtual void abort() = 0;
+    // Taille finale annoncée avant d'écrire (OneDrive l'exige pour un gros fichier) ; sans effet ailleurs.
+    virtual void size_hint(std::uint64_t) {}
 };
 
 struct Reader {

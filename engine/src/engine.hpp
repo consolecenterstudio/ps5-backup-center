@@ -129,6 +129,8 @@ public:
     Json browse_config(const Json& body, std::string& error);
     bool test_config(const Json& body, std::string& error);  // tester avant d'enregistrer
     // Gestion des backups : action « protect » {on}, « measure », « delete » {confirm:true} sur {place, bundle}.
+    // Une tâche de sauvegarde terminée : où est la version qu'elle a faite ({place, bundle} au format de version_action).
+    Json task_backup(const std::string& task_id, std::string& error);
     Json version_action(const std::string& action, const Json& body, std::string& error);
     Json backups_summary(const std::string& account, bool with_peers = true);  // with_peers : copies rangées sur les PS5 jumelées                 // résumé par jeu + proposition
     Json compare_all(const std::string& account, std::string& error);  // une comparaison par jeu pas encore lu
@@ -246,6 +248,16 @@ public:
     // Lecture d'un morceau d'un fichier DLC / mise à jour déclaré par dlc_list (rien d'autre n'est servi).
     bool dlc_read(const std::string& title_id, const std::string& id, std::uint64_t offset, std::uint64_t limit, std::string& out, std::string& error);
     // Même progression des émulateurs (ProsperoEden, Églantine) entre deux PS5 — sync_emu.cpp
+    // Google Drive, OneDrive : connexion par code. start → {id, user_code, url, qr, expires_in} ; status → {state, account,
+    // free, total, error} (state : pending, ok, denied, expired, error). Le jeton reste ici, repris par add_remote (« link »).
+    Json cloud_link_start(const std::string& provider, std::string& error);
+    Json cloud_link_status(const std::string& id);
+    // Dropbox (pas de code court) : le téléphone ouvre la page de la console (lien à usage unique, 30 min), y trouve
+    // l'adresse d'autorisation et y colle le code que Dropbox affiche. Sans association : l'identifiant du lien suffit.
+    Json cloud_link_info(const std::string& id);
+    bool cloud_link_code(const std::string& id, const std::string& code, std::string& error);
+    Json cloud_services();  // {gdrive: bool, onedrive: bool} : déclarés dans cette version
+    Json web_link(const std::string& place);  // adresse de la page web (+ code QR), ex. « #cloud »
     Json support(bool fresh);  // « Soutenir le projet » : moyens de soutien + codes QR (support.cpp)
     Json emu_saves();                                                        // sauvegardes d'émulateurs d'ici (aussi lue par l'autre PS5)
     Json emu_files(const std::string& key, std::string& error);              // fichiers d'une sauvegarde (chemin, taille, heure)
@@ -391,6 +403,11 @@ private:
     std::unique_ptr<Updater> updater_;
     std::unique_ptr<covers::Fetcher> fetcher_;
     std::unique_ptr<store::Remotes> remotes_;
+    struct CloudLink { std::string provider, device_code, user_code, url, state = "pending", refresh, account, error, verifier, authorize; int interval = 5;
+                       std::int64_t expires = 0, next = 0; std::uint64_t free = 0, total = 0; };
+    std::mutex links_mu_;
+    std::map<std::string, CloudLink> links_;
+    bool take_link(const Json& body, store::Remote& r, std::string& error);  // jeton d'une connexion par code
     std::unique_ptr<plans::Store> plans_;
     std::unique_ptr<progress::Tracker> playtime_;  // notre compteur de temps de jeu par jeu
     std::unique_ptr<link::Link> link_;  // liaison entre consoles (module réutilisable, docs/PROTOCOLE-link.md)

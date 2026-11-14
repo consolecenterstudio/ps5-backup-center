@@ -159,12 +159,23 @@ std::string progress_line(const Json& g) {
 std::string places_text(const Json& g) {
     std::vector<std::string> seen;
     if (g["console"].is_object()) seen.push_back(tr("Console"));
-    for (const auto& c : g["copies"].items())
-        if (std::find(seen.begin(), seen.end(), c["place_label"].as_string()) == seen.end()) seen.push_back(c["place_label"].as_string());
+    for (const auto& c : g["copies"].items()) {
+        const std::string l = c["on_peer"].as_bool() ? c["peer_name"].as_string() : c["place_label"].as_string();  // l'autre PS5, une seule fois
+        if (std::find(seen.begin(), seen.end(), l) == seen.end()) seen.push_back(l);
+    }
     std::string out;
     for (const auto& p : seen) out += (out.empty() ? "" : " · ") + p;
     return out;
 }
+
+void checkbox(Surface& s, int x, int cy, bool on, bool dim) {
+    s.rect(x, cy - 14, 28, 28, on ? color::accent2 : dim ? rgb(255, 255, 255, 12) : rgb(34, 52, 77), 7);
+    if (!on) return;
+    for (int d = 0; d < 8; ++d) s.rect(x + 5 + d, cy + d / 2 - 2, 4, 4, color::text, 2);
+    for (int d = 0; d < 11; ++d) s.rect(x + 11 + d, cy + 2 - d, 4, 4, color::text, 2);
+}
+
+}  // namespace
 
 // Lignes d'un paragraphe coupé aux mots.
 std::vector<std::string> wrap(const std::string& text, FontSize size, int max_w) {
@@ -182,15 +193,6 @@ std::vector<std::string> wrap(const std::string& text, FontSize size, int max_w)
     if (!line.empty()) lines.push_back(line);
     return lines;
 }
-
-void checkbox(Surface& s, int x, int cy, bool on, bool dim) {
-    s.rect(x, cy - 14, 28, 28, on ? color::accent2 : dim ? rgb(255, 255, 255, 12) : rgb(34, 52, 77), 7);
-    if (!on) return;
-    for (int d = 0; d < 8; ++d) s.rect(x + 5 + d, cy + d / 2 - 2, 4, 4, color::text, 2);
-    for (int d = 0; d < 11; ++d) s.rect(x + 11 + d, cy + 2 - d, 4, 4, color::text, 2);
-}
-
-}  // namespace
 
 // Compte affiché : le premier compte PS5 de cette console (vide : tous les comptes).
 std::string Ui::mg_account() const {
@@ -445,7 +447,8 @@ void Ui::draw_mg_overview(Surface& s, int x, int w) {
             s.text(font_, margin + Surface::measure(trf("%d coché(s)", ng), small) + 48, 955, trf("%d copie(s) · libère %s", nc, size_text(bytes).c_str()), small, color::text);
         }
     }
-    draw_footer(s, {{0, tr("Ouvrir")}, {-1, tr("L2 : cocher")}, {-1, tr("R2 : doublons…")}, {-1, tr("Options : actions")}, {2, next.c_str()}, {3, tr("Tout comparer")}});
+    const std::string sq = mg_gsel_.empty() ? next : trf("Supprimer… (%d)", static_cast<int>(mg_gsel_.size()));
+    draw_footer(s, {{0, tr("Ouvrir")}, {-1, tr("L2 : cocher")}, {-1, tr("R2 : doublons…")}, {-1, tr("Options : actions")}, {2, sq.c_str()}, {3, tr("Tout comparer")}});
 }
 
 // Corbeille de chaque disque USB et du NAS, par jour ; Croix remet la copie à sa place.
@@ -454,7 +457,7 @@ void Ui::draw_mg_trash(Surface& s, int x, int w, int y0) {
     std::vector<Row> rows;
     bool loading = false;
     for (const auto& p : snap_->places) {
-        if (p.type != "usb" && p.type != "ftp") continue;
+        if ((p.type != "usb" && p.type != "ftp") || p.use == "sync") continue;  // NAS « Synchro seulement » : pas de corbeille ici
         const auto it = mg_trash_.find(p.id);
         if (it == mg_trash_.end()) { mg_load_trash(p.id); loading = true; rows.push_back({0, p.label + "  ·  " + tr("lecture…"), p.id, nullptr}); continue; }
         const Json& list = it->second;
@@ -820,7 +823,7 @@ void Ui::input_manage(std::uint32_t k) {
         if (k & key::triangle) { mg_trash_.clear(); return; }
         std::vector<std::pair<std::string, const Json*>> items;  // même ordre que l'écran
         for (const auto& p : snap_->places) {
-            if (p.type != "usb" && p.type != "ftp") continue;
+            if ((p.type != "usb" && p.type != "ftp") || p.use == "sync") continue;  // NAS « Synchro seulement » : pas de corbeille ici
             const auto it = mg_trash_.find(p.id);
             if (it == mg_trash_.end() || !it->second.is_array()) continue;
             std::vector<const Json*> v;
@@ -852,7 +855,10 @@ void Ui::input_manage(std::uint32_t k) {
     if (k & key::circle) { mg_zone_ = 0; return; }
     if (k & key::up) { if (mg_row_ == 0) { mg_zone_ = 0; return; } mg_row_ = std::max(0, mg_row_ - 1); }
     if (k & key::down) mg_row_ = std::min(std::max(0, n - 1), mg_row_ + 1);
-    if (k & key::square) { mg_view_ = (mg_view_ + 1) % 4; mg_row_ = 0; return; }
+    if (k & key::square) {  // des éléments cochés : Carré = les supprimer (aperçu puis Carré maintenu 5 s) ; sinon, la vue suivante
+        if (!mg_gsel_.empty()) { mg_pv_delete_ = true; mg_open_preview(mg_gsel_); return; }
+        mg_view_ = (mg_view_ + 1) % 4; mg_row_ = 0; return;
+    }
     if (k & key::triangle) {
         Json b = Json::object();
         b.set("account", mg_sum_account_);
@@ -974,11 +980,19 @@ void Ui::draw_mg_ignore(Surface& s) {
     else draw_footer(s, {{0, tr("Choisir")}, {1, tr("Annuler")}});
 }
 
-// ---- Onglet Backups : cartes des endroits (Partout, chaque disque USB et NAS, Corbeille), puis la gestion ----
+// ---- Onglet Backups : cartes des endroits (Partout, l'interne s'il garde des copies, chaque disque USB et NAS, Corbeille), puis la gestion ----
 
 std::vector<const Place*> Ui::mg_places() const {
     std::vector<const Place*> out;
-    for (const auto& p : snap_->places) if (p.type == "usb" || p.type == "ftp") out.push_back(&p);
+    // L'interne n'a sa carte que s'il garde des copies (comme sur la page web).
+    auto has_copies = [&](const std::string& id) {
+        if (mg_sum_.is_object())
+            for (const auto& g : mg_sum_["games"].items())
+                for (const auto& c : g["copies"].items()) if (!c["on_peer"].as_bool() && c["place"].as_string() == id) return true;
+        return false;
+    };
+    for (const auto& p : snap_->places)
+        if (p.type == "usb" || (p.type == "ftp" && p.use != "sync") || (p.type == "internal" && has_copies(p.id))) out.push_back(&p);  // NAS « Synchro seulement » : pas ici
     // Une carte par autre PS5 qui range des copies (ses disques et son NAS ensemble). Refaite seulement si elle change :
     // les pointeurs rendus restent valables pendant le dessin.
     std::vector<Place> chips;
@@ -1279,10 +1293,17 @@ void Ui::draw_backups_tab(Surface& s) {
     const auto pl = mg_places();
     const int n = static_cast<int>(pl.size()) + 2;
     mg_place_ = std::clamp(mg_place_, 0, n - 1);
+    // La Corbeille reste toujours visible, à droite ; les endroits défilent à sa gauche (› s'il y en a d'autres).
     const int cw = 300, ch = 112, gap = 18, cy = 196;
-    const int per = (w + gap) / (cw + gap), first = std::clamp(mg_place_ - per + 1, 0, std::max(0, n - per));
-    for (int i = first; i < n && i < first + per; ++i) {
-        const int cx = x + (i - first) * (cw + gap);
+    const int places = n - 1, per = std::max(1, (w - cw) / (cw + gap));  // cartes d'endroit qui tiennent à gauche de la Corbeille
+    const int sel_place = std::min(mg_place_, places - 1);
+    const int first = std::clamp(sel_place - per + 1, 0, std::max(0, places - per));
+    std::vector<int> shown;
+    for (int i = first; i < places && i < first + per; ++i) shown.push_back(i);
+    shown.push_back(n - 1);  // Corbeille
+    for (std::size_t si = 0; si < shown.size(); ++si) {
+        const int i = shown[si];
+        const int cx = i == n - 1 ? x + w - cw : x + static_cast<int>(si) * (cw + gap);
         const bool sel = i == mg_place_, focus = sel && mg_zone_ == 0;
         if (focus) for (int g = 3; g >= 1; --g) s.rect(cx - g * 5, cy - g * 5, cw + g * 10, ch + g * 10, rgb(80, 150, 255, 20), 22 + g * 5);
         s.rect(cx, cy, cw, ch, sel ? color::panel2 : color::panel, 20);
@@ -1293,8 +1314,8 @@ void Ui::draw_backups_tab(Surface& s) {
         else if (i == n - 1) { name = tr("Corbeille"); sub = tr("30 jours pour changer d'avis"); }
         else {
             const Place& p = *pl[static_cast<std::size_t>(i - 1)];
-            name = p.label;
-            dev = p.type == "ftp" ? dev_nas : p.type == "peerconsole" ? dev_internal : dev_usb;  // autre PS5 : image de la PS5
+            name = p.type == "internal" ? std::string(tr("Interne")) : p.label;
+            dev = p.type == "ftp" ? (p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox" ? dev_cloud : dev_nas) : p.type == "peerconsole" || p.type == "internal" ? dev_internal : dev_usb;  // PS5 : image de la PS5
             sub = p.type == "ftp" ? std::string(tr("réseau")) : p.type == "peerconsole" ? trf("autre PS5 · %d copie(s)", static_cast<int>(p.total))
                                                                                          : trf("%s libres", size_text(p.free).c_str());
         }
@@ -1310,7 +1331,7 @@ void Ui::draw_backups_tab(Surface& s) {
         s.text(font_, tx, cy + 24, name, body, color::text, cx + cw - tx - 14);
         s.text(font_, tx, cy + 62, sub, small, color::muted, cx + cw - tx - 14);
     }
-    if (n > per) s.text(font_, 1920 - margin - 30, cy + ch / 2 - 18, "›", large, color::muted);
+    if (first + per < places) s.text(font_, x + per * (cw + gap) - gap + 10, cy + ch / 2 - 18, "›", large, color::muted);  // d'autres endroits : juste après la dernière carte d'endroit
     if (mg_in_trash()) {
         draw_mg_trash(s, x, w, 334);
         return;

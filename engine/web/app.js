@@ -462,12 +462,12 @@ function homeTodo() {
     const u = (state.status || {}).update || {}, from = u.received_from ? T("reçue de %s", u.received_from) : "";
     if (u.state === "downloading" || u.state === "installing")
       cards.push({ eyebrow: T("MISE À JOUR"), title: u.state === "downloading" && u.bytes_total ? T("Téléchargement… %d %%", Math.min(100, Math.floor((u.bytes_done * 100) / u.bytes_total))) : u.state === "downloading" ? T("Téléchargement…") : T("Installation…"), tone: "info",
-        games: [{ item: "", title: u.state === "downloading" && u.bytes_total ? updateProgress(u) : from || T("Backup Center se met à jour") }], go: () => setTab("settings") });
+        games: [{ item: "", logo: true, title: u.state === "downloading" && u.bytes_total ? updateProgress(u) : from || T("Backup Center se met à jour") }], go: () => setTab("settings") });
     else if (u.state === "available" && u.available)  // trouvée par la recherche automatique ou manuelle
-      cards.push({ eyebrow: T("MISE À JOUR"), title: T("%s disponible", u.available), tone: "info", games: [{ item: "", title: T("Cliquer pour installer") }],
+      cards.push({ eyebrow: T("MISE À JOUR"), title: T("%s disponible", u.available), tone: "info", games: [{ item: "", logo: true, title: T("Cliquer pour installer") }],
         go: async () => { try { await post("/update/install", {}); toast(T("Téléchargement de la mise à jour…")); refresh(true); } catch (e) { toast(e.message); } } });
     else if (u.engine_restart_needed && u.installed)
-      cards.push({ eyebrow: T("MISE À JOUR"), title: T("%s installée", u.installed), tone: "ok", games: [{ item: "", title: (from ? from + " · " : "") + T("Relancer le moteur") }],
+      cards.push({ eyebrow: T("MISE À JOUR"), title: T("%s installée", u.installed), tone: "ok", games: [{ item: "", logo: true, title: (from ? from + " · " : "") + T("Relancer le moteur") }],
         go: async () => { try { await post("/update/restart-engine", {}); toast(T("Relance du moteur…")); } catch (e) { toast(T("Relance refusée : %s — la nouvelle version sera active au prochain démarrage de la console", e.message)); } } });
   }
   // Synchro des copies (comme la télé) : en cours, sinon l'état avec chaque autre PS5.
@@ -475,15 +475,22 @@ function homeTodo() {
     const ss = syncState.status;
     if (ss.state === "running") cards.push({ eyebrow: T("SYNCHRO DES SAUVEGARDES"), title: T("%d / %d copie(s)", ss.done || 0, ss.total || 0), tone: "task-move",
       games: [{ item: "", title: ss.current || ss.name || "", progress: ss.total ? Math.floor(((ss.done || 0) * 1000) / ss.total) : -1, eta: "" }], go: () => setTab("backups") });
-    else for (const p of syncState.plans) {
-      const nasPeer = (x) => (String(x.plan.peer || "").startsWith("remote:") ? "nas" : "ps5");  // image de l'autre côté
-      // Comme la télé : seuls les jeux choisis comptent ; la bulle ouvre la page Synchro de cette PS5.
-      const titles = p.plan.titles || [], chosen = titles.filter((t) => t.followed).length, need = titles.filter(syNeeds);
-      const games = need.slice(0, 12).map((t) => ({ item: "title:" + t.title_id, title_id: t.title_id, title: (t.state === "pull" ? "↓ " : "↑ ") + t.title }));
-      cards.push({ eyebrow: T("SYNCHRO · %s", p.name), title: !chosen ? T("Aucun jeu choisi") : need.length ? T("%d jeu(x) à mettre à jour", need.length) : T("Tout est au même niveau"),
-        tone: !chosen ? "info" : need.length ? "warn" : "ok",
-        games: !chosen ? [{ item: "", dev: nasPeer(p), title: T("Choisissez les jeux à garder au même niveau") }] : need.length ? games : [{ item: "", dev: nasPeer(p), title: T("Les mêmes sauvegardes des deux côtés") }],
-        go: () => { SY.dev = p.plan.peer; SY.pick = null; setTab("synchro"); } });
+    else if (syncState.plans.length) {  // une seule carte Synchro : à mettre à niveau d'abord, puis au même niveau, puis une ligne pour les autres
+      let need = 0, first = null, sameFirst = null;
+      const games = [], same = [], idle = [];
+      for (const p of syncState.plans) {
+        const titles = p.plan.titles || [], chosen = titles.filter((t) => t.followed).length, n = titles.filter(syNeeds);
+        if (!chosen) { idle.push({ item: "", dev: String(p.plan.peer || "").startsWith("remote:") ? "nas" : "ps5", title: T("%s · aucun jeu choisi", p.name) }); continue; }
+        if (n.length) { need += n.length; first = first || p; for (const t of n) if (games.length < 12) games.push({ item: "title:" + t.title_id, title_id: t.title_id, title: (t.state === "pull" ? "↓ " : "↑ ") + t.title + " · " + p.name }); continue; }
+        same.push({ item: "", dev: String(p.plan.peer || "").startsWith("remote:") ? "nas" : "ps5", title: T("%s : les mêmes sauvegardes des deux côtés", p.name) });
+        sameFirst = sameFirst || p;
+      }
+      const idleLine = idle;  // chaque appareil défile avec son image
+      const head = syncState.plans.length > 1 ? T("SYNCHRO · %d appareils", syncState.plans.length) : T("SYNCHRO");
+      const open = (p) => () => { if (p) SY.dev = p.plan.peer; SY.pick = null; setTab("synchro"); };
+      if (need) cards.push({ eyebrow: head, title: T("%d jeu(x) à mettre à niveau", need), tone: "warn", games: [...games, ...idleLine], go: open(first) });
+      else if (same.length) cards.push({ eyebrow: head, title: T("Tout est au même niveau"), tone: "ok", games: [...same, ...idleLine], go: open(sameFirst) });
+      else cards.push({ eyebrow: head, title: T("Aucun jeu choisi"), tone: "info", games: idleLine, go: open(syncState.plans[0]) });
     }
   }
   // Tâches : une bulle par sorte (compression, transfert, décompression…), en cours d'abord, avec l'avancement.
@@ -502,7 +509,7 @@ function homeTodo() {
 }
 const todoName = (g) => ("progress" in g ? g.phase ? g.phase + " · " : (g.progress >= 0 ? `${Math.floor(g.progress / 10)} % · ` + (g.eta ? T("reste") + " " + g.eta + " · " : "") : T("En attente") + " · ") : "") + cleanTitle(g.title);
 const todoBar = (g) => ("progress" in g ? `<span class="todo-bar"><i style="width:${Math.max(2, g.progress / 10)}%"></i></span>` : "");
-const todoImg = (g) => (g.item ? mgCover(g) : `<span class="dev-ico">${g.dev === "nas" ? ICONS.nas : ICONS.ps5}</span>`);
+const todoImg = (g) => (g.logo ? `<span class="logo big" aria-hidden="true"></span>` : g.item ? mgCover(g) : `<span class="dev-ico">${g.dev === "nas" ? ICONS.nas : ICONS.ps5}</span>`);  // mise à jour : notre logo
 const todoDots = (n, at) => (n > 1 ? `<span class="todo-dots">${Array.from({ length: Math.min(n, 8) }, (_, d) => `<i class="${d === at % 8 ? "on" : ""}"></i>`).join("")}</span>` : "");
 // Toutes les 3 s : chaque bulle « À faire » passe au jeu suivant (jaquette, nom, points), sans redessiner la page.
 setInterval(() => {
@@ -583,6 +590,15 @@ function synchroView() {
   loadSyncState().then(() => { if (state.tab === "synchro" && !SY.pick) synchroDraw(); });
   synchroDraw();
 }
+// Deux synchros sur le même NAS (deux entrées du même nom) : « NAS (WebDAV) », et le dossier si le protocole est le même.
+function nasSyncName(p) {
+  const proto = (x) => (x.protocol === "webdav" ? "WebDAV" : x.protocol === "smb" ? "SMB" : "FTP");
+  const twins = state.places.filter((o) => o.id !== p.id && o.type === "ftp" && o.use !== "backups" && !o.same_as && o.label === p.label);
+  if (!twins.length) return p.label;
+  const folder = (p.mount.match(/^\w+:\/\/[^/]*(\/.*)$/) || [, "/"])[1];
+  return `${p.label} (${proto(p)})` + (twins.some((o) => proto(o) === proto(p)) ? " · " + folder : "");
+}
+
 function synchroDevices() {
   // PS5 jumelées : celles déjà lues, et celles dont on connaît les disques (présentes même avant la première lecture).
   const ps5 = peerGames.map((p) => ({ kind: "ps5", id: p.instance, name: p.name }));
@@ -592,7 +608,7 @@ function synchroDevices() {
   }
   return [...ps5,
     ...state.remotes.filter((r) => r.type === "switch").map((r) => ({ kind: "switch", id: r.id, name: r.name })),
-    ...state.places.filter((p) => p.type === "ftp").map((p) => ({ kind: "nas", id: p.id, name: p.label }))];  // NAS : sauvegardes ↔ NAS
+    ...state.places.filter((p) => p.type === "ftp" && p.use !== "backups" && !p.same_as).map((p) => ({ kind: "nas", id: p.id, name: nasSyncName(p) }))];  // NAS qui sert à la synchro (un dossier une fois)
 }
 const syPlanOf = (id) => (syncState.plans.find((p) => p.plan.peer === id) || {}).plan;
 async function syPrefs(body, ok) {
@@ -933,6 +949,17 @@ function synchroVersionsDraw(name) {
 }
 // Backups disponibles (comme la télé) : des copies existent (ici, NAS, autre PS5) mais le jeu ou sa sauvegarde n'est pas
 // sur cette console. Un clic : leurs versions, pour restaurer ou récupérer.
+// Les endroits qui ont vraiment une de ces sauvegardes : « Ici », « NAS », le nom de l'autre PS5 (comme la télé).
+function bkWhere(list) {
+  let here = false, nas = false;
+  const peers = [];
+  for (const g of list) for (const c of g.copies || []) {
+    if (c.on_peer) { if (c.peer_name && !peers.includes(c.peer_name)) peers.push(c.peer_name); }
+    else if (String(c.place || "").startsWith("remote:")) nas = true;
+    else here = true;
+  }
+  return [...(here ? [T("Ici")] : []), ...(nas ? ["NAS"] : []), ...peers].join(" · ");
+}
 function backupsAvailable() {
   const sum = (typeof mg !== "undefined" && mg.sum) || null;
   if (!sum || !sum.games) return [];
@@ -1023,7 +1050,7 @@ function home() {
       <div class="shelf-row" data-scroll="home-recent">${recent.map((it) => tileHtml(it, null, true)).join("")}</div></section>` : "") +
     categoryShelves().filter((x) => !x.later).map((s, i) => `<section class="shelf"><div class="shelf-head"><h2>${esc(s.title)} <span class="n">${s.items.length}</span></h2></div>
       <div class="shelf-row" data-scroll="home-cat-${i}">${s.items.map((it) => tileHtml(it, null, true)).join("")}</div></section>`).join("") +
-    (bkAvail.length ? `<section class="shelf"><div class="shelf-head"><h2>${T("Sauvegardes disponibles")} <span class="n">${bkAvail.length}</span> <span class="tag info away">${esc(T("ailleurs : ici, NAS, autres PS5"))}</span></h2></div>
+    (bkAvail.length ? `<section class="shelf"><div class="shelf-head"><h2>${T("Sauvegardes disponibles")} <span class="n">${bkAvail.length}</span> ${bkWhere(bkAvail) ? `<span class="tag info away">${esc(bkWhere(bkAvail))}</span>` : ""}</h2></div>
       <div class="shelf-row" data-scroll="home-bk">${bkAvail.map((g, i) => `<div class="tile" data-bk="${i}" tabindex="0" role="button">${mgCover(g)}<div class="name">${esc(cleanTitle(g.title))}</div>
         <div class="meta">${esc(mgPlaces(g))}</div></div>`).join("")}</div></section>` : "") +
     peerGames.filter((p) => p.games && p.games.length).map((p, pi) => `<section class="shelf"><div class="shelf-head"><h2>${esc(T("%s · jeux installés", p.name))} <span class="n">${p.games.length}</span> <span class="tag info away">${esc(T("sur l'autre PS5"))}</span></h2></div>
@@ -1081,8 +1108,8 @@ function library() {
     <h1>${T("Bibliothèque")}<small>${T("%d sur %d", items.length, state.items.length)} · ${st.scanning ? T("actualisation…") : st.scanned_at ? T("relevé %s", new Date(st.scanned_at * 1000).toLocaleTimeString(I18N.code)) : T("premier relevé…")}</small></h1>
     <div class="filters">
       <div class="pills">${kinds.map(([k, l]) => `<button data-kind="${k}" class="${f.kind === k ? "active" : ""}">${l}</button>`).join("")}</div>
-      <select id="f-app"><option value="">${T("Émulateur : tous")}</option>${apps.map((a) => `<option value="${esc(a)}" ${f.app === a ? "selected" : ""}>${esc(a)}</option>`).join("")}</select>
-      <select id="f-place"><option value="">${T("Emplacement : tous")}</option>${state.places.filter((p) => !p.remote).map((p) => `<option value="${esc(p.id)}" ${f.place === p.id ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select>
+      <select id="f-app"><option value="">${T("Émulateur")}</option>${apps.map((a) => `<option value="${esc(a)}" ${f.app === a ? "selected" : ""}>${esc(a)}</option>`).join("")}</select>
+      <select id="f-place"><option value="">${T("Emplacement")}</option>${state.places.filter((p) => !p.remote).map((p) => `<option value="${esc(p.id)}" ${f.place === p.id ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select>
       <input type="search" id="f-q" placeholder="${esc(T("Rechercher un titre ou un identifiant"))}" value="${esc(f.q)}">
       <button class="secondary" id="rescan">${st.scanning ? SPIN : ""}${T("Actualiser")}</button>
       ${consoleSelectHtml()}
@@ -1167,9 +1194,9 @@ function remoteLibrary() {
       <button class="secondary" id="rp-clear">${esc(T("Tout décocher"))}</button></div>` : ""}
     <div class="filters">
       <div class="pills">${kinds.map(([k, l]) => `<button data-kind="${k}" class="${(f.kind === "ignored" ? "" : f.kind) === k ? "active" : ""}">${l}</button>`).join("")}</div>
-      <select id="f-pres"><option value="">${T("Ici : tout")}</option><option value="missing" ${pres === "missing" ? "selected" : ""}>${T("Manque ici")}</option><option value="both" ${pres === "both" ? "selected" : ""}>${T("Aussi ici")}</option></select>
+      <select id="f-pres"><option value="">${T("Tous ses jeux")}</option><option value="missing" ${pres === "missing" ? "selected" : ""}>${T("Absents d'ici")}</option><option value="both" ${pres === "both" ? "selected" : ""}>${T("Aussi ici")}</option></select>
       <input type="search" id="f-q" placeholder="${esc(T("Rechercher un titre ou un identifiant"))}" value="${esc(f.q)}">
-      <button class="secondary" id="peer-reread" ${d.online ? "" : "disabled"}>${state.peerLibLoading ? SPIN : ""}${T("Relire")}</button>
+      <button class="secondary" id="peer-reread" ${d.online ? "" : "disabled"}>${state.peerLibLoading ? SPIN : ""}${T("Actualiser")}</button>
       ${consoleSelectHtml()}
     </div>
     ${items.length ? shelves.map((s) => `<section class="lib-shelf"><h2>${esc(s.title)} <span class="n">${s.items.length}</span></h2>
@@ -1312,7 +1339,7 @@ function openItem(it) {
     <label class="part"><input type="checkbox" data-part="${c.part}" checked><span class="label">${esc(c.label || PARTS[c.part])}</span><span class="size">${size(c.bytes)}</span></label>`).join("");
   const total = it.components.reduce((a, c) => a + c.bytes, 0);
   // Destinations : interne, disques USB, appareils réseau (NAS / FTP). Une Switch est une source, pas une destination.
-  const dests = state.places.filter((p) => p.type !== "switch");
+  const dests = state.places.filter((p) => p.type !== "switch" && p.use !== "sync");  // NAS « Synchro seulement » : pas une destination
   const game = it.kind === "game_ps5" || it.kind === "game_ps4";
   $("#sheet-panel").innerHTML = `
     <div class="panel-head">${coverHtml(it, true)}
@@ -1542,7 +1569,7 @@ function openBrowser({ title, start, remote = "", config = null, pick = null, fi
 // ---- Appareils (ex-Destinations) ---------------------------------------------------------------------
 // Images d'appareils : les mêmes que l'app télé (engine/web/devices/*.png, tirées de make_devices.py).
 const DEVICE_FILES = { ps5: "internal", internal: "internal", usb: "usb", switch: "switch", consoles: "consoles", nas: "nas",
-  network: "network", cloud: "cloud", synology: "synology", qnap: "qnap" };
+  network: "network", cloud: "cloud", synology: "synology", qnap: "qnap", x: "x", youtube: "youtube", reddit: "reddit", discord: "discord" };
 const ICONS = new Proxy({}, { get: (_, k) => `<img class="dev-img" src="/devices/${DEVICE_FILES[k] || "network"}.png" alt="">` });
 function devCardHtml(p) {
   const def = state.settings.default_place === p.id;
@@ -1560,10 +1587,14 @@ function remoteCardHtml(r) {
   const sw = r.type === "switch", c = r.config || {};
   const links = sw ? [`<button class="go" data-go-party="switch:${esc(r.id)}">${T("Ses parties")}</button>`, `<button class="go" data-go-sync="switch:${esc(r.id)}">${T("Synchroniser")}</button>`]
     : [`<button class="go" data-go-backups="${esc(r.id)}">${T("Ses sauvegardes")}</button>`, `<button class="go" data-go-sync="nas:${esc(r.id)}">${T("Synchroniser")}</button>`];
-  return `<div class="dev"><div class="dev-ico">${sw ? ICONS.switch : ICONS.nas}</div><div class="dev-body">
-    <div class="title"><b>${esc(r.name)}</b><span class="tag ${sw ? "sw" : "info"}">${sw ? "Switch" : "FTP"}</span></div>
-    <div class="hint">${esc(c.host || "")}:${esc(c.port || "")}${c.root && c.root !== "/" ? " · " + esc(c.root) : ""}</div>
-    <div class="dev-line">${sw ? T("Un joueur : ses parties et leur synchro avec Eden") : T("Destination de sauvegarde")}</div>
+  const drive = r.type === "gdrive" || r.type === "onedrive" || r.type === "dropbox";
+  const s3 = r.type === "s3" || drive;  // stockage dans le nuage : service et compte plutôt qu'une adresse
+  const where = drive ? esc(c.bucket || "") : s3 ? `${c.service === "b2" ? "Backblaze B2" : c.service === "other" ? esc(c.host || "") : "Amazon S3"}${c.region ? " · " + esc(c.region) : ""} · ${esc(c.bucket || "")}`
+    : `${esc(c.host || "")}:${esc(c.port || "")}`;
+  return `<div class="dev"><div class="dev-ico">${sw ? ICONS.switch : s3 ? ICONS.cloud : ICONS.nas}</div><div class="dev-body">
+    <div class="title"><b>${esc(r.name)}</b><span class="tag ${sw ? "sw" : "info"}">${sw ? "Switch" : drive ? (r.type === "gdrive" ? "Drive" : r.type === "dropbox" ? "Dropbox" : "OneDrive") : s3 ? (c.service === "b2" ? "B2" : "S3") : r.type === "webdav" ? "WebDAV" : "FTP"}</span></div>
+    <div class="hint">${where}${c.root && c.root !== "/" ? " · " + esc(c.root) : ""}</div>
+    <div class="dev-line">${sw ? T("Un joueur : ses parties et leur synchro avec Eden") : `<span class="tag ${r.use === "sync" ? "off" : "ok"}">${T("Sauvegardes")}</span><span class="tag ${r.use === "backups" ? "off" : "ok"}">${T("Synchro")}</span>`}</div>
     <div class="dev-actions">${links.join("")}<button data-edit-remote="${esc(r.id)}">${T("Régler")}</button><button data-browse-remote="${esc(r.id)}">${T("Parcourir")}</button></div></div></div>`;
 }
 // Mettre à jour une autre PS5 depuis celle-ci (comme la télé) : elle télécharge notre version, vérifiée chez elle.
@@ -1659,7 +1690,7 @@ function wanSession(p) {
 // Comme la télé : sa version de Backup Center et son temps de réponse (« · v2.89.0 · 12 ms »).
 const peerVerMs = (p) => (p.version ? " · v" + esc(p.version) : "") + (typeof p.rtt_ms === "number" ? " · " + p.rtt_ms + " ms" : "");
 const ADD_DEVICES = [["ps5", "PlayStation 5", T("une autre PS5")], ["ps5", T("PS5 à distance"), T("par Internet")], ["usb", T("Disque USB"), T("disque externe")],
-  ["switch", "Switch", T("réseau ou USB")], ["synology", "Synology", "NAS"], ["qnap", "QNAP", "NAS"], ["network", "FTP / SMB", T("PC, serveur")], ["cloud", T("Cloud"), T("Drive, OneDrive…")]];
+  ["switch", "Switch", T("réseau ou USB")], ["synology", "Synology", "NAS"], ["qnap", "QNAP", "NAS"], ["network", "FTP / SMB", T("PC, serveur")], ["cloud", T("Cloud"), T("Drive, OneDrive, S3…")]];
 // Appareils (ex-Destinations) : cartes avec images et barres d'espace, raccourcis directs (Ses parties, Ses backups,
 // Synchroniser) ; les réglages de connexion vivent ici seulement (disque par défaut, téléphones et ordinateurs associés).
 function devicesView() {
@@ -1677,7 +1708,7 @@ function devicesView() {
     <div class="devs">${places.map(devCardHtml).join("")}${state.remotes.map(remoteCardHtml).join("")}${peerCardsHtml()}</div>
     <h2 class="eyebrow-h">${T("Ajouter un appareil")}</h2>
     <div class="adds">${ADD_DEVICES.map(([ico, name, sub], i) => { const brand = ico === "synology" || ico === "qnap";  // le logo porte déjà le nom
-      return `<button class="add${brand ? " add-brand" : ""}" data-add="${i}"><span class="dev-ico">${ICONS[ico]}</span><b>${esc(name)}</b><span class="hint">${esc(sub)}</span></button>`; }).join("")}</div>
+      return `<button class="add${brand ? " add-brand" : ""}${ico === "cloud" || ico === "network" ? " add-wide" : ""}" data-add="${i}"><span class="dev-ico">${ICONS[ico]}</span><b>${esc(name)}</b><span class="hint">${esc(sub)}</span></button>`; }).join("")}</div>
     <h2 class="eyebrow-h">${T("Disque par défaut")}</h2><p class="sub">${T("Les nouvelles sauvegardes vont sur ce disque, dans le dossier « PBC Backup ».")}</p>
     <div class="two-col">
       <label class="radio"><input type="radio" name="dp" value="auto" ${state.settings.default_place === "auto" ? "checked" : ""}><span class="grow"><b>${T("Choisir automatiquement")}</b><br><span class="hint">${T("Le premier disque USB, sinon le stockage interne")}</span></span></label>
@@ -1763,8 +1794,226 @@ function devicesView() {
     else if (i === 2) toast(T("Branchez le disque : il apparaît tout seul, et reste reconnu même sur un autre port."));
     else if (i === 3) openEditor("", "switch");
     else if (i >= 4 && i <= 6) openEditor("", "ftp");
-    else toast(T("Le cloud arrive bientôt."));
+    else cloudPick();
   });
+}
+// Nuage : Amazon S3, Backblaze B2, autre service S3 ; Google Drive et OneDrive viendront ensuite.
+const S3_SERVICES = () => [["aws", "Amazon S3", T("clés S3")], ["b2", "Backblaze B2", T("clés S3")], ["wasabi", "Wasabi", T("clés S3")], ["r2", "Cloudflare R2", T("clés S3")],
+  ["scaleway", "Scaleway", T("clés S3")], ["ovh", "OVHcloud", T("clés S3")], ["c2", "Synology C2", T("clés S3")], ["other", T("Autre S3"), T("MinIO, iDrive e2…")]];
+// WebDAV : le réglage du NAS, adresse et dossier déjà remplis.
+const DAV_SERVICES = () => [["pCloud", "webdav.pcloud.com", "/", T("pCloud : e-mail et mot de passe du compte. Compte européen : ewebdav.pcloud.com.")],
+  ["Koofr", "app.koofr.net", "/dav/Koofr", T("Koofr : e-mail et un mot de passe d'appli (Koofr › Réglages › Mots de passe).")],
+  ["Nextcloud", "", "/remote.php/dav/files/", T("Nextcloud : adresse de votre serveur ; ajoutez votre identifiant à la fin du dossier.")]];
+const S3_HOST_TYPED = (k) => k === "other" || k === "r2";
+function cloudPick() {
+  const box = document.createElement("div");
+  box.className = "modal";
+  box.innerHTML = `<div class="dialog"><h2>${T("Ajouter un stockage dans le nuage")}</h2>
+    <div class="adds">${[["gdrive", "Google Drive", T("connexion par code")], ["onedrive", "OneDrive", T("connexion par code")], ["dropbox", "Dropbox", T("depuis le téléphone")]].map(([k, n, sub]) => `<button class="add" data-drive="${k}"><span class="dev-ico">${ICONS.cloud}</span><b>${n}</b><span class="hint">${esc(sub)}</span></button>`).join("")}${S3_SERVICES().filter(([k]) => k !== "other").map(([k, n, sub]) => `<button class="add" data-s3="${k}"><span class="dev-ico">${ICONS.cloud}</span><b>${esc(n)}</b><span class="hint">${esc(sub)}</span></button>`).join("")}${DAV_SERVICES().map(([n], i) => `<button class="add" data-dav="${i}"><span class="dev-ico">${ICONS.cloud}</span><b>${esc(n)}</b><span class="hint">${T("compte WebDAV")}</span></button>`).join("")}<button class="add" data-s3="other"><span class="dev-ico">${ICONS.cloud}</span><b>${T("Autre S3")}</b><span class="hint">${T("MinIO, iDrive e2…")}</span></button></div>
+    <div class="actions"><button class="secondary" id="cp-close">${T("Fermer")}</button></div></div>`;
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  $("#cp-close", box).onclick = close;
+  $$("[data-s3]", box).forEach((b) => b.onclick = () => { close(); openS3Editor("", b.dataset.s3); });
+  $$("[data-drive]", box).forEach((b) => b.onclick = () => { close(); driveLink(b.dataset.drive); });
+  $$("[data-dav]", box).forEach((b) => b.onclick = () => { close(); const [name, host, root, hint] = DAV_SERVICES()[+b.dataset.dav]; openEditor("", "webdav", { name, host, port: "443", root, hint }); });
+}
+// Google Drive, OneDrive : connexion par code. Sur un téléphone, le bouton ouvre directement la page du service.
+const DRIVE_NAME = { gdrive: "Google Drive", onedrive: "OneDrive", dropbox: "Dropbox" };
+// Dropbox : ouvrir la page d'autorisation, puis coller le code affiché par Dropbox (ici, ou sur le téléphone).
+function dropboxSteps(id, authorize, done) {
+  return `<p>${T("1. Ouvrez Dropbox, connectez-vous et appuyez sur « Autoriser » :")}</p>
+    <p><a class="primary button-link" href="${esc(authorize)}" target="_blank" rel="noopener">${T("Se connecter à Dropbox")}</a></p>
+    <p>${T("2. Dropbox affiche un code : copiez-le et collez-le ici.")}</p>
+    <p class="row-inline"><input class="field" id="dbx-code" autocomplete="off" placeholder="${esc(T("Code de Dropbox"))}"><button class="primary" id="dbx-ok">${T("Valider")}</button></p>
+    <p class="hint" id="dbx-state"></p>`;
+}
+async function dropboxSend(id, root, after) {
+  const code = $("#dbx-code", root).value.trim();
+  if (!code) return;
+  $("#dbx-state", root).innerHTML = `${SPIN}${T("Vérification…")}`;
+  try {
+    const r = await fetch("/api/v2/cloud/link/code", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, code }) });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || r.statusText); }
+    after();
+  } catch (e) { $("#dbx-state", root).innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+}
+// Page ouverte sur le téléphone par le code QR de la télé (« …/#link=<id> ») : pas besoin d'associer le téléphone.
+function linkPage() {
+  if (!location.hash.startsWith("#link=")) return false;
+  const id = decodeURIComponent(location.hash.slice(6));
+  const box = document.createElement("div");
+  box.className = "modal";
+  box.innerHTML = `<div class="dialog"><div class="ed-head"><span class="dev-ico">${ICONS.cloud}</span><div><h2>${esc(T("Connecter %s", "Dropbox"))}</h2>
+    <p class="hint">${T("L'appli n'aura accès qu'à son propre dossier, jamais à vos autres fichiers.")}</p></div></div><div id="lp-body">${SPIN}</div></div>`;
+  document.body.appendChild(box);
+  fetch(`/api/v2/cloud/link/info?id=${encodeURIComponent(id)}`).then((r) => r.json()).then((info) => {
+    if (info.state !== "waiting_code" || !info.authorize) { $("#lp-body", box).innerHTML = `<p class="bad">${T("Lien expiré : recommencez depuis la télé.")}</p>`; return; }
+    $("#lp-body", box).innerHTML = dropboxSteps(id, info.authorize);
+    $("#dbx-ok", box).onclick = () => dropboxSend(id, box, () => { $("#lp-body", box).innerHTML = `<p class="ok">${T("C'est fait : la suite se passe sur la télé.")}</p>`; });
+  }).catch(() => { $("#lp-body", box).innerHTML = `<p class="bad">${T("Console injoignable.")}</p>`; });
+  return true;
+}
+async function driveLink(provider) {
+  const box = document.createElement("div");
+  box.className = "modal";
+  box.innerHTML = `<div class="dialog"><div class="ed-head"><span class="dev-ico">${ICONS.cloud}</span><div><h2>${esc(T("Connecter %s", DRIVE_NAME[provider]))}</h2>
+    <p class="hint">${T("Rien à taper ici : la connexion se fait sur votre téléphone, chez le service.")}</p></div></div>
+    <div id="dl-body">${SPIN}</div>
+    <p class="hint">${T("L'appli n'aura accès qu'à son propre dossier, jamais à vos autres fichiers.")}</p>
+    <div class="actions"><button class="secondary" id="dl-new">${T("Nouveau code")}</button><button class="secondary" id="dl-close">${T("Annuler")}</button></div></div>`;
+  document.body.appendChild(box);
+  let timer = 0, alive = true;
+  const close = () => { alive = false; clearTimeout(timer); box.remove(); };
+  $("#dl-close", box).onclick = close;
+  const show = (html) => { $("#dl-body", box).innerHTML = html; };
+  const start = async () => {
+    clearTimeout(timer);
+    show(SPIN);
+    let l;
+    try { l = await post("/cloud/link", { provider }); } catch (e) { show(`<p class="bad">${esc(T("Connexion impossible : %s", e.message))}</p>`); return; }
+    if (provider === "dropbox") {  // sur cette page : le lien d'autorisation et le code à coller, sans code QR
+      const info = await (await fetch(`/api/v2/cloud/link/info?id=${encodeURIComponent(l.id)}`)).json();
+      show(dropboxSteps(l.id, info.authorize));
+      $("#dbx-ok", box).onclick = () => dropboxSend(l.id, box, async () => {
+        const s = await api(`/cloud/link?id=${encodeURIComponent(l.id)}`);
+        if (s.state === "ok") { close(); openDriveEditor("", provider, l.id, s); }
+      });
+      return;
+    }
+    show(`<div class="row-inline" style="gap:20px;align-items:center;flex-wrap:wrap"><div class="qr">${qrSvg(l.qr)}</div><div>
+      <p>${T("1. Scannez le code avec votre téléphone, ou ouvrez :")} <a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.url)}</a></p>
+      <p>${T("2. Saisissez ce code :")} <b style="font-size:1.6em;letter-spacing:.1em">${esc(l.user_code)}</b></p>
+      <p>${T("3. Connectez-vous (e-mail, mot de passe, code de validation…) et acceptez.")}</p>
+      <p class="hint" id="dl-state">${SPIN}${T("En attente de votre accord…")}</p></div></div>`);
+    const poll = async () => {
+      if (!alive) return;
+      let s = {};
+      try { s = await api(`/cloud/link?id=${encodeURIComponent(l.id)}`); } catch (e) {}
+      if (!alive) return;
+      if (s.state === "ok") { close(); openDriveEditor("", provider, l.id, s); return; }
+      if (s.state === "denied") { $("#dl-state", box).innerHTML = `<span class="bad">${T("Refusé sur le téléphone : demandez un nouveau code.")}</span>`; return; }
+      if (s.state === "expired") { $("#dl-state", box).innerHTML = `<span class="bad">${T("Code expiré : demandez un nouveau code.")}</span>`; return; }
+      if (s.state === "error") { $("#dl-state", box).innerHTML = `<span class="bad">${esc(T("Connexion impossible : %s", s.error || ""))}</span>`; return; }
+      timer = setTimeout(poll, 2000);
+    };
+    timer = setTimeout(poll, 2000);
+  };
+  $("#dl-new", box).onclick = start;
+  start();
+}
+// Réglage d'un compte Drive : nom, dossier, usage ; le compte vient de la connexion par code.
+function openDriveEditor(id, provider, link, linked) {
+  const r = state.remotes.find((x) => x.id === id), c = (r && r.config) || {};
+  provider = (r && r.type) || provider;
+  const account = (linked && linked.account) || c.bucket || "";
+  const box = document.createElement("div");
+  box.className = "modal";
+  const place = linked && linked.total ? T("%s libres sur %s", size(linked.free), size(linked.total)) : "";
+  box.innerHTML = `<div class="dialog"><div class="ed-head"><span class="dev-ico">${ICONS.cloud}</span><div><h2>${esc(DRIVE_NAME[provider])}</h2>
+      <p class="hint">${T("Par Internet : plus lent qu'un NAS. Le service peut facturer le stockage et les téléchargements.")}</p></div></div>
+    <label class="field-row">${T("Compte")}<input class="field" value="${esc(account)}" disabled></label>
+    ${place ? `<label class="field-row">${T("Place")}<input class="field" value="${esc(place)}" disabled></label>` : ""}
+    <label class="field-row">${T("Nom")}<input class="field" id="dr-name" value="${esc(r ? r.name : account)}"></label>
+    <label class="field-row">${T("Dossier")}<input class="field" id="dr-root" value="${esc(c.root || "/")}"></label>
+    <label class="field-row">${T("Utilisé pour")}<select id="dr-use"><option value="backups">${T("Sauvegardes seulement")}</option><option value="both" ${r && !r.use ? "selected" : ""}>${T("Sauvegardes et Synchro")}</option><option value="sync" ${r && r.use === "sync" ? "selected" : ""}>${T("Synchro seulement")}</option></select></label>
+    <div class="actions"><button class="primary" id="dr-save">${T("Enregistrer")}</button><button class="secondary" id="dr-test">${T("Tester la connexion")}</button>${id ? `<button class="danger" id="dr-forget">${T("Oublier")}</button>` : ""}<button class="secondary" id="dr-close">${T("Fermer")}</button></div>
+    <p class="hint" id="dr-status"></p></div>`;
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  const status = (html) => { $("#dr-status", box).innerHTML = html; };
+  const busy = (on) => { $$("button", box).forEach((b) => { b.disabled = on && b.id !== "dr-close"; }); if (on) status(`${SPIN}${T("Connexion au service…")}`); };
+  const body = () => ({ type: provider, id, link, name: $("#dr-name", box).value.trim(), root: $("#dr-root", box).value.trim() || "/", use: $("#dr-use", box).value });
+  $("#dr-close", box).onclick = close;
+  $("#dr-test", box).onclick = async () => {
+    busy(true);
+    try { await post("/remotes/test-config", body()); busy(false); status(`<span class="ok">${T("Connexion réussie : vous pouvez enregistrer")}</span>`); }
+    catch (e) { busy(false); status(`<span class="bad">${esc(e.message)}</span>`); }
+  };
+  $("#dr-save", box).onclick = async () => {
+    busy(true);
+    try {
+      await post(id ? `/remotes/${encodeURIComponent(id)}/update` : "/remotes", body());
+      toast(T("Appareil enregistré : connexion vérifiée")); close(); reloadRemotes();
+    } catch (e) {
+      busy(false);
+      const taken = e.message.startsWith("sync_taken:") ? e.message.slice(11) : "";
+      status(`<span class="bad">${esc(taken ? T("Ce dossier sert déjà à la synchro de « %s ». Choisissez un autre dossier, ou « Sauvegardes seulement ».", taken) : T("Connexion impossible : %s", e.message))}</span>`);
+    }
+  };
+  let armed = false;
+  if (id) $("#dr-forget", box).onclick = async () => {
+    if (!armed) { armed = true; $("#dr-forget", box).textContent = T("Confirmer : oublier"); status(T("Appuyez encore pour oublier cet appareil (rien n'est effacé dessus).")); return; }
+    try { await post(`/remotes/${encodeURIComponent(id)}/forget`); toast(T("Appareil oublié")); close(); reloadRemotes(); } catch (e) { status(`<span class="bad">${esc(e.message)}</span>`); }
+  };
+}
+const S3_REGION = { aws: "eu-west-3", b2: "us-west-004", wasabi: "eu-central-1", r2: "auto", scaleway: "fr-par", ovh: "gra", c2: "eu-002", other: "" };
+function openS3Editor(id, service) {
+  const r = state.remotes.find((x) => x.id === id), c = (r && r.config) || {};
+  service = c.service || service || "aws";
+  const box = document.createElement("div");
+  box.className = "modal";
+  const field = (k, label, val, extra = "") => `<label class="field-row">${label}<input class="field" id="s3-${k}" value="${esc(val || "")}" autocomplete="off" ${extra}></label>`;
+  const svcName = (k) => (S3_SERVICES().find((x) => x[0] === k) || [k, k])[1];
+  box.innerHTML = `<div class="dialog"><div class="ed-head"><span class="dev-ico">${ICONS.cloud}</span><div>
+      <h2 id="s3-title">${id ? T("Régler l'appareil") : esc(T("Ajouter un stockage %s", svcName(service)))}</h2>
+      <p class="hint">${T("Les clés se créent sur le site du service (Amazon : IAM › Clés d'accès ; Backblaze : Application Keys).")}</p></div></div>
+    ${field("name", T("Nom"), r ? r.name : "", `placeholder="${esc(T("Mes sauvegardes"))}"`)}
+    <label class="field-row">${T("Service")}<select id="s3-service">${S3_SERVICES().map(([k, n]) => `<option value="${k}" ${service === k ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label>
+    ${field("host", service === "r2" ? T("N° de compte") : T("Adresse du service"), S3_HOST_TYPED(c.service) ? c.host : "", 'placeholder="https://s3.example.com"')}
+    ${field("region", T("Région"), c.region || S3_REGION[service])}
+    ${field("bucket", T("Compartiment"), c.bucket)}
+    ${field("user", T("Clé d'accès"), c.user && c.user !== "anonymous" ? c.user : "")}
+    <label class="field-row">${T("Clé secrète")}<input class="field" id="s3-password" type="password" autocomplete="new-password" placeholder="${esc(id ? T("(inchangé)") : "")}"></label>
+    ${field("root", T("Dossier"), c.root || "/")}
+    <label class="field-row">${T("Utilisé pour")}<select id="s3-use"><option value="backups">${T("Sauvegardes seulement")}</option><option value="both" ${r && !r.use ? "selected" : ""}>${T("Sauvegardes et Synchro")}</option><option value="sync" ${r && r.use === "sync" ? "selected" : ""}>${T("Synchro seulement")}</option></select></label>
+    <p class="hint">${T("Par Internet : plus lent qu'un NAS. Le service peut facturer le stockage et les téléchargements.")}</p>
+    <div class="actions"><button class="primary" id="s3-save">${T("Enregistrer")}</button><button class="secondary" id="s3-test">${T("Tester la connexion")}</button>${id ? `<button class="danger" id="s3-forget">${T("Oublier")}</button>` : ""}<button class="secondary" id="s3-close">${T("Fermer")}</button></div>
+    <p class="hint" id="s3-status"></p></div>`;
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  const status = (html) => { $("#s3-status", box).innerHTML = html; };
+  const busy = (on) => { $$("button", box).forEach((b) => { b.disabled = on && b.id !== "s3-close"; }); if (on) status(`${SPIN}${T("Connexion au service…")}`); };
+  const showHost = () => {
+    const l = $("#s3-host", box).closest("label");
+    l.style.display = S3_HOST_TYPED(service) ? "" : "none";
+    l.firstChild.textContent = service === "r2" ? T("N° de compte") : T("Adresse du service");
+    $("#s3-host", box).placeholder = service === "r2" ? "0123abcd…" : "https://s3.example.com";
+  };
+  showHost();
+  $("#s3-service", box).onchange = () => {
+    const before = service;
+    service = $("#s3-service", box).value;
+    if ($("#s3-region", box).value === S3_REGION[before]) $("#s3-region", box).value = S3_REGION[service];
+    if (!id) $("#s3-title", box).textContent = T("Ajouter un stockage %s", svcName(service));
+    showHost();
+  };
+  $("#s3-close", box).onclick = close;
+  $("#s3-name", box).focus();
+  const body = () => ({ type: "s3", id, service, name: $("#s3-name", box).value.trim(), host: S3_HOST_TYPED(service) ? $("#s3-host", box).value.trim() : "",
+    region: $("#s3-region", box).value.trim(), bucket: $("#s3-bucket", box).value.trim(), user: $("#s3-user", box).value.trim(), password: $("#s3-password", box).value.trim(),
+    root: $("#s3-root", box).value.trim() || "/", use: $("#s3-use", box).value });
+  $("#s3-test", box).onclick = async () => {
+    busy(true);
+    try { await post("/remotes/test-config", body()); busy(false); status(`<span class="ok">${T("Connexion réussie : vous pouvez enregistrer")}</span>`); }
+    catch (e) { busy(false); status(`<span class="bad">${esc(e.message)}</span>`); }
+  };
+  $("#s3-save", box).onclick = async () => {
+    busy(true);
+    try {
+      await post(id ? `/remotes/${encodeURIComponent(id)}/update` : "/remotes", body());
+      toast(T("Appareil enregistré : connexion vérifiée")); close(); reloadRemotes();
+    } catch (e) {
+      busy(false);
+      const taken = e.message.startsWith("sync_taken:") ? e.message.slice(11) : "";
+      status(`<span class="bad">${esc(taken ? T("Ce dossier sert déjà à la synchro de « %s ». Choisissez un autre dossier, ou « Sauvegardes seulement ».", taken) : T("Connexion impossible : %s", e.message))}</span>`);
+    }
+  };
+  let armed = false;
+  if (id) $("#s3-forget", box).onclick = async () => {
+    if (!armed) { armed = true; $("#s3-forget", box).textContent = T("Confirmer : oublier"); status(T("Appuyez encore pour oublier cet appareil (rien n'est effacé dessus).")); return; }
+    try { await post(`/remotes/${encodeURIComponent(id)}/forget`); toast(T("Appareil oublié")); close(); reloadRemotes(); } catch (e) { status(`<span class="bad">${esc(e.message)}</span>`); }
+  };
 }
 // Une autre PS5 (liaison entre consoles, docs/PROTOCOLE-link.md) : même menu que la télé.
 async function otherPs5() {
@@ -1879,20 +2128,24 @@ async function wanTest(inst, name) {
 async function reloadRemotes() { try { state.remotes = await api("/remotes"); } catch (e) {} refresh(true); }
 
 // Réglages d'un appareil réseau (Switch ou FTP / NAS) : mêmes champs et mêmes actions que sur la télé.
-function openEditor(id, type) {
+const PORTS = { ftp: "21", smb: "445", webdav: "5006" };
+const titleFor = (type) => type === "smb" ? T("Ajouter un partage SMB") : type === "webdav" ? T("Ajouter un NAS en WebDAV") : T("Ajouter un serveur FTP");
+function openEditor(id, type, preset) {
   type = type || "ftp";
   const r = state.remotes.find((x) => x.id === id), c = (r && r.config) || {};
-  if (r && r.type === "smb") type = "smb";
+  if (r && r.type === "s3") { openS3Editor(id); return; }
+  if (r && (r.type === "gdrive" || r.type === "onedrive" || r.type === "dropbox")) { openDriveEditor(id); return; }  // stockage S3 : son propre formulaire
+  if (r && (r.type === "smb" || r.type === "webdav")) type = r.type;
   const sw = type === "switch";
   let swProto = c.proto === "smb" ? "smb" : "ftp";  // Switch : FTP (ftpd, sphaira) ou SMB
-  const v = { name: r ? r.name : "", host: c.host || "", port: c.port ? String(c.port) : sw ? "5000" : "21", user: r ? c.user || "" : sw ? "anonymous" : "", root: c.root || "/", layout: c.layout === "platform" ? "platform" : "pbc" };
+  const v = preset ? { name: preset.name, host: preset.host, port: preset.port, user: "", root: preset.root, layout: "pbc" } : { name: r ? r.name : "", host: c.host || "", port: c.port ? String(c.port) : sw ? "5000" : "21", user: r ? c.user || "" : sw ? "anonymous" : "", root: c.root || "/", layout: c.layout === "platform" ? "platform" : "pbc" };
   const box = document.createElement("div");
   box.className = "modal";
   const field = (k, label, val, extra = "") => `<label class="field-row">${label}<input class="field" id="ed-${k}" value="${esc(val)}" ${extra}></label>`;
   box.innerHTML = `<div class="dialog"><div class="ed-head"><span class="dev-ico">${sw ? ICONS.switch : ICONS.nas}</span><div>
-      <h2 id="ed-title">${id ? T("Régler l'appareil") : sw ? T("Ajouter une Switch") : type === "smb" ? T("Ajouter un partage SMB") : T("Ajouter un serveur FTP")}</h2>
+      <h2 id="ed-title">${id ? T("Régler l'appareil") : sw ? T("Ajouter une Switch") : titleFor(type)}</h2>
       <p class="hint">${sw ? T("Sur la Switch : ftpd ouvert (FTP), ou un serveur SMB ; l'adresse s'affiche sur son écran.") : T("Adresse, port et compte du serveur (NAS, PC…).")}</p></div></div>
-    ${sw ? `<label class="field-row">${T("Protocole")}<select id="ed-proto"><option value="ftp" ${swProto !== "smb" ? "selected" : ""}>FTP (ftpd, sphaira…)</option><option value="smb" ${swProto === "smb" ? "selected" : ""}>SMB</option></select></label>` : `<label class="field-row">${T("Protocole")}<select id="ed-proto"><option value="ftp" ${type !== "smb" ? "selected" : ""}>FTP / FTPS</option><option value="smb" ${type === "smb" ? "selected" : ""}>SMB (Windows, Synology, QNAP…)</option></select></label>`}
+    ${sw ? `<label class="field-row">${T("Protocole")}<select id="ed-proto"><option value="ftp" ${swProto !== "smb" ? "selected" : ""}>FTP (ftpd, sphaira…)</option><option value="smb" ${swProto === "smb" ? "selected" : ""}>SMB</option></select></label>` : `<label class="field-row">${T("Protocole")}<select id="ed-proto"><option value="ftp" ${type === "ftp" ? "selected" : ""}>FTP / FTPS</option><option value="smb" ${type === "smb" ? "selected" : ""}>SMB (Windows, Synology, QNAP…)</option><option value="webdav" ${type === "webdav" ? "selected" : ""}>WebDAV (Synology, QNAP, Nextcloud…)</option></select></label>`}
     ${field("name", T("Nom"), v.name, `placeholder="${sw ? esc(T("Switch du salon")) : "NAS"}"`)}
     ${field("host", T("Adresse IP"), v.host, 'placeholder="192.168.1.20" inputmode="decimal"')}
     ${field("port", T("Port"), v.port, 'inputmode="numeric"')}
@@ -1900,6 +2153,7 @@ function openEditor(id, type) {
     <label class="field-row">${T("Mot de passe")}<input class="field" id="ed-password" type="password" autocomplete="new-password" placeholder="${esc(id ? T("(inchangé)") : T("(aucun)"))}"></label>
     <label class="field-row">${T("Dossier")}<span class="row-inline"><input class="field" id="ed-root" value="${esc(v.root)}"><button class="secondary small" id="ed-browse" type="button">${T("Parcourir…")}</button></span></label>
     ${sw ? "" : `<label class="field-row">${T("Chiffrement (FTPS)")}<select id="ed-tls">${[["auto", T("Automatique (FTPS si le serveur le propose)")], ["on", T("Toujours (FTPS obligatoire)")], ["off", T("Jamais (FTP simple)")]].map(([k, l]) => `<option value="${k}" ${(c.tls || "auto") === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>`}
+    ${sw ? "" : `<label class="field-row">${T("Utilisé pour")}<select id="ed-use"><option value="both">${T("Sauvegardes et Synchro")}</option><option value="backups" ${r && r.use === "backups" ? "selected" : ""}>${T("Sauvegardes seulement")}</option><option value="sync" ${r && r.use === "sync" ? "selected" : ""}>${T("Synchro seulement")}</option></select></label>`}
     ${sw ? "" : `<label class="field-row">${T("Rangement")}<select id="ed-layout"><option value="pbc" ${v.layout === "pbc" ? "selected" : ""}>${T("Dossier PBC Backup")}</option><option value="platform" ${v.layout === "platform" ? "selected" : ""}>${T("Par plateforme (PS5 backup…)")}</option></select></label>`}
     <div class="actions"><button class="primary" id="ed-save">${T("Enregistrer")}</button><button class="secondary" id="ed-test">${T("Tester la connexion")}</button>${id ? `<button class="secondary" id="ed-adopt" title="${esc(T("Déplace « PS5 backup », « Switch backup »… de la racine dans « PBC Backup » (renommage, rien n'est copié ni effacé)"))}">${T("Ranger sous PBC Backup")}</button>` : ""}${id ? `<button class="danger" id="ed-forget">${T("Oublier")}</button>` : ""}<button class="secondary" id="ed-close">${T("Fermer")}</button></div>
     <p class="hint" id="ed-status">${T("1. Saisissez l'adresse et le compte · 2. Parcourir… pour choisir le dossier · 3. Enregistrer (la connexion et l'écriture sont testées).")}</p></div>`;
@@ -1909,6 +2163,7 @@ function openEditor(id, type) {
   const busy = (on) => { $$("button", box).forEach((b) => { b.disabled = on && b.id !== "ed-close"; }); if (on) status(`${SPIN}${T("Connexion à l'appareil…")}`); };
   $("#ed-close", box).onclick = close;
   $("#ed-name", box).focus();
+  if (preset && preset.hint) status(esc(preset.hint));  // service proposé par son nom : ce qu'il faut saisir
   if ($("#ed-proto", box)) $("#ed-proto", box).onchange = () => {  // FTP ↔ SMB : le port suit, le chiffrement FTPS ne sert qu'au FTP
     const p = $("#ed-port", box);
     if (sw) {  // une Switch reste une Switch : seul le protocole change (le port suit : 5000 ↔ 445)
@@ -1917,13 +2172,15 @@ function openEditor(id, type) {
       if (swProto === "smb") status(T("SMB : le premier dossier est le partage (ex. /Partage/Sauvegardes)."));
       return;
     }
+    const before = type;
     type = $("#ed-proto", box).value;
-    if (p.value === (type === "smb" ? "21" : "445")) p.value = type === "smb" ? "445" : "21";
-    if ($("#ed-tls", box)) $("#ed-tls", box).closest("label").style.display = type === "smb" ? "none" : "";
-    if (!id) $("#ed-title", box).textContent = type === "smb" ? T("Ajouter un partage SMB") : T("Ajouter un serveur FTP");
+    if (p.value === PORTS[before]) p.value = PORTS[type];  // FTP 21, SMB 445, WebDAV 5006
+    if ($("#ed-tls", box)) $("#ed-tls", box).closest("label").style.display = type === "ftp" ? "" : "none";
+    if (!id) $("#ed-title", box).textContent = titleFor(type);
     if (type === "smb") status(T("SMB : le premier dossier est le partage (ex. /Partage/Sauvegardes)."));
+    if (type === "webdav") status(T("WebDAV : activez « WebDAV Server » sur le NAS (Synology : port 5006 en https)."));
   };
-  if (type === "smb" && $("#ed-tls", box)) $("#ed-tls", box).closest("label").style.display = "none";
+  if (type !== "ftp" && $("#ed-tls", box)) $("#ed-tls", box).closest("label").style.display = "none";
   // Parcourir : connexion avec les réglages saisis (mot de passe gardé sur la console s'il n'est pas redonné),
   // pour choisir le dossier sans le taper — même avant d'enregistrer.
   $("#ed-browse", box).onclick = () => {
@@ -1945,13 +2202,17 @@ function openEditor(id, type) {
   };
   $("#ed-save", box).onclick = async () => {
     const body = { type, name: $("#ed-name", box).value.trim(), host: $("#ed-host", box).value.trim(), port: parseInt($("#ed-port", box).value, 10) || 0,
-      user: $("#ed-user", box).value, password: $("#ed-password", box).value, root: $("#ed-root", box).value.trim() || "/", layout: sw ? "pbc" : $("#ed-layout", box).value, tls: sw ? (c.tls || "auto") : $("#ed-tls", box).value, proto: sw ? swProto : undefined };
+      user: $("#ed-user", box).value, password: $("#ed-password", box).value, root: $("#ed-root", box).value.trim() || "/", layout: sw ? "pbc" : $("#ed-layout", box).value, tls: sw ? (c.tls || "auto") : $("#ed-tls", box).value, proto: sw ? swProto : undefined, use: sw ? undefined : $("#ed-use", box).value };
     if (!body.host) { status(`<span class="bad">${T("Indiquez l'adresse IP de l'appareil.")}</span>`); return; }
     busy(true);
     try {
       await post(id ? `/remotes/${encodeURIComponent(id)}/update` : "/remotes", body);
       toast(T("Appareil enregistré : connexion vérifiée")); close(); reloadRemotes();
-    } catch (e) { busy(false); status(`<span class="bad">${esc(T("Connexion impossible : %s", e.message))}</span>`); }
+    } catch (e) {  // deux synchros dans le même dossier : le moteur dit laquelle a déjà ce dossier
+      busy(false);
+      const taken = e.message.startsWith("sync_taken:") ? e.message.slice(11) : "";
+      status(`<span class="bad">${esc(taken ? T("Ce dossier sert déjà à la synchro de « %s ». Choisissez un autre dossier, ou « Sauvegardes seulement ».", taken) : T("Connexion impossible : %s", e.message))}</span>`);
+    }
   };
   if (!id) return;
   if ($("#ed-adopt", box)) $("#ed-adopt", box).onclick = async () => {
@@ -2017,7 +2278,7 @@ function partiesView() {
   const list = players();
   if (!list.some((p) => p.id === P.player)) P.player = list.length ? list[0].id : "";
   const cur = list.find((p) => p.id === P.player);
-  $("#view").innerHTML = `<h1>${T("Parties")}</h1><p class="hint tab-help">${esc(T("Les parties actives SUR la console, par compte : à sauvegarder, à restaurer, à nettoyer."))}</p>
+  $("#view").innerHTML = `<h1>${T("Parties")}</h1><p class="hint tab-help">${esc(T("Les parties actives, par joueur, en vraie synchro : PS5 ↔ PS5, Switch ↔ émulateur, Switch ↔ Switch. À sauvegarder, à restaurer, à nettoyer."))}</p>
     <div class="tr-label">${T("JOUEURS")}</div>
     <div class="players" data-scroll="players">${list.map((p) => `<button class="tr-dev player ${p.id === P.player ? "chosen" : ""}" data-player="${esc(p.id)}">
       <span class="dev-ico">${p.icon}</span><span class="grow"><b>${esc(p.name)}</b><span class="hint">${esc(p.sub)}</span><span class="pstate ${p.tone}">${esc(p.state)}</span></span></button>`).join("")}</div>
@@ -2261,7 +2522,8 @@ async function syncView() {
     const [label, tone] = SYNC_STATUS[e.status] || [e.status, "muted"];
     const it = state.items.find((x) => x.platform === "Switch" && x.title_id === e.title_id && x.has_cover)
       || { key: "tid:switch:" + e.title_id, title: e.title, kind: "rom", platform: "Switch", has_cover: /^[0-9A-Fa-f]{16}$/.test(e.title_id || "") };
-    return `<div class="row"><div class="thumb">${coverHtml(it, true)}</div><div><div class="t">${esc(e.title)} <span class="hint">· ${esc(e.profile === "device" ? T("commun à la console") : e.profile)}</span> <span class="tag ${tone}">${label}</span></div>
+    const sel = !activeState(t.state) ? `<input type="checkbox" class="tk-sel" data-tk-sel="${esc(t.id)}" ${state.taskSel && state.taskSel.has(t.id) ? "checked" : ""} aria-label="${esc(T("Cocher"))}">` : "";
+  return `<div class="row">${sel}<div class="thumb">${coverHtml(it, true)}</div><div><div class="t">${esc(e.title)} <span class="hint">· ${esc(e.profile === "device" ? T("commun à la console") : e.profile)}</span> <span class="tag ${tone}">${label}</span></div>
       <div class="chips"><span>${esc(A)} : ${date(e.a)}</span><span>${esc(Bn)} : ${date(e.b)}</span></div></div>
       <div class="btns">${e.a && canTo(state.syncB) ? `<button data-sync="${i}" data-dir="ab">${esc(A)} → ${esc(Bn)}</button>` : ""}${e.b && canTo(state.syncA) ? `<button data-sync="${i}" data-dir="ba">${esc(Bn)} → ${esc(A)}</button>` : ""}</div></div>`;
   }).join("") : `<div class="empty">${T("Rien dans ce filtre.")}</div>`;
@@ -2366,9 +2628,26 @@ async function taskDetails(t) {
     if (r.cleaned) L.push(T("Fichiers copiés retirés : %d", r.cleaned.removed || 0));
   }
   if (t.error) L.push(`${T("Erreur :")} ${t.error}`);
-  const html = `<div class="hint" style="white-space:pre-wrap;user-select:text">${L.map(esc).join("<br>")}</div>`;
+  const own = t.type === "backup" && t.state === "done";  // la sauvegarde faite par cette tâche
+  const html = `<div class="hint" style="white-space:pre-wrap;user-select:text">${L.map(esc).join("<br>")}</div>`
+    + (own ? `<div class="actions" style="margin-top:12px"><button class="secondary" id="tk-view">${T("Voir la sauvegarde (Toutes les versions)")}</button><button class="danger" id="tk-trash">${T("Mettre cette sauvegarde à la corbeille…")}</button></div>` : "");
   const finished = !activeState(t.state);
-  if (await ask(t.title || TASK_KINDS[t.type] || T("Tâche"), html, finished ? T("Retirer de la liste") : T("Fermer"), finished ? T("Fermer") : "") && finished) {
+  if (own) setTimeout(() => {
+    const close = () => { const m = $("#tk-view") && $("#tk-view").closest(".modal"); if (m) m.parentNode.removeChild(m); };
+    if ($("#tk-view")) $("#tk-view").onclick = async () => {
+      try { const j = await post(`/tasks/${t.id}/backup`); close(); openVersions({ key: j.item, title_id: j.title_id }); } catch (e) { toast(e.message); }
+    };
+    if ($("#tk-trash")) $("#tk-trash").onclick = async () => {
+      try {
+        const j = await post(`/tasks/${t.id}/backup`);
+        close();
+        if (!(await holdAsk(T("Mettre « %s » à la corbeille ?", j.title), T("La sauvegarde faite par cette tâche va dans la corbeille de son disque ou de son NAS pendant 30 jours. La tâche reste dans la liste."), T("Maintenir 5 s pour supprimer")))) return;
+        await post("/backups/delete", { place: j.place, bundle: j.bundle, confirm: true });
+        toast(T("Sauvegarde mise à la corbeille (30 jours)")); refresh(true);
+      } catch (e) { toast(e.message); }
+    };
+  }, 0);
+  if (await ask(t.title || TASK_KINDS[t.type] || T("Tâche"), html, finished ? T("Retirer de la liste (la sauvegarde reste)") : T("Fermer"), finished ? T("Fermer") : "") && finished) {
     try { await post(`/tasks/${t.id}/remove`); refresh(true); } catch (e) { toast(e.message); }
   }
 }
@@ -2389,11 +2668,31 @@ function tasks() {
   const active = state.tasks.filter((t) => activeState(t.state)).length;
   const list = state.tasks.filter((t) => TASK_GROUPS[state.taskFilter].includes(t.state)).reverse();
   const canClear = state.taskFilter !== "active" && list.length > 0;
+  state.taskSel = new Set([...(state.taskSel || [])].filter((id) => list.some((t) => t.id === id)));
+  const nsel = state.taskSel.size, nbk = list.filter((t) => state.taskSel.has(t.id) && t.type === "backup" && t.state === "done").length;
+  const selBar = canClear ? `<div class="actions" style="margin:0 0 12px">${nsel ? `<b>${T("%d coché(s)", nsel)}</b><button class="secondary" id="tk-sel-remove">${T("Retirer de la liste (%d)", nsel)}</button>${nbk ? `<button class="danger" id="tk-sel-trash">${T("Mettre leurs sauvegardes à la corbeille… (%d)", nbk)}</button>` : ""}<button class="secondary" id="tk-sel-none">${T("Tout décocher")}</button>` : `<button class="secondary" id="tk-sel-all">${T("Tout cocher")}</button>`}</div>` : "";
   $("#view").innerHTML = `<h1>${T("Tâches")}<small>${active > 1 ? T("%d actives", active) : T("%d active", active)}</small></h1>${taskTabs()}
     ${canClear ? `<div class="actions" style="margin:0 0 12px"><button class="secondary" id="tasks-clear">${T("Vider la liste")}</button><button class="secondary" id="tasks-clear-all">${T("Tout vider : Terminées, Échecs et Annulées")}</button></div>` : ""}
-    <div class="list">${list.length ? list.map(taskRowHtml).join("") : `<div class="empty"><div class="icon">↻</div>${T("Rien ici. Choisissez un élément dans la bibliothèque pour lancer une sauvegarde.")}</div>`}</div>`;
+    ${selBar}<div class="list">${list.length ? list.map(taskRowHtml).join("") : `<div class="empty"><div class="icon">↻</div>${T("Rien ici. Choisissez un élément dans la bibliothèque pour lancer une sauvegarde.")}</div>`}</div>`;
   bindTaskTabs();
   bindTaskButtons();
+  $$("input[data-tk-sel]").forEach((c) => c.onchange = () => { if (c.checked) state.taskSel.add(c.dataset.tkSel); else state.taskSel.delete(c.dataset.tkSel); render(); });
+  if ($("#tk-sel-all")) $("#tk-sel-all").onclick = () => { list.forEach((t) => state.taskSel.add(t.id)); render(); };
+  if ($("#tk-sel-none")) $("#tk-sel-none").onclick = () => { state.taskSel.clear(); render(); };
+  if ($("#tk-sel-remove")) $("#tk-sel-remove").onclick = async () => {
+    const ids = [...state.taskSel];
+    try { for (const id of ids) await post(`/tasks/${id}/remove`); toast(T("%d tâche(s) retirée(s) de la liste", ids.length)); state.taskSel.clear(); refresh(true); } catch (e) { toast(e.message); }
+  };
+  if ($("#tk-sel-trash")) $("#tk-sel-trash").onclick = async () => {
+    const ids = list.filter((t) => state.taskSel.has(t.id) && t.type === "backup" && t.state === "done").map((t) => t.id);
+    if (!(await holdAsk(T("Mettre %d sauvegarde(s) à la corbeille ?", ids.length), T("Les sauvegardes faites par ces tâches vont dans la corbeille de leur disque ou de leur NAS pendant 30 jours. Les tâches restent dans la liste."), T("Maintenir 5 s pour supprimer")))) return;
+    let done = 0, failed = 0;
+    for (const id of ids) {
+      try { const j = await post(`/tasks/${id}/backup`); await post("/backups/delete", { place: j.place, bundle: j.bundle, confirm: true }); done++; } catch (e) { failed++; }
+    }
+    toast(failed ? T("%d sauvegarde(s) mise(s) à la corbeille · %d introuvable(s) ou refusée(s)", done, failed) : T("%d sauvegarde(s) mise(s) à la corbeille (30 jours)", done));
+    state.taskSel.clear(); refresh(true);
+  };
   if (canClear) $("#tasks-clear").onclick = () => clearTasks(state.taskFilter);
   if (canClear) $("#tasks-clear-all").onclick = async () => {
     if (!await ask(T("Tout vider : Terminées, Échecs et Annulées"), `<p class="hint">${esc(T("Seulement la liste : rien n'est retiré des disques. Ces tâches ne pourront plus être reprises."))}</p>`, T("Oui, vider la liste"))) return;
@@ -2436,7 +2735,7 @@ async function planDialog(p) {
   let accounts = [];
   try { accounts = (await loadOverview()).accounts.filter((a) => a.on_console); } catch (e) {}
   const platforms = [...new Set(state.items.filter((i) => i.kind === "rom").map((i) => i.platform))].sort();
-  const dests = state.places.filter((x) => x.type !== "switch");
+  const dests = state.places.filter((x) => x.type !== "switch" && x.use !== "sync");
   const partsKey = (PLAN_PARTS.find((x) => JSON.stringify(x[2]) === JSON.stringify(p.parts)) || PLAN_PARTS[0])[0];
   const chosen = new Set(p.items);
   box.innerHTML = `<div class="dialog wide"><h2>${p.id ? T("Modifier le plan") : T("Nouveau plan")}</h2>
@@ -2529,8 +2828,8 @@ async function itemPlans(it) {
 // ---- Paramètres -----------------------------------------------------------------------
 async function settings() {
   // Même ordre que la télé ; disques, Switch, NAS et téléphones associés se règlent dans l'onglet Appareils seulement.
-  const sections = { general: T("Général"), news: T("Nouveautés"), emulators: T("Sources et émulateurs"), ignored: T("Éléments ignorés"), accounts: T("Utilisateurs"),
-    updates: T("Mises à jour et démarrage"), diagnostics: T("Diagnostic et à propos"), thanks: T("Remerciements"), report: T("Signaler un problème"), goals: T("Projets à financer"), support: T("Soutenir le projet") };
+  const sections = { news: T("Nouveautés"), general: T("Général"), emulators: T("Sources et émulateurs"), ignored: T("Éléments ignorés"), accounts: T("Utilisateurs"),
+    updates: T("Mises à jour et démarrage"), diagnostics: T("Diagnostic et à propos"), report: T("Signaler un problème"), goals: T("Projets à financer"), support: T("Soutenir le projet"), thanks: T("Remerciements") };
   if (!sections[state.settingsSection]) state.settingsSection = "general";
   const st = state.status || {};
   const devicesLink = `<div class="card link-card"><span class="dev-ico">${ICONS.usb}</span><span class="grow"><b>${T("Stockage et appareils")}</b><br><span class="hint">${T("Disque par défaut, disques, Switch, NAS et téléphones associés se règlent dans l'onglet Appareils.")}</span></span>
@@ -2705,11 +3004,13 @@ function qrSvg(rows) {
   return `<svg viewBox="0 0 ${n + 2 * q} ${n + 2 * q}" shape-rendering="crispEdges" role="img"><rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
 }
 function reportView() {
-  const s = state.statusInfo || {}, url = "https://github.com/consolecenterstudio/ps5-backup-center/issues/new/choose";
-  return `<h2>${T("Signaler un problème")}</h2><p class="sub">${esc(T("Un bug, une idée ? Le formulaire s'ouvre sur GitHub ; recopiez-y les versions ci-dessous."))}</p>
-    <div class="card"><div class="kv">${T("Version de l'appli")}<b>${esc(s.version || "—")}</b></div><div class="kv">${T("Système de la console")}<b>${esc(s.firmware || "—")}</b></div></div>
-    <p><a class="sup-btn" href="${url}" target="_blank" rel="noopener">${esc(T("Ouvrir le formulaire"))}</a>
-      <a class="sup-btn" href="https://github.com/consolecenterstudio/ps5-backup-center/discussions" target="_blank" rel="noopener">${esc(T("Discussions"))}</a></p>`;
+  const s = state.statusInfo || {}, repo = "https://github.com/consolecenterstudio/ps5-backup-center";
+  const card = (url, title, text) => `<div class="card report-card"><b>${esc(title)}</b><p class="hint">${esc(text)}</p><a class="sup-btn" href="${url}" target="_blank" rel="noopener">${esc(T("Ouvrir"))}</a></div>`;
+  return `<h2>${T("Signaler un problème")}</h2><p class="sub">${esc(T("Choisissez ce qui correspond : la page s'ouvre sur GitHub."))}</p>
+    <div class="report-grid">${card(repo + "/issues/new/choose", T("Un bug"), T("Le formulaire de signalement. Recopiez les versions ci-dessous."))}
+      ${card(repo + "/discussions", T("Une question, une idée"), T("Les Discussions : posez votre question ou proposez une idée."))}
+      ${card(repo, T("★ Une étoile"), T("Le projet vous plaît : une étoile sur GitHub l'aide à être trouvé."))}</div>
+    <div class="card"><div class="kv">${T("Version de l'appli")}<b>${esc(s.version || "—")}</b></div><div class="kv">${T("Système de la console")}<b>${esc(s.firmware || "—")}</b></div></div>`;
 }
 function goalsView() {
   const goals = (state.support && state.support.goals) || [];
@@ -2731,8 +3032,12 @@ function supportView() {
     <div class="support-grid">${(s.links || []).map(link).join("")}${(s.crypto || []).map(coin).join("")}</div>
     <p class="hint warn">${esc(T("Crypto : envoyez uniquement sur le réseau indiqué sous chaque code, sinon l'envoi est perdu."))}</p>
     <p><a class="sup-btn" href="https://github.com/consolecenterstudio/ps5-backup-center" target="_blank" rel="noopener">★ ${esc(T("Une étoile sur GitHub"))}</a></p>
-    <h2>${T("Merci à nos soutiens")}</h2>
-    ${(s.supporters || []).length ? (s.supporters || []).map((w) => `<div class="kv">${esc(w.name)}<b>${esc(w.message || "")}</b></div>`).join("") : `<p class="hint">${esc(T("Les premiers soutiens apparaîtront ici, avec le pseudo et le petit mot de leur choix."))}</p>`}`;
+    <h2>${T("Messages de la communauté")}</h2>
+    <div class="community"><div class="grow">${(s.supporters || []).length ? (s.supporters || []).map((w) => `<div class="kv msg"><span>${esc(w.name)}${w.backer ? ` <span class="tag ok">${esc(T("a soutenu le projet"))}</span>` : ""}</span><b>${esc(w.message ? "« " + w.message + " »" : "")}${w.date ? ` <span class="hint">${esc(w.date)}</span>` : ""}</b></div>`).join("") : `<p class="hint">${esc(T("Les premiers messages apparaîtront ici. Laissez le vôtre : scannez le code."))}</p>`}</div>
+    ${s.community ? `<a class="sup-btn" href="${esc(s.community.messages)}" target="_blank" rel="noopener">${esc(T("Laisser un message"))}</a>` : ""}</div>
+    ${(s.follow || []).length ? `<h2>${T("Suivez-nous")}</h2><div class="follow">${s.follow.map((f) => f.active
+      ? `<a class="follow-chip" href="${esc(f.url)}" target="_blank" rel="noopener" aria-label="${esc(T("Suivez-nous sur %s", f.name))}">${ICONS[f.id]}<span><b>${esc(f.name)}</b><small>${esc(f.handle)}</small></span></a>`
+      : `<span class="follow-chip soon">${ICONS[f.id]}<span><b>${esc(f.name)}</b><small>${esc(T("bientôt"))}</small></span></span>`).join("")}</div>` : ""}`;
 }
 
 // ---- Remerciements : composants utilisés (licence, source) et projets à qui l'on doit beaucoup ----
@@ -2760,7 +3065,7 @@ function updatesView(st) {
       <div class="kv">${T("Moteur en cours")}<b>${esc(st.version || "—")}</b></div>
       <div class="kv">${T("Installée sur la console")}<b>${esc(u.installed || "—")}</b></div>
       <div class="kv">${T("Dernière version")}<b>${esc(u.available || "—")}${u.build ? ` <span class="hint">${esc(u.build)}</span>` : ""}</b></div>
-      <div class="kv">${T("État")}<b>${esc(UPDATE_STATES[u.state] || u.state || "—")}${u.checked_at ? ` <span class="hint">· ${esc(T("recherché le %s", new Date(u.checked_at * 1000).toLocaleString(I18N.code)))}</span>` : ""}</b></div>
+      <div class="kv">${T("État")}<b>${esc(u.engine_restart_needed && u.installed ? T("Installée, active au redémarrage du moteur") : UPDATE_STATES[u.state] || u.state || "—")}${u.checked_at ? ` <span class="hint">· ${esc(T("recherché le %s", new Date(u.checked_at * 1000).toLocaleString(I18N.code)))}</span>` : ""}</b></div>
       ${u.message ? `<p class="hint">${esc(u.message)}</p>` : ""}
       ${u.state === "downloading" ? `<div class="bar"><span style="width:${pct}%"></span></div><p class="hint">${esc(updateProgress(u))}</p>` : ""}
       ${u.state === "available" ? `<p class="hint">${T("%d fichier(s) à télécharger, %s.", u.files, size(u.bytes_total))}</p>` : ""}
@@ -2976,7 +3281,7 @@ function syncSides() {
   const out = [];
   for (const r of state.remotes.filter((x) => x.type === "switch")) out.push({ spec: "switch:" + r.id, name: r.name, sub: "Switch", icon: ICONS.switch, ok: true });
   for (const root of edenRoots()) out.push({ spec: "eden:" + root, name: edenName(root), sub: T("Émulateur Switch sur la PS5"), icon: ICONS.ps5, ok: true });
-  for (const r of state.remotes.filter((x) => x.type === "ftp" || x.type === "smb")) out.push({ spec: "nas:" + r.id, name: r.name, sub: "NAS", icon: ICONS.nas, ok: false });
+  for (const r of state.remotes.filter((x) => x.type === "ftp" || x.type === "smb" || x.type === "webdav")) out.push({ spec: "nas:" + r.id, name: r.name, sub: "NAS", icon: ICONS.nas, ok: false });
   for (const a of consoleAccounts()) out.push({ spec: "ps5:" + a.user_id, name: a.name, sub: T("Compte PS5"), icon: ICONS.ps5, ok: false });
   for (const p of state.places.filter((x) => x.type === "usb")) out.push({ spec: "usb:" + p.id, name: p.label, sub: T("Disque USB"), icon: ICONS.usb, ok: false });
   return out;
@@ -3417,7 +3722,20 @@ function trFull() {
 }
 
 // ---- Démarrage ----
-refresh(true);
+if (!linkPage()) refresh(true);
 document.getElementById("support-btn").onclick = () => { state.settingsSection = "support"; setTab("settings"); };
 setTimeout(() => { if (state.token) whatsNew(); }, 1500);
 setTimeout(autoCheckUpdates, 2000);  // ouverture de la page
+// Ouverte depuis le code QR de la télé (« …/#cloud ») : directement l'ajout d'un stockage dans le nuage, dès que
+// l'appareil est associé (un téléphone qui scanne pour la première fois saisit d'abord le code).
+if (location.hash === "#cloud") {
+  let tries = 0;
+  const wait = setInterval(() => {
+    if (++tries > 600) { clearInterval(wait); return; }
+    if (!state.token || !state.remotes) return;
+    clearInterval(wait);
+    history.replaceState(null, "", location.pathname);
+    setTab("devices");
+    cloudPick();
+  }, 1000);
+}
