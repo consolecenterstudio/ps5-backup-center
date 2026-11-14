@@ -1,5 +1,13 @@
 [
  {
+  "version": "3.0.0",
+  "date": "2026-11-14",
+  "title": "PS5 Backup Center 3",
+  "tested": false,
+  "channel": "beta",
+  "manifest": "3.0.0/manifest.json"
+ },
+ {
   "version": "2.99.15",
   "date": "2026-11-13",
   "title": "Synchro : chaque appareil défile",

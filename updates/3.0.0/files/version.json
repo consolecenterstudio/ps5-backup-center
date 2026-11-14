@@ -1,0 +1,26 @@
+{
+ "version": "3.0.0",
+ "build": "PBCK L03 019612C73E",
+ "notes": [
+  "Stockage dans le nuage (Appareils › Nuage) : Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2 ou tout autre service S3, choisis par leur nom ; l'adresse se remplit toute seule.",
+  "pCloud, Koofr et Nextcloud en WebDAV, préréglés.",
+  "Google Drive, OneDrive et Dropbox : chacun connecte son propre compte depuis son téléphone (code QR, connexion chez le service), sans rien taper sur la PS5 ; l'appli n'a accès qu'à son propre dossier. Activation dans une prochaine mise à jour.",
+  "Un stockage dans le nuage s'utilise comme un NAS (sauvegardes, destination, synchro) ; ses clés se collent depuis le téléphone grâce à un code QR.",
+  "NAS en WebDAV (Synology, QNAP, Nextcloud…) à côté de FTP et SMB ; le certificat maison du NAS est accepté une fois puis retenu.",
+  "« Utilisé pour » : chaque NAS sert aux sauvegardes, à la synchro, ou aux deux ; plusieurs synchros possibles avec le même NAS, chacune dans son dossier.",
+  "Tâches : « Voir la sauvegarde », mettre une sauvegarde à la corbeille, cocher plusieurs tâches.",
+  "Communauté : « Messages de la communauté », « Laisser un message » et « Suivez-nous » (X, YouTube, Reddit) ; Projets à financer : PS5 Center et sa jauge.",
+  "Clavier complet : caractères spéciaux (R1), majuscules (L1), é è à ç ; chaque bouton montre sa touche de manette.",
+  "NAS en WebDAV bien plus rapide ; un même NAS ajouté par deux protocoles n'est compté qu'une fois, et ses copies indiquent leur moyen.",
+  "Accueil : une seule carte Synchro qui fait défiler chaque appareil ; « Sauvegardes disponibles » ne nomme que les endroits qui en ont vraiment.",
+  "Bibliothèque : toute la rangée de filtres tient à l'écran ; une autre console se voit d'un coup d'œil, avec des noms clairs (« Tous ses jeux », « Absents d'ici », « Aussi ici »).",
+  "Sauvegardes : la Corbeille reste toujours visible, la carte « Interne » apparaît quand il y a des copies, on peut supprimer plusieurs éléments cochés.",
+  "Signaler un problème : trois cartes claires (un bug, une question, une étoile) avec leur code ; Paramètres réordonnés.",
+  "Nouvelles images d'appareils (Nuage, FTP / SMB) à la même hauteur que les autres ; notre logo sur la carte « Mise à jour ».",
+  "Restaurer depuis un NAS : une sauvegarde complète passe par la restauration guidée.",
+  "NAS : plus de dossier « PBC Backup/PBC Backup » ; à la racine d'un Synology, le test dit de choisir un dossier partagé.",
+  "Sauvegardes : la liste des endroits ne se répète plus sous chaque jeu ; une copie mise à la corbeille disparaît tout de suite.",
+  "Mises à jour : un fichier qui échoue est réessayé une fois ; une version installée mais pas encore active est bien indiquée.",
+  "Petits défauts d'affichage corrigés : textes coupés, codes QR de tailles différentes, étiquettes qui se chevauchaient."
+ ]
+}
