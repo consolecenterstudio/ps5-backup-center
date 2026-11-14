@@ -1,0 +1,23 @@
+.studio-intro {display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+.studio-intro img {width:84px;height:84px;border-radius:18px}
+.studio-intro h1 {margin:.2em 0}
+.studio-heart {color:#ff92b4}
+.studio-panels {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:14px}
+.studio-card {border:1px solid var(--line);border-radius:14px;padding:18px}
+.studio-card h3 {margin:0}
+.studio-goal summary {cursor:pointer}
+.studio-goal progress {width:100%;height:18px;accent-color:#64b5ff}
+.studio-social {display:flex;flex-wrap:wrap;gap:8px}
+
+.studio-hero{padding:clamp(24px,5vw,56px);border-radius:24px;border:1px solid var(--line);background:radial-gradient(ellipse at 80% 0%,#233e78,transparent 65%),#101b33}
+.studio-hero .lead{margin-bottom:0}
+.studio-section{margin-block:42px}
+.studio-card{background:linear-gradient(150deg,#152747,#10192d);overflow:hidden}
+.studio-card img{display:block;width:100%;aspect-ratio:16/6;object-fit:cover;border-radius:9px;margin-bottom:16px}
+.studio-goal{padding:12px 0}
+.studio-goal summary{color:#9bceff}
+.studio-status{color:#acbfdd}
+.studio-social .button{margin:0}
+
+.support-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px}
+.support-tabs [aria-current]{background:#294774;color:#fff}
