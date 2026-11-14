@@ -3,8 +3,8 @@
   "version": "3.0.0",
   "date": "2026-11-14",
   "title": "PS5 Backup Center 3",
-  "tested": false,
-  "channel": "beta",
+  "tested": true,
+  "channel": "stable",
   "manifest": "3.0.0/manifest.json"
  },
  {
