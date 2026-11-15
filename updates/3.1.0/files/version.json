@@ -1,0 +1,23 @@
+{
+ "version": "3.1.0",
+ "build": "PBCK L03 D67D4E09BA",
+ "notes": [
+  "Google Drive, OneDrive et Dropbox sont disponibles : chacun connecte son compte depuis son téléphone ; sauvegarde, restauration et synchro comme avec un NAS.",
+  "Comparer et trier : toutes les copies d'un jeu côte à côte, jugées par leur contenu (Identique, Plus ancienne, Plus avancée), y compris celles rangées sur l'autre PS5.",
+  "Même partie à plusieurs endroits : des copies voulues, jamais traitées comme un problème ; « Faire le tri » et « Garder seulement sur… » quand on veut regrouper.",
+  "Origine des parties restaurées : la copie d'une partie restaurée garde l'heure de la partie d'origine, et les deux PS5 le savent.",
+  "Compresser une image sur le même disque.",
+  "Sauvegardes ouvertes en quelques secondes, même avec plusieurs NAS et nuages ; plus de « serveur occupé » ni de délai dépassé.",
+  "Chaque copie porte son empreinte et le résultat de sa lecture : une copie déjà lue n'est jamais relue, même par l'autre PS5, qui est prévenue tout de suite.",
+  "Transferts de jeux plus rapides, reprenables au milieu des gros fichiers.",
+  "Sauvegardes plus claires : bulles rangées (Partout, Cette PS5, l'autre PS5, NAS, Nuage, Corbeille) avec un aperçu de celles cachées, le logo de chaque service, et chaque endroit qui parle de ses copies.",
+  "Mises à jour : plus jamais de retour en arrière tout seul.",
+  "Parties : étiquettes courtes et jamais coupées ; « Pas sur cette PS5 » veut dire qu'une copie existe, mais pas la partie sur cette console.",
+  "Sauvegardes : Comparer et trier et la Corbeille empilés à droite, toujours visibles ; les endroits défilent à gauche.",
+  "Aides du bas de l'écran jamais coupées (plus petites, sinon sur deux lignes, dans toutes les langues) ; « △ Arrêter la tâche » au lieu de « Annuler » dans Transferts ; « Options : actions » dans Comparer.",
+  "Plus de fausses « copies plus récentes » après une restauration ou un aller-retour par le nuage.",
+  "Connexion OneDrive et création de ses dossiers réparées.",
+  "Logo de chaque service dès le démarrage (Backblaze n'apparaît plus d'abord en nuage générique) ; arrivé au bout d'une rangée, la carte dit « ‹ 2 avant » au lieu de « + 2 de plus › » ; Synchro compte des cibles, pas des appareils.",
+  "Aides corrigées : Toutes les versions annonce △ Comparer ce jeu et R2 ; la Corbeille n'affiche « Gauche / droite » que sur les bulles ; le cœur et la loupe ont leurs propres aides ; □ change bien de groupe dans Tâches ; « Bas : bouton Lancer »."
+ ]
+}
