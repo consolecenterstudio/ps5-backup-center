@@ -12,6 +12,10 @@
 
 # PS5 Backup Center
 
+**ゲームをダウンロード、インストール、転送。** ローカルネットワーク上のペアリング済みPS5からゲームを受信できます。テレビやブラウザーから、PS5、USBドライブ、NAS、クラウド間でセーブデータをバックアップ、比較、同期、復元できます。PS5のアプリやDLC、Switchや対応エミュレーターのセーブも管理できます。
+
+[新機能 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+
 **あなたのコレクション。あなたの進行状況。あなたのバックアップ。**
 
 バックアップが必要な内容を見つけ、既存のコピーを比較し、機器間のデータ交換を整理します。PS5 Backup Center は、一覧表示、バックアップ、同期、転送をテレビとブラウザーにまとめます。
@@ -35,7 +39,7 @@
 ## 3.0 の新機能
 
 - 機器の画面でNASか本体を追加し、保存前に相手を確認します。NASでは対応プロトコルを選び、接続テストとフォルダー選択を行います。PS5間はペアリングコードを確認し、SwitchではftpdとJKSVエクスポートを準備します。FTP / FTPS、SMB、WebDAVに対応しています。「用途」で、NASをセーブデータ用、同期用、またはその両方に使うかを選びます。
-- クラウドはデバイス › クラウドを開きます。S3サービス（Amazon S3、Backblaze B2、Wasabi、Cloudflare R2、Scaleway、OVHcloud、Synology C2…）を選んでキーを入力します（QRコードで同じフォームがスマホに開くので、そこに貼り付けられます）。またはpCloud、Koofr、Nextcloudを自分のアカウントで使います。Google Drive、OneDrive、Dropboxはスマホから自分のアカウントで接続します（今後のアップデートで有効になります）。
+- クラウドはデバイス › クラウドを開きます。S3サービス（Amazon S3、Backblaze B2、Wasabi、Cloudflare R2、Scaleway、OVHcloud、Synology C2…）を選んでキーを入力します（QRコードで同じフォームがスマホに開くので、そこに貼り付けられます）。またはpCloud、Koofr、Nextcloudを自分のアカウントで使います。 スマートフォンからGoogle Driveと個人用OneDriveを連携できます。開発中のDropboxは登録数に制限があります。
 - フルスクリーンキーボード.
 
 ## 2.98 の新機能

@@ -12,6 +12,10 @@
 
 # PS5 Backup Center
 
+**Descarrega, instala e transfere os teus jogos.** Recebe jogos de uma PS5 emparelhada na rede local. Faz cópias de segurança, compara, sincroniza e restaura dados guardados entre PS5, discos USB, NAS e serviços na nuvem, na TV ou no navegador. Gere aplicações e DLC da PS5 e dados guardados da Switch e de emuladores compatíveis.
+
+[Novidades 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+
 **A sua coleção. As suas partidas. As suas cópias de segurança.**
 
 Identifique o que precisa de uma cópia de segurança, compare as cópias existentes e organize as trocas entre dispositivos. PS5 Backup Center reúne inventário, cópias, sincronização e transferências na televisão e no navegador.
@@ -35,7 +39,7 @@ As cópias guardadas e as partidas ativas são distintas. Escolha as cópias a m
 ## Novidades da 3.0
 
 - Em dispositivos, adicione o NAS ou consola e confirme a identidade antes de guardar. No NAS, escolha o protocolo compatível, teste a ligação e selecione a pasta. Entre PS5, confirme o código de associação; na Switch prepare ftpd e uma exportação JKSV. FTP / FTPS, SMB e WebDAV são suportados. «Usado para» escolhe se o NAS serve para dados guardados, sincro ou ambos.
-- Para a nuvem, abra Dispositivos › Nuvem: escolha um serviço S3 (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) e introduza as respetivas chaves — o código QR abre o mesmo formulário no seu telemóvel para as colar — ou pCloud, Koofr, Nextcloud com a sua conta. Google Drive, OneDrive e Dropbox ligam-se com a sua própria conta a partir do telemóvel (ativação numa próxima atualização).
+- Para a nuvem, abra Dispositivos › Nuvem: escolha um serviço S3 (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) e introduza as respetivas chaves — o código QR abre o mesmo formulário no seu telemóvel para as colar — ou pCloud, Koofr, Nextcloud com a sua conta. Liga o Google Drive e uma conta pessoal do OneDrive através do telemóvel. O acesso ao Dropbox é limitado durante o desenvolvimento.
 - Teclado completo no ecrã.
 
 ## Novidades da 2.98

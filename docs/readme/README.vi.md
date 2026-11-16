@@ -12,6 +12,10 @@
 
 # PS5 Backup Center
 
+**Tải xuống, cài đặt và chuyển trò chơi.** Nhận trò chơi từ một PS5 đã ghép đôi trên mạng nội bộ. Sao lưu, so sánh, đồng bộ và khôi phục dữ liệu lưu giữa PS5, ổ USB, NAS và dịch vụ đám mây từ TV hoặc trình duyệt. Quản lý ứng dụng, DLC PS5 và dữ liệu lưu của Switch và trình giả lập tương thích.
+
+[Tính năng mới 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+
 **Bộ sưu tập của bạn. Tiến trình của bạn. Bản sao lưu của bạn.**
 
 Xác định nội dung cần sao lưu, so sánh các bản sao hiện có và tổ chức trao đổi giữa thiết bị. PS5 Backup Center kết hợp danh mục, sao lưu, đồng bộ và truyền dữ liệu trên TV và trình duyệt.
@@ -35,7 +39,7 @@ Bản sao lưu được cất giữ khác với dữ liệu lưu đang dùng đ�
 ## Mới trong 3.0
 
 - Thêm NAS hoặc máy trong thiết bị và kiểm tra đúng máy trước khi lưu. Với NAS, chọn giao thức hỗ trợ, thử kết nối và chọn thư mục. Giữa PS5, xác nhận mã ghép đôi; với Switch chuẩn bị ftpd và bản xuất JKSV. Hỗ trợ FTP / FTPS, SMB và WebDAV. “Dùng cho” chọn NAS dùng cho bản lưu, đồng bộ hay cả hai.
-- Với đám mây, mở Thiết bị › Đám mây: chọn một dịch vụ S3 (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) rồi nhập khóa — mã QR mở cùng biểu mẫu trên điện thoại để bạn dán khóa — hoặc pCloud, Koofr, Nextcloud bằng tài khoản của bạn. Google Drive, OneDrive và Dropbox kết nối bằng tài khoản riêng của bạn từ điện thoại (sẽ kích hoạt trong bản cập nhật sắp tới).
+- Với đám mây, mở Thiết bị › Đám mây: chọn một dịch vụ S3 (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) rồi nhập khóa — mã QR mở cùng biểu mẫu trên điện thoại để bạn dán khóa — hoặc pCloud, Koofr, Nextcloud bằng tài khoản của bạn. Kết nối Google Drive và OneDrive cá nhân từ điện thoại. Việc đăng ký Dropbox bị giới hạn trong giai đoạn phát triển.
 - Bàn phím đầy đủ trên màn hình.
 
 ## Có gì mới ở 2.98

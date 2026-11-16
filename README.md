@@ -8,10 +8,12 @@
   <img src="docs/assets/screenshots/en-oled-home.png" alt="PS5 Backup Center — Home screen" width="88%">
 </p>
 
-<p><strong>Version 3.0.0</strong> · NAS via WebDAV, cloud storage and a full on-screen keyboard.</p>
+**Download, install, and transfer your games.** Receive games from a paired PS5 on your local network. Back up, compare, sync, and restore saves across PS5 consoles, USB drives, NAS, and cloud storage, from the TV or a browser. Manage PS5 apps and DLC and saves from Nintendo Switch and compatible emulators.
+
+[What's new 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
 
 <p align="center">
-  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/documented%20version-3.0.0-7cc4ff?style=flat-square&labelColor=0a1729"></a>
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/documented%20version-3.1.0-7cc4ff?style=flat-square&labelColor=0a1729"></a>
   <a href="LICENSE"><img alt="License: GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-3d8bff?style=flat-square&labelColor=0a1729"></a>
   <img alt="Platform: PS5" src="https://img.shields.io/badge/platform-PS5%20(homebrew)-e8f1fb?style=flat-square&labelColor=0a1729">
   <img alt="19 languages" src="https://img.shields.io/badge/languages-19-f0b867?style=flat-square&labelColor=0a1729">
@@ -121,7 +123,7 @@ It is part of **[PS5 Center](docs/product-family.md)**, a small family of free, 
 ### Library, devices, interface
 - **One library** — PS5 and PS4 games, apps, ROMs from known emulators (plus generic detection), official names and icons, even for games that only exist as a save; each game shows its storage and real disk.
 - **Devices** — USB drives, NAS (Synology, QNAP or any server over **FTP / FTPS, SMB or WebDAV**), Switch, other PS5s. Connect, browse, pick the folder, test, save. Each NAS is used for backups, sync, or both.
-- **The cloud** — Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2, pCloud, Koofr, Nextcloud; Google Drive, OneDrive and Dropbox with your own account, signed in from your phone (activation in a coming update). Used like a NAS.
+- **The cloud** — Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2, pCloud, Koofr, Nextcloud. Connect Google Drive and personal OneDrive from your phone. Dropbox enrollment is limited during development.
 - **Home as a notification centre** — what to back up, newer copies, duplicates, sync state, running tasks with time left.
 - **TV and web at parity** — phone or computer, paired with a 6-digit code; **19 languages**, 8 themes, sounds.
 - **Updates by themselves** — checked automatically from this repository, announced on Home, installed automatically if you want; only changed files, verified, previous version kept for roll-back; also from a USB key, offline.

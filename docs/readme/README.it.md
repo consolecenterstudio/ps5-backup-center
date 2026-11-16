@@ -12,6 +12,10 @@
 
 # PS5 Backup Center
 
+**Scarica, installa e trasferisci i tuoi giochi.** Ricevi giochi da una PS5 abbinata sulla rete locale. Esegui il backup, confronta, sincronizza e ripristina i salvataggi tra PS5, unità USB, NAS e cloud, dalla TV o dal browser. Gestisci app e DLC PS5 e i salvataggi di Switch ed emulatori compatibili.
+
+[Novità 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+
 **La tua collezione. Le tue partite. I tuoi backup.**
 
 Individua cosa richiede un backup, confronta le copie esistenti e organizza gli scambi tra dispositivi. PS5 Backup Center riunisce inventario, backup, sincronizzazione e trasferimenti sulla TV e nel browser.
@@ -35,7 +39,7 @@ Le copie archiviate e i salvataggi attivi sono distinti. Scegli le copie da mant
 ## Novità nella 3.0
 
 - Aggiungi NAS o console nei dispositivi e controlla l’identità prima di salvare. Per il NAS scegli il protocollo supportato, prova la connessione e seleziona la cartella. Fra PS5 conferma il codice di associazione; per Switch prepara ftpd e un’esportazione JKSV. FTP / FTPS, SMB e WebDAV sono supportati. «Usato per» sceglie se il NAS ospita salvataggi, sincro o entrambi.
-- Per il cloud, apri Dispositivi › Cloud: scegli un servizio S3 (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) e inserisci le sue chiavi — il codice QR apre lo stesso modulo sul tuo telefono per incollarle — oppure pCloud, Koofr, Nextcloud con il tuo account. Google Drive, OneDrive e Dropbox si collegano con il tuo account personale dal telefono (attivazione in un prossimo aggiornamento).
+- Per il cloud, apri Dispositivi › Cloud: scegli un servizio S3 (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) e inserisci le sue chiavi — il codice QR apre lo stesso modulo sul tuo telefono per incollarle — oppure pCloud, Koofr, Nextcloud con il tuo account. Collega Google Drive e OneDrive personale dal telefono. L’accesso a Dropbox è limitato durante lo sviluppo.
 - Tastiera completa su schermo.
 
 ## Novità della 2.98

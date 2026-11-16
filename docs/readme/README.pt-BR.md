@@ -12,6 +12,10 @@
 
 # PS5 Backup Center
 
+**Baixe, instale e transfira seus jogos.** Receba jogos de um PS5 pareado na rede local. Faça backup, compare, sincronize e restaure seus saves entre consoles PS5, unidades USB, NAS e nuvem pela TV ou navegador. Gerencie aplicativos e DLCs de PS5 e saves de Switch e emuladores compatíveis.
+
+[Novidades 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+
 **Sua coleção. Suas partidas. Seus backups.**
 
 Identifique o que precisa de backup, compare as cópias existentes e organize as trocas entre dispositivos. PS5 Backup Center reúne inventário, backups, sincronização e transferências na TV e no navegador.
@@ -35,7 +39,7 @@ Backups armazenados e partidas ativas são diferentes. Escolha as cópias a mant
 ## Novidades da 3.0
 
 - Em dispositivos, adicione o NAS ou console e confira a identidade antes de salvar. No NAS, escolha o protocolo compatível, teste a conexão e selecione a pasta. Entre PS5, confirme o código de associação; no Switch prepare ftpd e uma exportação JKSV. FTP / FTPS, SMB e WebDAV são compatíveis. “Usado para” escolhe se o NAS serve para saves, sincro ou ambos.
-- Para a nuvem, abra Dispositivos › Nuvem: escolha um serviço S3 (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) e digite as chaves — o QR code abre o mesmo formulário no seu celular para colá-las — ou pCloud, Koofr, Nextcloud com sua conta. Google Drive, OneDrive e Dropbox se conectam com sua própria conta pelo celular (ativação em uma próxima atualização).
+- Para a nuvem, abra Dispositivos › Nuvem: escolha um serviço S3 (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) e digite as chaves — o QR code abre o mesmo formulário no seu celular para colá-las — ou pCloud, Koofr, Nextcloud com sua conta. Conecte o Google Drive e o OneDrive pessoal pelo celular. O acesso ao Dropbox é limitado durante o desenvolvimento.
 - Teclado completo na tela.
 
 ## Novidades da 2.98

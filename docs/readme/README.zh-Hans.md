@@ -12,6 +12,10 @@
 
 # PS5 Backup Center
 
+**下载、安装和传输游戏。** 从本地网络中已配对的 PS5 接收游戏。通过电视或浏览器，在 PS5、USB 驱动器、NAS 和云存储之间备份、比较、同步和恢复存档。管理 PS5 应用、DLC 以及 Switch 和兼容模拟器的存档。
+
+[新功能 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+
 **你的游戏收藏。你的游戏进度。你的备份。**
 
 找出需要备份的内容，比较已有副本，并安排设备之间的数据交换。PS5 Backup Center 在电视与浏览器中整合内容清单、备份、同步和传输。
@@ -35,7 +39,7 @@
 ## 3.0 新功能
 
 - 在设备页面添加NAS或主机，保存前核对身份。NAS需选择支持的协议、测试连接并选定文件夹。两台PS5之间确认配对码；Switch需准备ftpd和JKSV导出。支持FTP / FTPS、SMB和WebDAV。“用途”决定NAS用于存档、同步还是两者兼用。
-- 如需使用云，打开设备 › 云：选择S3服务（Amazon S3、Backblaze B2、Wasabi、Cloudflare R2、Scaleway、OVHcloud、Synology C2…）并输入其密钥——二维码会在手机上打开同一表单，方便粘贴——或用你的账户使用pCloud、Koofr、Nextcloud。Google Drive、OneDrive和Dropbox在手机上用你自己的账户连接（将在后续更新中启用）。
+- 如需使用云，打开设备 › 云：选择S3服务（Amazon S3、Backblaze B2、Wasabi、Cloudflare R2、Scaleway、OVHcloud、Synology C2…）并输入其密钥——二维码会在手机上打开同一表单，方便粘贴——或用你的账户使用pCloud、Koofr、Nextcloud。 在手机上连接 Google Drive 和个人 OneDrive。开发期间 Dropbox 注册名额有限。
 - 完整的屏幕键盘.
 
 ## 2.98 新功能

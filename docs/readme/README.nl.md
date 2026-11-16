@@ -12,6 +12,10 @@
 
 # PS5 Backup Center
 
+**Download, installeer en verplaats je games.** Ontvang games van een gekoppelde PS5 op je lokale netwerk. Maak back-ups, vergelijk, synchroniseer en herstel je saves tussen PS5-consoles, USB-schijven, NAS en cloudopslag via de tv of browser. Beheer PS5-apps en DLC en saves van Switch en compatibele emulators.
+
+[Nieuw 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+
 **Je collectie. Je voortgang. Je back-ups.**
 
 Ontdek wat een back-up nodig heeft, vergelijk bestaande kopieën en organiseer uitwisselingen tussen apparaten. PS5 Backup Center brengt inventaris, back-ups, synchronisatie en overdrachten samen op je tv en in je browser.
@@ -35,7 +39,7 @@ Bewaarde back-ups en actieve spelvoortgang verschillen. Kies kopieën tussen PS5
 ## Nieuw in 3.0
 
 - Voeg NAS of console toe bij apparaten en controleer de identiteit voor opslaan. Kies voor NAS een ondersteund protocol, test de verbinding en selecteer de map. Bevestig tussen PS5 de koppelcode; bereid bij Switch ftpd en een JKSV-export voor. FTP / FTPS, SMB en WebDAV worden ondersteund. ‘Gebruikt voor’ bepaalt of de NAS saves, sync of beide bewaart.
-- Voor de cloud open je Apparaten › Cloud: kies een S3-dienst (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) en voer de sleutels in — de QR-code opent hetzelfde formulier op je telefoon zodat je ze kunt plakken — of pCloud, Koofr, Nextcloud met je account. Google Drive, OneDrive en Dropbox koppel je met je eigen account vanaf je telefoon (activering in een komende update).
+- Voor de cloud open je Apparaten › Cloud: kies een S3-dienst (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) en voer de sleutels in — de QR-code opent hetzelfde formulier op je telefoon zodat je ze kunt plakken — of pCloud, Koofr, Nextcloud met je account. Koppel Google Drive en een persoonlijk OneDrive-account vanaf je telefoon. Deelname aan Dropbox is beperkt tijdens de ontwikkeling.
 - Volledig schermtoetsenbord.
 
 ## Nieuw in 2.98

@@ -8,10 +8,12 @@
   <img src="../assets/screenshots/tv-home-current.png" alt="PS5 Backup Center — Écran d’accueil" width="88%">
 </p>
 
-<p><strong>Version 3.0.0</strong> · NAS en WebDAV, stockage dans le nuage et clavier complet.</p>
+**Téléchargez, installez et transférez vos jeux.** Récupérez vos jeux depuis une PS5 jumelée sur votre réseau local. Sauvegardez, comparez, synchronisez et restaurez vos parties entre vos PS5, vos disques USB, votre NAS et vos espaces infonuagiques, depuis la télé ou le navigateur. Gérez vos applications et DLC PS5, ainsi que vos sauvegardes Switch et d’émulateurs compatibles.
+
+[Nouveautés 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
 
 <p align="center">
-  <a href="../../CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/documented%20version-3.0.0-7cc4ff?style=flat-square&labelColor=0a1729"></a>
+  <a href="../../CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/documented%20version-3.1.0-7cc4ff?style=flat-square&labelColor=0a1729"></a>
   <a href="../../LICENSE"><img alt="Licence : GPL-3.0-or-later" src="https://img.shields.io/badge/licence-GPL--3.0--or--later-3d8bff?style=flat-square&labelColor=0a1729"></a>
   <img alt="Plateforme : PS5" src="https://img.shields.io/badge/plateforme-PS5%20(homebrew)-e8f1fb?style=flat-square&labelColor=0a1729">
   <img alt="Langues" src="https://img.shields.io/badge/langues-19-f0b867?style=flat-square&labelColor=0a1729">
@@ -122,7 +124,7 @@ Il fait partie de **[PS5 Center](../product-family.fr.md)**, une petite famille 
 ### Bibliothèque, appareils, interface
 - **Une seule bibliothèque** — jeux PS5 et PS4, applications, ROM des émulateurs connus (plus la détection générique), noms et icônes officiels, même pour un jeu dont il ne reste que la sauvegarde ; chaque jeu montre son stockage et son vrai disque.
 - **Appareils** — disques USB, NAS (Synology, QNAP ou tout serveur en **FTP / FTPS, SMB ou WebDAV**), Switch, autres PS5. Se connecter, parcourir, choisir le dossier, tester, enregistrer. Chaque NAS sert aux sauvegardes, à la synchro, ou aux deux.
-- **Le nuage** — Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2, pCloud, Koofr, Nextcloud ; Google Drive, OneDrive et Dropbox avec votre propre compte, connecté depuis votre téléphone (activation dans une prochaine mise à jour). S'utilise comme un NAS.
+- **Le nuage** — Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2, pCloud, Koofr, Nextcloud. Connectez Google Drive et OneDrive personnel depuis votre téléphone. L’accès à Dropbox est limité pendant le développement.
 - **L'Accueil comme centre de notifications** — ce qu'il faut sauvegarder, les copies plus récentes, les doublons, l'état de la synchro, les tâches en cours avec le temps restant.
 - **Télé et web au même niveau** — téléphone ou ordinateur, associé par un code à 6 chiffres ; **19 langues**, 8 thèmes, sons.
 - **Mises à jour toutes seules** — recherchées automatiquement sur ce dépôt, annoncées à l'Accueil, installées automatiquement si vous le voulez ; seuls les fichiers modifiés, vérifiés, version précédente gardée pour revenir en arrière ; aussi depuis une clé USB, sans réseau.

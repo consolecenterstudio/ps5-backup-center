@@ -12,6 +12,10 @@
 
 # PS5 Backup Center
 
+**Descarga, instala y transfiere tus juegos.** Recibe juegos de una PS5 emparejada en tu red local. Guarda copias, compara, sincroniza y restaura partidas entre tus PS5, unidades USB, NAS y la nube, desde el televisor o el navegador. Gestiona aplicaciones y DLC de PS5 y partidas de Switch y emuladores compatibles.
+
+[Novedades 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+
 **Tu colección. Tus partidas. Tus copias de seguridad.**
 
 Detecta qué necesita una copia de seguridad, compara las copias existentes y organiza los intercambios entre dispositivos. PS5 Backup Center reúne inventario, copias, sincronización y transferencias en el televisor y el navegador.
@@ -35,7 +39,7 @@ Las copias almacenadas y las partidas activas son distintas. Elige qué copias m
 ## Novedades de 3.0
 
 - En dispositivos, añade el NAS o la consola y comprueba la identidad antes de guardar. Para un NAS, elige el protocolo compatible, prueba la conexión y selecciona la carpeta. Para dos PS5, confirma el código de asociación; para Switch prepara ftpd y un exportado JKSV. FTP / FTPS, SMB y WebDAV son compatibles. «Usado para» elige si el NAS guarda partidas, sincro o ambas cosas.
-- Para la nube, abre Dispositivos › Nube: elige un servicio S3 (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) e introduce sus claves —el código QR abre el mismo formulario en tu móvil para que las pegues— o pCloud, Koofr, Nextcloud con tu cuenta. Google Drive, OneDrive y Dropbox se conectan con tu propia cuenta desde tu móvil (activación en una próxima actualización).
+- Para la nube, abre Dispositivos › Nube: elige un servicio S3 (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) e introduce sus claves —el código QR abre el mismo formulario en tu móvil para que las pegues— o pCloud, Koofr, Nextcloud con tu cuenta. Conecta Google Drive y una cuenta personal de OneDrive desde el móvil. El acceso a Dropbox es limitado durante el desarrollo.
 - Teclado completo en pantalla.
 
 ## Novedades en 2.98

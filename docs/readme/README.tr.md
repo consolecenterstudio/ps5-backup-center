@@ -12,6 +12,10 @@
 
 # PS5 Backup Center
 
+**Oyunlarınızı indirin, kurun ve aktarın.** Yerel ağınızdaki eşleştirilmiş PS5’ten oyun alın. TV veya tarayıcıdan PS5, USB sürücüler, NAS ve bulut depolama arasında kayıtları yedekleyin, karşılaştırın, eşitleyin ve geri yükleyin. PS5 uygulamalarını, DLC’leri ve Switch ile uyumlu emülatör kayıtlarını yönetin.
+
+[Yenilikler 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+
 **Koleksiyonunuz. Oyun ilerlemeniz. Yedekleriniz.**
 
 Nelerin yedeklenmesi gerektiğini görün, mevcut kopyaları karşılaştırın ve cihazlar arasındaki aktarımı düzenleyin. PS5 Backup Center envanteri, yedekleri, eşitlemeyi ve aktarımları TV’de ve tarayıcıda birleştirir.
@@ -35,7 +39,7 @@ Saklanan yedekler ve etkin oyun kayıtları farklıdır. PS5’ler arasında vey
 ## 3.0’daki yenilikler
 
 - Cihazlardan NAS veya konsol ekleyip kaydetmeden kimliğini kontrol edin. NAS için desteklenen protokolü seçip bağlantıyı test edin ve klasörü belirleyin. PS5’ler arasında eşleştirme kodunu onaylayın; Switch için ftpd ve JKSV dışa aktarımı hazırlayın. FTP / FTPS, SMB ve WebDAV desteklenir. “Kullanım”, NAS’ın kayıtlar, eşitleme ya da ikisi için kullanılacağını belirler.
-- Bulut için Cihazlar › Bulut’u açın: bir S3 hizmeti (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) seçip anahtarlarını girin — QR kod aynı formu telefonunuzda açar, böylece onları yapıştırabilirsiniz — ya da hesabınızla pCloud, Koofr, Nextcloud’u seçin. Google Drive, OneDrive ve Dropbox telefonunuzdan kendi hesabınızla bağlanır (etkinleştirme gelecek bir güncellemede).
+- Bulut için Cihazlar › Bulut’u açın: bir S3 hizmeti (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) seçip anahtarlarını girin — QR kod aynı formu telefonunuzda açar, böylece onları yapıştırabilirsiniz — ya da hesabınızla pCloud, Koofr, Nextcloud’u seçin. Google Drive ve kişisel OneDrive hesabınızı telefonunuzdan bağlayın. Geliştirme sırasında Dropbox kaydı sınırlıdır.
 - Tam ekran klavyesi.
 
 ## 2.98'deki yenilikler

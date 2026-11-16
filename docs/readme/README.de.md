@@ -12,6 +12,10 @@
 
 # PS5 Backup Center
 
+**Lade deine Spiele herunter, installiere und übertrage sie.** Empfange Spiele von einer gekoppelten PS5 im lokalen Netzwerk. Sichere, vergleiche, synchronisiere und stelle Spielstände auf PS5-Konsolen, USB-Laufwerken, NAS und Cloud-Speichern über den Fernseher oder Browser wieder her. Verwalte PS5-Apps, DLCs und Spielstände von Switch und kompatiblen Emulatoren.
+
+[Neuerungen 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+
 **Deine Sammlung. Dein Spielfortschritt. Deine Backups.**
 
 Erkenne, was gesichert werden sollte, vergleiche vorhandene Kopien und organisiere den Austausch zwischen Geräten. PS5 Backup Center verbindet Inventar, Backups, Synchronisierung und Übertragungen am Fernseher und im Browser.
@@ -35,7 +39,7 @@ Gesicherte Kopien und aktive Spielstände sind verschieden. Wähle Kopien zwisch
 ## Neu in 3.0
 
 - Füge NAS oder Konsole bei den Geräten hinzu und prüfe die Identität vor dem Speichern. Wähle beim NAS ein unterstütztes Protokoll, teste die Verbindung und den Zielordner. Bestätige zwischen PS5 den Kopplungscode; bereite bei Switch ftpd und einen JKSV-Export vor. FTP / FTPS, SMB und WebDAV werden unterstützt. „Verwendet für“ legt fest, ob das NAS Spielstände, Sync oder beides aufnimmt.
-- Für die Cloud öffne Geräte › Cloud: Wähle einen S3-Dienst (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) und gib seine Schlüssel ein – der QR-Code öffnet dasselbe Formular auf deinem Handy, damit du sie dort einfügen kannst – oder pCloud, Koofr, Nextcloud mit deinem Konto. Google Drive, OneDrive und Dropbox verbindest du mit deinem eigenen Konto vom Handy aus (Aktivierung in einem kommenden Update).
+- Für die Cloud öffne Geräte › Cloud: Wähle einen S3-Dienst (Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, Scaleway, OVHcloud, Synology C2…) und gib seine Schlüssel ein – der QR-Code öffnet dasselbe Formular auf deinem Handy, damit du sie dort einfügen kannst – oder pCloud, Koofr, Nextcloud mit deinem Konto. Verbinde Google Drive und ein persönliches OneDrive-Konto vom Handy aus. Die Dropbox-Anmeldung ist während der Entwicklung begrenzt.
 - Vollständige Bildschirmtastatur.
 
 ## Neu in 2.98
