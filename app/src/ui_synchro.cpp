@@ -91,7 +91,13 @@ bool Ui::sy_needs(const Json& t) {
 
 // Deux synchros sur le même NAS (deux entrées du même nom) : « NAS (WebDAV) », et le dossier si le protocole est le même.
 std::string Ui::sy_nas_name(const Place& pl) const {
-    auto proto = [](const Place& p) { return p.protocol == "webdav" ? std::string("WebDAV") : p.protocol == "smb" ? std::string("SMB") : std::string("FTP"); };
+    auto proto = [](const Place& p) {
+        if (p.protocol == "gdrive") return std::string("Google Drive");
+        if (p.protocol == "onedrive") return std::string("OneDrive");
+        if (p.protocol == "dropbox") return std::string("Dropbox");
+        if (p.protocol == "s3") return std::string("S3");
+        return p.protocol == "webdav" ? std::string("WebDAV") : p.protocol == "smb" ? std::string("SMB") : std::string("FTP");
+    };
     auto folder = [](const Place& p) {  // « ftp://hôte:21/Jeux » → « /Jeux »
         const auto s = p.mount.find("://"), d = s == std::string::npos ? s : p.mount.find('/', s + 3);
         return d == std::string::npos ? std::string("/") : p.mount.substr(d);
@@ -106,7 +112,39 @@ std::string Ui::sy_nas_name(const Place& pl) const {
     return pl.label + " (" + proto(pl) + ")" + (same_proto ? " · " + folder(pl) : std::string());
 }
 
+std::string Ui::sy_fam(const SyDev& d) const {
+    if (d.kind == "switch") return "switch";
+    if (d.kind != "nas") return "ps5:" + d.id;  // chaque autre PS5 reste seule
+    for (const auto& p : snap_->places)
+        if (p.id == d.id && (p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox")) return "cloud";
+    return "nas";
+}
+
+// Côté gauche de Synchro : une bulle par famille (Switch, NAS, Nuage) quand il y en a plusieurs ; Croix l'ouvre.
 std::vector<Ui::SyDev> Ui::sy_devices() const {
+    const auto all = sy_devices_all();
+    std::map<std::string, int> size;
+    for (const auto& d : all) ++size[sy_fam(d)];
+    std::vector<SyDev> out;
+    std::set<std::string> shown;
+    for (const auto& d : all) {
+        const std::string f = sy_fam(d);
+        if (size[f] > 1 && f != sn_open_) {
+            if (shown.insert(f).second) out.push_back({"group", f, f == "switch" ? std::string("Switch") : f == "cloud" ? std::string(tr("Nuage")) : std::string("NAS"), size[f]});
+            continue;
+        }
+        out.push_back(d);
+    }
+    return out;
+}
+
+void Ui::sy_select(const std::string& id) {
+    for (const auto& d : sy_devices_all()) if (d.id == id) { const std::string f = sy_fam(d); if (f == "switch" || f == "nas" || f == "cloud") sn_open_ = f; }
+    const auto devs = sy_devices();
+    for (std::size_t i = 0; i < devs.size(); ++i) if (devs[i].id == id) sn_card_ = static_cast<int>(i);
+}
+
+std::vector<Ui::SyDev> Ui::sy_devices_all() const {
     std::vector<SyDev> out;
     for (const auto& p : peer_games_.items()) out.push_back({"ps5", p["instance"].as_string(), p["name"].as_string()});
     // PS5 jumelées dont les disques sont connus (« peer:<instance>:<disque> ») : présentes même avant la première lecture.
@@ -378,10 +416,19 @@ void Ui::input_synchro(std::uint32_t k) {
         if (k & key::up) { if (sn_games_) { sn_games_ = false; sn_card_ = nd - 1; } else if (sn_card_ == 0) sn_games_ = true; else --sn_card_; }
         if (k & key::down) { if (sn_games_) { sn_games_ = false; sn_card_ = 0; } else if (sn_card_ == nd - 1) sn_games_ = true; else ++sn_card_; }
         if (sn_games_ && (k & key::cross)) { tab_ = transfers; return; }
+        if ((k & key::circle) && !sn_open_.empty()) { sn_open_.clear(); sn_card_ = 0; return; }  // refermer la famille
+        if (!sn_games_ && d.kind == "group" && (k & (key::right | key::cross))) {  // ouvrir la famille sur place
+            const std::string f = d.id;
+            sn_open_ = f;
+            const auto after = sy_devices();
+            for (std::size_t i = 0; i < after.size(); ++i) if (after[i].kind != "group" && sy_fam(after[i]) == f) { sn_card_ = static_cast<int>(i); break; }
+            return;
+        }
         if (!sn_games_ && (k & (key::right | key::cross))) { sn_zone_ = 1; sn_target_ = 0; }
         return;
     }
     if (k & key::circle) { sn_zone_ = 0; return; }
+    if (d.kind == "group") { sn_zone_ = 0; return; }
     if (d.kind == "switch") {  // deux cibles : Eden (0), Switch ↔ Switch (1)
         if (k & key::left) { if (sn_target_ == 0) sn_zone_ = 0; else sn_target_ = 0; }
         if (k & (key::right | key::down)) sn_target_ = 1;
@@ -430,13 +477,20 @@ void Ui::draw_synchro(Surface& s) {
         s.rect(x, y, lw, ch, sel ? color::panel2 : color::panel, 22);
         s.outline(x, y, lw, ch, focus ? color::accent : sel ? color::accent2 : color::line, 22, focus ? 4 : 2);
         const auto& dv = devs[i];
-        const int dev = dv.kind == "switch" ? dev_switch : dv.kind == "nas" ? dev_nas : dev_internal;
+        int dev = dv.kind == "switch" ? dev_switch : dv.kind == "nas" ? dev_nas : dev_internal;
+        if (dv.kind == "group") dev = dv.id == "switch" ? dev_switch : dv.id == "cloud" ? dev_cloud : dev_nas;
+        if (dv.kind == "nas") for (const auto& p : snap_->places) if (p.id == dv.id && (p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox")) {
+            std::string svc = p.service;  // connu dès le démarrage
+            if (svc.empty()) for (const auto& r : remotes_all_.items()) if (r["id"].as_string() == p.id) svc = r["config"]["service"].as_string();
+            dev = cloud_dev(p.protocol, svc);
+        }
         int tx = x + 22;
         if (devices_[dev].valid()) { s.image(devices_[dev], x + 14, y + 14, 84, 84); tx = x + 112; }
         s.text(font_, tx, y + 16, dv.name, body, color::text, x + lw - tx - 14);
         std::string sub;
         std::uint32_t tone = color::muted;
-        if (dv.kind == "switch") sub = tr("Switch · avec Eden");
+        if (dv.kind == "group") { sub = trf("%d cibles · Croix pour ouvrir", dv.count); tone = color::accent; }
+        else if (dv.kind == "switch") sub = tr("Switch · avec Eden");
         else if (dv.kind == "nas" && !sy_plan_for(dv.id)) sub = tr("NAS · lecture…");
         else if (const Json* p = sy_plan_for(dv.id)) {
             int need = 0, chosen = 0;
@@ -458,6 +512,17 @@ void Ui::draw_synchro(Surface& s) {
     }
     // ---- À droite : où on en est, et un bouton ----
     const int rx = x + lw + 34, rw = 1920 - margin - rx, hy = top, hh = 244;
+    if (d.kind == "group") {  // famille fermée : ce qu'elle contient, Croix pour l'ouvrir
+        s.rect(rx, hy, rw, hh, color::panel, 28);
+        s.outline(rx, hy, rw, hh, color::accent2, 28, 2);
+        s.text(font_, rx + 40, hy + 50, trf("%s · %d cibles", d.name.c_str(), d.count), large, color::text, rw - 80);
+        std::string list;
+        for (const auto& a : sy_devices_all()) if (sy_fam(a) == d.id) list += (list.empty() ? "" : " · ") + a.name;
+        s.text(font_, rx + 40, hy + 110, list, body, color::muted, rw - 80);
+        s.text(font_, rx + 40, hy + 160, tr("Croix : voir les appareils et choisir celui à synchroniser"), body, color::accent, rw - 80);
+        draw_footer(s, {{0, tr("Ouvrir")}, {-1, tr("Haut / bas")}, {-1, tr("L1 / R1  onglets")}});
+        return;
+    }
     const bool zone = sn_zone_ == 1;
     s.rect(rx, hy, rw, hh, color::panel, 28);                 // couleurs du thème (clair comme sombre)
     s.rect(rx, hy, rw, hh, rgb(95, 178, 255, 26), 28);         // légère teinte bleue, jamais grise
@@ -467,7 +532,12 @@ void Ui::draw_synchro(Surface& s) {
         if (devices_[dev_internal].valid()) s.image(devices_[dev_internal], rx + 30, hy + 50, iw, iw);
         s.text(font_, rx + 54, hy + 52 + iw + 6, tr("Cette PS5"), small, color::muted);
         s.text(font_, rx + 30 + iw + 12, hy + 82, "↔", large, color::accent);
-        const int dev2 = d.kind == "switch" ? dev_switch : d.kind == "nas" ? dev_nas : dev_internal;
+        int dev2 = d.kind == "switch" ? dev_switch : d.kind == "nas" ? dev_nas : dev_internal;
+        if (d.kind == "nas") for (const auto& p : snap_->places) if (p.id == d.id && (p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox")) {
+            std::string svc = p.service;  // connu dès le démarrage
+            if (svc.empty()) for (const auto& r : remotes_all_.items()) if (r["id"].as_string() == p.id) svc = r["config"]["service"].as_string();
+            dev2 = cloud_dev(p.protocol, svc);
+        }
         if (devices_[dev2].valid()) s.image(devices_[dev2], rx + 30 + iw + 70, hy + 50, iw, iw);
         const std::string nm = d.name.size() > 14 ? d.name.substr(0, 13) + "…" : d.name;
         s.text(font_, rx + 30 + iw + 70 + iw / 2 - Surface::measure(nm, small) / 2, hy + 52 + iw + 6, nm, small, color::muted);

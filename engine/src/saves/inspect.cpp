@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <set>
 
@@ -107,10 +108,7 @@ std::string raw_signature(const std::vector<std::string>& paths, const std::atom
 
 // Empreinte brute lue dans le manifeste d'un backup fait par l'app (il note le SHA-256 de chaque fichier) : même
 // calcul que raw_signature, sans rien copier ni télécharger. Vide si pas de manifeste ou pas d'images de ce jeu.
-std::string manifest_signature(store::Store& st, const std::string& dir, const std::string& title_id, const std::string& user_id) {
-    std::string text;
-    Json m;
-    if (!st.read_small(fs::join(dir, "manifest.json"), text, 8u << 20) || !Json::parse(text, m)) return "";
+std::string raw_from_manifest(const Json& m, const std::string& title_id, const std::string& user_id) {
     std::map<std::string, std::pair<int, std::string>> best;  // nom d'image → (priorité, empreinte) ; le compte demandé d'abord
     for (const auto& f : m["files"].items()) {
         const std::string path = f["path"].as_string(), sha = f["sha256"].as_string();
@@ -129,15 +127,54 @@ std::string manifest_signature(store::Store& st, const std::string& dir, const s
     for (const auto& l : lines) { all.add(l.data(), l.size()); all.add("\n", 1); }
     return all.hex();
 }
+std::string manifest_signature(store::Store& st, const std::string& dir, const std::string& title_id, const std::string& user_id) {
+    std::string text;
+    Json m;
+    if (!st.read_small(fs::join(dir, "manifest.json"), text, 8u << 20) || !Json::parse(text, m)) return "";
+    return raw_from_manifest(m, title_id, user_id);
+}
+// « lecture.json » : ce que la lecture d'une copie a trouvé, rangé À CÔTÉ de la copie (disque, NAS, nuage). Une autre
+// console (ou celle-ci après réinstallation) reprend ce résultat sans retélécharger ni rouvrir la sauvegarde.
+const char* const kLecture = "lecture.json";
+Json read_lecture(store::Store& st, const std::string& dir, const std::string& raw) {
+    std::string text;
+    Json l;
+    if (raw.empty() || !st.read_small(fs::join(dir, kLecture), text, 4u << 20) || !Json::parse(text, l)) return Json();
+    if (l["format"].as_string() != "pbck-lecture" || l["raw_signature"].as_string() != raw || !l["images"].is_array() || l["images"].size() == 0) return Json();
+    return l["images"];
+}
+void write_lecture(store::Store& st, const std::string& dir, const std::string& raw, const Json& images) {
+    if (raw.empty() || !images.is_array() || images.size() == 0) return;
+    fs::Entry e;
+    if (!st.stat(fs::join(dir, "manifest.json"), e)) return;  // seulement dans une copie faite par l'app
+    Json l = Json::object();
+    l.set("format", "pbck-lecture");
+    l.set("version", 1);
+    l.set("raw_signature", raw);
+    l.set("read_at", now_unix());
+    l.set("images", images);
+    if (!st.write_small(fs::join(dir, kLecture), l.dump() + "\n")) log("lecture.json : écriture impossible dans %s", dir.c_str());
+}
 
 std::mutex cache_mu;
 std::string cache_path(const std::string& state_dir) { return fs::host(fs::join(state_dir, "inspect-cache.json")); }
-Json load_cache(const std::string& state_dir) {
+// Le fichier des comparaisons (plusieurs Mo) est lu une fois puis gardé en mémoire tant qu'il ne change pas :
+// le résumé des sauvegardes le consulte pour chaque jeu (avant : relu et décodé à chaque jeu, 50 s au démarrage).
+// Appelé sous cache_mu.
+struct CacheMemo { std::string path; std::int64_t mtime = -1; std::uint64_t size = 0; std::shared_ptr<const Json> value; };
+CacheMemo g_cache_memo;
+std::shared_ptr<const Json> shared_cache(const std::string& state_dir) {
+    const std::string p = cache_path(state_dir);
+    fs::Entry st;
+    const bool have = fs::stat(p, st);
+    if (g_cache_memo.value && g_cache_memo.path == p && have && st.mtime == g_cache_memo.mtime && st.size == g_cache_memo.size) return g_cache_memo.value;
     std::string text;
     Json j;
-    if (!fs::read(cache_path(state_dir), text) || !Json::parse(text, j) || !j["versions"].is_object()) { j = Json::object(); j.set("versions", Json::object()); }
-    return j;
+    if (!have || !fs::read(p, text) || !Json::parse(text, j) || !j["versions"].is_object()) { j = Json::object(); j.set("versions", Json::object()); }
+    g_cache_memo = {p, have ? st.mtime : -1, have ? st.size : 0, std::make_shared<const Json>(std::move(j))};
+    return g_cache_memo.value;
 }
+Json load_cache(const std::string& state_dir) { return *shared_cache(state_dir); }
 
 bool has_images(const std::string& dir) {
     std::vector<fs::Entry> es;
@@ -661,6 +698,14 @@ InspectResult inspect_save(const std::string& task_id, const Json& request, cons
                 if (updates_raw.has(early_raw)) known = &updates_raw[early_raw];
                 else if (cache["raw"][early_raw].is_array()) known = &cache["raw"][early_raw];
                 if (known && reader_outdated(*known)) known = nullptr;  // lue avec un lecteur plus ancien : on relit
+                if (!known && st) {  // déjà lue par une autre console (ou avant une réinstallation) : son résultat est là
+                    const Json lect = read_lecture(*st, src["path"].as_string(), early_raw);
+                    if (lect.is_array() && !reader_outdated(lect)) {
+                        updates_raw.set(early_raw, lect);
+                        known = &updates_raw[early_raw];
+                        log("inspect: lecture.json repris pour %s", src["path"].as_string().c_str());
+                    }
+                }
             }
             if (known) {
                 v = aggregate_version(*known);
@@ -669,6 +714,7 @@ InspectResult inspect_save(const std::string& task_id, const Json& request, cons
                 v.set("title_id", title_id);
                 v.set("raw_signature", early_raw);
                 v.set("from_manifest", true);
+                if (st) { std::string text; if (!st->read_small(fs::join(src["path"].as_string(), kLecture), text, 4u << 20)) write_lecture(*st, src["path"].as_string(), early_raw, *known); }  // rangé à côté de la copie
                 ++analysed;
                 Json s = Json::object();
                 s.set("kind", kind);
@@ -711,6 +757,12 @@ InspectResult inspect_save(const std::string& task_id, const Json& request, cons
             images = inspect_images(paths, err, &stop, step);
             if (err.empty() && !raw.empty()) updates_raw.set(raw, images);
         }
+        if (err.empty() && !extracting && (kind == "local" || kind == "remote") && images.size()) {  // rangé à côté de la copie
+            const std::string mraw = early_raw.empty() ? raw : early_raw;  // l'empreinte que le manifeste donne
+            std::string e3;
+            auto st = kind == "local" ? store::local() : (open_remote ? open_remote(src["remote"].as_string(), e3) : nullptr);
+            if (st) { std::string text; if (!st->read_small(fs::join(src["path"].as_string(), kLecture), text, 4u << 20)) write_lecture(*st, src["path"].as_string(), mraw, images); }
+        }
         fs::remove_tree(fs::host(staging));
         if (stop) { fs::remove_tree(fs::host(work)); return fail("stopped", "interrompue"); }
         if (!err.empty()) {
@@ -745,6 +797,7 @@ InspectResult inspect_save(const std::string& task_id, const Json& request, cons
         for (const auto& [k, val] : updates_raw.members()) rs.set(k, val);
         fresh.set("raw", rs);
         fs::write_atomic(cache_path(state_dir), fresh.dump(true) + "\n");
+        g_cache_memo = {};  // relu à la prochaine demande
     }
     if (!analysed) return fail(first_error.find("non disponible") != std::string::npos ? "unsupported" : "inspect", first_error.empty() ? "aucune version" : first_error);
     Json cmp = compare_versions(versions);
@@ -791,9 +844,26 @@ Json account_stats(const std::string& state_dir) {
     return out;
 }
 
+std::string manifest_raw_signature(const Json& manifest, const std::string& title_id, const std::string& user_id) { return raw_from_manifest(manifest, title_id, user_id); }
+
+Json known_by_raw(const std::string& state_dir, const std::string& raw, const std::string& title_id) {
+    if (raw.empty()) return Json();
+    std::shared_ptr<const Json> held;
+    { std::lock_guard<std::mutex> l(cache_mu); held = shared_cache(state_dir); }
+    const Json& imgs = (*held)["raw"][raw];
+    if (!imgs.is_array() || imgs.size() == 0 || reader_outdated(imgs)) return Json();
+    Json v = aggregate_version(imgs);
+    v.set("images", imgs);
+    v.set("raw_signature", raw);
+    v.set("title_id", title_id);
+    v.set("from_manifest", true);
+    return v;
+}
+
 Json cached_inspections(const std::string& state_dir, const std::string& title_id, const std::string& user_id) {
-    Json cache;
-    { std::lock_guard<std::mutex> l(cache_mu); cache = load_cache(state_dir); }
+    std::shared_ptr<const Json> held;
+    { std::lock_guard<std::mutex> l(cache_mu); held = shared_cache(state_dir); }
+    const Json& cache = *held;
     Json versions = Json::array();
     // Résultats lus avant une mise à jour du catalogue : lieux rendus lisibles et « réglages seulement » recalculés
     // à partir de ce qui est déjà noté (noms des fichiers, valeurs lues), sans relire les copies.

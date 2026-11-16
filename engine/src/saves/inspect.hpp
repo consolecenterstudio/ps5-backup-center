@@ -94,6 +94,11 @@ InspectResult inspect_save(const std::string& task_id, const Json& request, cons
 // Versions déjà analysées d'un jeu (cache), comparées entre elles (mêmes champs que le compte rendu).
 // La version console est marquée « stale » si ses images ont changé depuis l'analyse.
 Json cached_inspections(const std::string& state_dir, const std::string& title_id, const std::string& user_id);
+// Empreinte brute des sauvegardes d'un compte d'après le manifeste d'une copie (SHA-256 notés à la sauvegarde).
+std::string manifest_raw_signature(const Json& manifest, const std::string& title_id, const std::string& user_id);
+// Analyse déjà faite d'un contenu identique (même empreinte brute), sinon nul : une copie jamais lue mais
+// identique octet pour octet à une copie lue est comparée sans rien télécharger.
+Json known_by_raw(const std::string& state_dir, const std::string& raw, const std::string& title_id);
 
 // Identifiants de compte vus dans les sauvegardes déjà lues (cache) : pour chacun, nombre d'images, jeux, première et
 // dernière écriture par le jeu, et empreintes de contenu par jeu (pour reconnaître deux identifiants d'un même joueur :

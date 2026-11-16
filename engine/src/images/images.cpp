@@ -15,6 +15,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <sys/mount.h>
 #include <sys/param.h>
@@ -170,6 +171,22 @@ void set_step(const std::string& step) {
 }
 std::string current_step() { std::lock_guard<std::mutex> l(g_step_mu); return g_step; }
 
+// Étape à part (vérification d'un transfert) : avancée et débit propres, pour un temps restant honnête.
+std::string g_phase;
+std::atomic<std::uint64_t> g_phase_done{0}, g_phase_total{0};
+std::atomic<std::int64_t> g_phase_start_ms{0};
+std::atomic<bool> g_skip_verify{false};
+std::atomic<std::int64_t> g_interactive_until{0};
+std::int64_t now_ms() { return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+// Laisse passer un écran qui lit les disques (Sauvegardes, Partout) : pause courte entre deux blocs.
+void yield_to_ui() { if (now_ms() < g_interactive_until.load()) std::this_thread::sleep_for(std::chrono::milliseconds(40)); }
+void set_phase(const std::string& phase, std::uint64_t total, std::uint64_t already = 0) {
+    { std::lock_guard<std::mutex> l(g_step_mu); g_phase = phase; }
+    g_phase_total = total; g_phase_done = already; g_phase_start_ms = now_ms();
+}
+void clear_phase() { std::lock_guard<std::mutex> l(g_step_mu); g_phase.clear(); g_phase_total = 0; g_phase_done = 0; }
+std::string current_phase() { std::lock_guard<std::mutex> l(g_step_mu); return g_phase; }
+
 std::mutex g_run_mu;  // une seule opération à la fois (état global de Game Compressor)
 
 std::function<std::string()> g_running_probe;
@@ -203,6 +220,14 @@ private:
         p.files_total = static_cast<unsigned>(s.total_files);
         p.step = current_step();
         p.current = p.step;
+        p.phase = current_phase();
+        if (!p.phase.empty()) {
+            p.phase_done = g_phase_done; p.phase_total = g_phase_total;
+            if (!phase_base_set_) { phase_base_ = p.phase_done; phase_base_ms_ = now_ms(); phase_base_set_ = true; }
+            const double secs = static_cast<double>(now_ms() - phase_base_ms_) / 1000.0;
+            const double rate = secs > 2 ? static_cast<double>(p.phase_done - std::min(p.phase_done, phase_base_)) / secs : 0;
+            if (rate > 0 && p.phase_total > p.phase_done) p.phase_eta = static_cast<std::uint64_t>(static_cast<double>(p.phase_total - p.phase_done) / rate);
+        } else phase_base_set_ = false;
         if (s.destructive_active) p.current += " — suppression pendant l'écriture : annulation impossible";
         if (cb_) cb_(p);
     }
@@ -221,6 +246,9 @@ private:
     std::atomic<bool>& interrupt_;
     std::atomic<bool> quit_{false};
     bool cancel_sent_ = false;
+    bool phase_base_set_ = false;
+    std::uint64_t phase_base_ = 0;
+    std::int64_t phase_base_ms_ = 0;
     std::thread thread_;
 };
 
@@ -547,6 +575,296 @@ bool read_check_tree(const std::string& host, ReadCheck& rc, std::uint64_t total
 }
 
 // Copie d'arborescence (extraction d'une image montée), d'après copy_tree_gc.
+bool hash_file_plain(const std::string& host_file, std::string& hex, std::atomic<bool>& interrupt, std::uint64_t& done) {
+    const int fd = ::open(host_file.c_str(), O_RDONLY);
+    if (fd < 0) return false;
+    Sha256 h;
+    std::vector<unsigned char> buf(4u << 20);
+    for (;;) {
+        if (cancelled(interrupt)) { ::close(fd); return false; }
+        const ssize_t n = ::read(fd, buf.data(), buf.size());
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0) { ::close(fd); return false; }
+        if (n == 0) break;
+        h.add(buf.data(), static_cast<std::size_t>(n));
+        done += static_cast<std::uint64_t>(n);
+    }
+    ::close(fd);
+    hex = h.hex();
+    return true;
+}
+
+// Point de reprise À L'INTÉRIEUR d'un fichier (une image de 300 Go ne repart pas du début) : pour chaque fichier en
+// cours, l'octet atteint et l'état du calcul d'empreinte, réécrits toutes les ~512 Mo. Fichier « clé\toctet\tétat ».
+class Checkpoints {
+public:
+    explicit Checkpoints(std::string path) : path_(std::move(path)) {
+        std::string text;
+        if (!fs::read(path_, text, 1u << 20)) return;
+        std::size_t a = 0;
+        while (a < text.size()) {
+            const std::size_t e = text.find('\n', a);
+            if (e == std::string::npos) break;
+            const std::string line = text.substr(a, e - a);
+            const std::size_t t1 = line.find('\t'), t2 = t1 == std::string::npos ? t1 : line.find('\t', t1 + 1);
+            if (t2 != std::string::npos) map_[line.substr(0, t1)] = {std::strtoull(line.c_str() + t1 + 1, nullptr, 10), line.substr(t2 + 1)};
+            a = e + 1;
+        }
+    }
+    bool get(const std::string& key, std::uint64_t& off, std::string& st) const {
+        std::lock_guard<std::mutex> l(mu_);
+        const auto it = map_.find(key);
+        if (it == map_.end()) return false;
+        off = it->second.first; st = it->second.second;
+        return true;
+    }
+    void set(const std::string& key, std::uint64_t off, const std::string& st) { std::lock_guard<std::mutex> l(mu_); map_[key] = {off, st}; save(); }
+    void drop(const std::string& key) { std::lock_guard<std::mutex> l(mu_); if (map_.erase(key)) save(); }
+    void erase() { std::lock_guard<std::mutex> l(mu_); map_.clear(); ::unlink(path_.c_str()); }
+private:
+    void save() {
+        std::string out;
+        for (const auto& [k, v] : map_) out += k + "\t" + std::to_string(v.first) + "\t" + v.second + "\n";
+        if (map_.empty()) ::unlink(path_.c_str()); else fs::write_atomic(path_, out);
+    }
+    std::string path_;
+    mutable std::mutex mu_;
+    std::map<std::string, std::pair<std::uint64_t, std::string>> map_;
+};
+constexpr std::uint64_t kCheckpointEvery = 512ull << 20;
+
+// Empreinte d'un fichier, reprenable : avancée dans la phase en cours, « Arrêter la vérification », point de reprise.
+// Retour : 1 = fini (hex), 0 = arrêté (pause / arrêt / vérification arrêtée : point gardé), -1 = lecture impossible.
+int hash_resumable(const std::string& path, const std::string& key, Checkpoints* ck, std::atomic<bool>& interrupt, std::string& hex) {
+    const int fd = ::open(path.c_str(), O_RDONLY);
+    if (fd < 0) return -1;
+    Sha256 h;
+    std::uint64_t at = 0, since = 0;
+    {
+        std::string st;
+        if (ck && ck->get(key, at, st) && h.restore(st) && ::lseek(fd, static_cast<off_t>(at), SEEK_SET) >= 0) g_phase_done += at;
+        else { at = 0; h = Sha256(); }
+    }
+    std::vector<unsigned char> buf(8u << 20);
+    for (;;) {
+        if (g_skip_verify || cancelled(interrupt)) { if (ck && at) ck->set(key, at, h.state()); ::close(fd); return 0; }
+        const ssize_t n = ::read(fd, buf.data(), buf.size());
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0) { ::close(fd); return -1; }
+        if (n == 0) break;
+        h.add(buf.data(), static_cast<std::size_t>(n));
+        g_phase_done += static_cast<std::uint64_t>(n);
+        at += static_cast<std::uint64_t>(n); since += static_cast<std::uint64_t>(n);
+        if (ck && since >= kCheckpointEvery) { ck->set(key, at, h.state()); since = 0; }
+        yield_to_ui();
+    }
+    ::close(fd);
+    if (ck) ck->drop(key);
+    hex = h.hex();
+    return 1;
+}
+
+// Journal d'un transfert, à côté de la copie en cours (« .pbc-copying-X.hashes ») : une ligne par fichier copié
+// (chemin relatif, empreinte SHA-256 de l'ORIGINAL, calculée pendant la copie). Il permet de reprendre après une pause
+// ou un redémarrage sans tout recopier, et de vérifier en ne relisant que la copie.
+class HashLog {
+public:
+    explicit HashLog(std::string path) : path_(std::move(path)) {
+        std::string text;
+        if (!fs::read(path_, text, 64u << 20)) return;
+        std::size_t a = 0;
+        while (a < text.size()) {
+            const std::size_t e = text.find('\n', a), t = text.find('\t', a);
+            if (e == std::string::npos) break;  // dernière ligne incomplète (arrêt pendant l'écriture) : ignorée
+            if (t != std::string::npos && t < e) map_[text.substr(a, t - a)] = text.substr(t + 1, e - t - 1);
+            a = e + 1;
+        }
+    }
+    const std::string* find(const std::string& rel) const { const auto it = map_.find(rel); return it == map_.end() ? nullptr : &it->second; }
+    void add(const std::string& rel, const std::string& hex) {
+        map_[rel] = hex;
+        const std::string line = rel + "\t" + hex + "\n";
+        const int fd = ::open(path_.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0666);
+        if (fd >= 0) { (void)!::write(fd, line.data(), line.size()); ::close(fd); }
+    }
+    void erase() { ::unlink(path_.c_str()); map_.clear(); }
+private:
+    std::string path_;
+    std::map<std::string, std::string> map_;
+};
+
+// Copie un fichier en calculant l'empreinte de l'original au passage (aucune relecture de la source ensuite).
+bool copy_file_hashed(const std::string& s, const std::string& d, std::uint64_t& copied, std::uint64_t total, std::atomic<bool>& interrupt,
+                      std::string& hex, std::string& err, std::vector<unsigned char>& buf, Checkpoints* ck = nullptr, const std::string& key = {}) {
+    const int in = ::open(s.c_str(), O_RDONLY);
+    if (in < 0) { err = "lecture impossible : " + C(s); return false; }
+    // Reprise au milieu du fichier : l'empreinte reprend son état, la copie repart à l'octet noté.
+    Sha256 h;
+    std::uint64_t at = 0;
+    {
+        std::string st;
+        struct ::stat sd {};
+        if (ck && ck->get(key, at, st) && ::stat(d.c_str(), &sd) == 0 && static_cast<std::uint64_t>(sd.st_size) >= at && h.restore(st)) {}
+        else { at = 0; h = Sha256(); }
+    }
+    const int out = ::open(d.c_str(), at ? O_WRONLY : (O_WRONLY | O_CREAT | O_TRUNC), 0666);
+    if (out < 0) { ::close(in); err = "écriture impossible : " + C(d); return false; }
+    {   // mêmes droits que la source (un eboot.bin 0777 reste exécutable)
+        struct ::stat sm {};
+        if (::fstat(in, &sm) == 0) ::fchmod(out, sm.st_mode & 07777);
+    }
+    if (at) {
+        if (::ftruncate(out, static_cast<off_t>(at)) != 0 || ::lseek(in, static_cast<off_t>(at), SEEK_SET) < 0 || ::lseek(out, static_cast<off_t>(at), SEEK_SET) < 0) { at = 0; h = Sha256(); ::lseek(in, 0, SEEK_SET); ::lseek(out, 0, SEEK_SET); (void)::ftruncate(out, 0); }
+        else { copied += at; pbc_gc_job_set_progress(copied, total); log("transfert : reprise de %s à %llu Mo", C(d).c_str(), static_cast<unsigned long long>(at >> 20)); }
+    }
+    std::uint64_t since = 0;
+    bool ok = true;
+    for (;;) {
+        if (cancelled(interrupt)) { err = "annulé"; ok = false; break; }
+        const ssize_t r = ::read(in, buf.data(), buf.size());
+        if (r == 0) break;
+        if (r < 0) { if (errno == EINTR) continue; err = "lecture impossible : " + C(s); ok = false; break; }
+        h.add(buf.data(), static_cast<std::size_t>(r));
+        yield_to_ui();
+        const unsigned char* p = buf.data();
+        std::size_t left = static_cast<std::size_t>(r);
+        while (left) {
+            const ssize_t w = ::write(out, p, left);
+            if (w < 0 && errno == EINTR) continue;
+            if (w <= 0) { err = "écriture impossible : " + C(d); ok = false; break; }
+            p += w; left -= static_cast<std::size_t>(w);
+        }
+        if (!ok) break;
+        copied += static_cast<std::uint64_t>(r);
+        at += static_cast<std::uint64_t>(r);
+        since += static_cast<std::uint64_t>(r);
+        pbc_gc_job_set_progress(copied, total);
+        if (ck && since >= kCheckpointEvery && ::fsync(out) == 0) { ck->set(key, at, h.state()); since = 0; }  // écrit sur le disque, puis noté
+    }
+    if (ok && ::fsync(out) != 0) { err = "écriture impossible : " + C(d); ok = false; }
+    if (!ok && ck && at && ::fsync(out) == 0) ck->set(key, at, h.state());  // arrêt : on garde le point atteint
+    ::close(in);
+    ::close(out);
+    if (ok) { hex = h.hex(); if (ck) ck->drop(key); }
+    return ok;
+}
+
+// Copie reprenable : un fichier déjà copié (dans le journal, même taille à destination) est sauté.
+bool copy_tree_resumable(const std::string& src, const std::string& dst, const std::string& rel, HashLog& log, std::uint64_t& copied,
+                         std::uint64_t total, std::atomic<bool>& interrupt, std::string& err, std::vector<unsigned char>& buf, Checkpoints* ck = nullptr, int depth = 0) {
+    if (depth > 32) { err = "arborescence trop profonde"; return false; }
+    if (::mkdir(dst.c_str(), 0777) != 0 && errno != EEXIST) { err = "création impossible : " + C(dst); return false; }
+    std::vector<fs::Entry> entries;
+    if (!fs::list(src, entries)) { err = "lecture impossible : " + C(src); return false; }
+    for (const auto& e : entries) {
+        if (cancelled(interrupt)) { err = "annulé"; return false; }
+        const std::string s = fs::join(src, e.name), d = fs::join(dst, e.name), r = rel.empty() ? e.name : rel + "/" + e.name;
+        if (e.dir) { if (!copy_tree_resumable(s, d, r, log, copied, total, interrupt, err, buf, ck, depth + 1)) return false; continue; }
+        struct ::stat ss {}, sd {};
+        if (log.find(r) && ::stat(s.c_str(), &ss) == 0 && ::stat(d.c_str(), &sd) == 0 && ss.st_size == sd.st_size) {
+            copied += static_cast<std::uint64_t>(ss.st_size);  // déjà copié avant la pause
+            pbc_gc_job_set_progress(copied, total);
+            continue;
+        }
+        std::string hex;
+        if (!copy_file_hashed(s, d, copied, total, interrupt, hex, err, buf, ck, "copy:" + r)) return false;
+        log.add(r, hex);
+    }
+    return true;
+}
+
+// Relit la COPIE seulement (plusieurs fichiers à la fois) et compare à l'empreinte de l'original prise pendant la copie.
+// quick : présence et taille seulement. Un fichier déjà vérifié (avant une pause) n'est pas relu.
+// Retourne false sur différence ; skipped = vérification arrêtée à la demande (copie gardée, non vérifiée).
+bool verify_copy(const std::string& src, const std::string& dst, HashLog& log, HashLog& done_log, bool quick, std::atomic<bool>& interrupt,
+                 std::uint64_t& files, bool& skipped, std::string& err, Checkpoints* ck = nullptr) {
+    struct F { std::string rel, s, d; std::uint64_t size; };
+    std::vector<F> list;
+    std::uint64_t bytes = 0, already = 0;
+    std::function<bool(const std::string&, const std::string&, const std::string&, int)> walk = [&](const std::string& a, const std::string& b, const std::string& rel, int depth) {
+        if (depth > 32) { err = "arborescence trop profonde"; return false; }
+        struct ::stat sa {}, sb {};
+        if (::stat(a.c_str(), &sa) != 0 || ::stat(b.c_str(), &sb) != 0) { err = "fichier manquant : " + C(b); return false; }
+        if (S_ISDIR(sa.st_mode) != S_ISDIR(sb.st_mode)) { err = "nature différente : " + C(b); return false; }
+        if (!S_ISDIR(sa.st_mode)) {
+            if (sa.st_size != sb.st_size) { err = "taille différente : " + C(b); return false; }
+            const std::uint64_t n = static_cast<std::uint64_t>(sa.st_size);
+            if (done_log.find(rel)) already += n;
+            list.push_back({rel, a, b, n});
+            bytes += n;
+            return true;
+        }
+        std::vector<fs::Entry> ea, eb;
+        if (!fs::list(a, ea) || !fs::list(b, eb) || ea.size() != eb.size()) { err = "contenu de dossier différent : " + C(b); return false; }
+        for (const auto& e : ea)
+            if (!walk(fs::join(a, e.name), fs::join(b, e.name), rel.empty() ? e.name : rel + "/" + e.name, depth + 1)) return false;
+        return true;
+    };
+    if (!walk(src, dst, "", 0)) return false;
+    files = list.size();
+    if (quick) return true;
+    set_phase("verify", bytes, already);
+    std::atomic<std::size_t> next{0};
+    std::atomic<bool> bad{false};
+    std::mutex mu;
+    std::string first_err;
+    auto worker = [&] {
+        std::vector<unsigned char> buf(4u << 20);
+        for (;;) {
+            const std::size_t i = next++;
+            if (i >= list.size() || bad || g_skip_verify || cancelled(interrupt)) return;
+            const F& f = list[i];
+            if (done_log.find(f.rel)) continue;
+            const std::string* want = log.find(f.rel);
+            std::string e2;
+            Sha256 h;
+            const int fd = ::open(f.d.c_str(), O_RDONLY);
+            bool ok = fd >= 0;
+            std::uint64_t at = 0, since = 0;
+            {   // reprise au milieu d'un gros fichier
+                std::string st;
+                if (ok && ck && ck->get("verify:" + f.rel, at, st) && at <= f.size && h.restore(st) && ::lseek(fd, static_cast<off_t>(at), SEEK_SET) >= 0) g_phase_done += at;
+                else { at = 0; h = Sha256(); }
+            }
+            while (ok) {
+                if (g_skip_verify || cancelled(interrupt)) { ok = false; break; }
+                const ssize_t n = ::read(fd, buf.data(), buf.size());
+                if (n < 0 && errno == EINTR) continue;
+                if (n < 0) { ok = false; e2 = "relecture impossible : " + C(f.d); break; }
+                if (n == 0) break;
+                h.add(buf.data(), static_cast<std::size_t>(n));
+                g_phase_done += static_cast<std::uint64_t>(n);
+                at += static_cast<std::uint64_t>(n); since += static_cast<std::uint64_t>(n);
+                if (ck && since >= kCheckpointEvery) { ck->set("verify:" + f.rel, at, h.state()); since = 0; }
+                yield_to_ui();
+            }
+            if (fd >= 0) ::close(fd);
+            if (g_skip_verify || cancelled(interrupt)) { if (ck && at) ck->set("verify:" + f.rel, at, h.state()); return; }
+            if (ck) ck->drop("verify:" + f.rel);
+            if (!ok && e2.empty()) e2 = "relecture impossible : " + C(f.d);
+            std::string got = ok ? h.hex() : std::string();
+            if (ok && !want) {  // pas d'empreinte (copie faite par une ancienne version) : on relit l'original
+                std::string sh;
+                std::uint64_t dummy = 0;
+                if (!hash_file_plain(f.s, sh, interrupt, dummy)) { ok = false; e2 = "relecture impossible : " + C(f.s); }
+                else if (sh != got) { ok = false; e2 = "contenu différent : " + C(f.d); }
+            } else if (ok && *want != got) { ok = false; e2 = "contenu différent : " + C(f.d); }
+            if (!ok) { std::lock_guard<std::mutex> l(mu); if (first_err.empty()) first_err = e2; bad = true; return; }
+            std::lock_guard<std::mutex> l(mu);
+            done_log.add(f.rel, got);
+        }
+    };
+    // Plusieurs lectures en même temps : le disque reste occupé pendant que les cœurs calculent les empreintes.
+    std::vector<std::thread> pool;
+    for (int t = 0; t < 4; ++t) pool.emplace_back(worker);
+    for (auto& t : pool) t.join();
+    clear_phase();
+    if (bad) { err = first_err; return false; }
+    if (g_skip_verify) { skipped = true; return true; }
+    if (cancelled(interrupt)) { err = "annulé"; return false; }
+    return true;
+}
+
 bool copy_tree(const std::string& src, const std::string& dst, std::uint64_t& copied, std::uint64_t total, std::atomic<bool>& interrupt, std::string& err, int depth = 0) {
     if (depth > 32) { err = "arborescence trop profonde"; return false; }
     if (::mkdir(dst.c_str(), 0777) != 0 && errno != EEXIST) { err = "création impossible : " + C(dst); return false; }
@@ -1079,6 +1397,8 @@ bool Options::from_json(const Json& b, Options& o, std::string& error) {
     o.seconds = static_cast<int>(b["seconds"].as_int(20));
     o.mode = b["mode"].as_string().empty() ? "copy" : b["mode"].as_string();
     o.verify = b["verify"].as_bool(true);
+    if (b["verify_mode"].as_string() == "quick") o.verify_mode = "quick";
+    o.adopt = b["adopt"].as_bool(false);
     o.previous = b["previous"].as_string();
     o.compress = b["compress"].as_bool();
     if (o.op == Op::transfer && o.mode != "copy" && o.mode != "move") { error = "transfert : mode copy ou move"; return false; }
@@ -1112,7 +1432,7 @@ Json Options::to_json() const {
     j.set("shadowmount_hints", shadowmount_hints);
     j.set("mount", mount);
     j.set("seconds", seconds);
-    if (op == Op::transfer) { j.set("mode", mode); j.set("verify", verify); j.set("compress", compress); if (!previous.empty()) j.set("previous", previous); }
+    if (op == Op::transfer) { j.set("mode", mode); j.set("verify", verify); j.set("verify_mode", verify_mode); if (adopt) j.set("adopt", true); j.set("compress", compress); if (!previous.empty()) j.set("previous", previous); }
     return j;
 }
 
@@ -1259,7 +1579,12 @@ Plan make_plan(const Options& o, Info& src) {
         case Op::read_speed:
             break;
     }
-    if (!p.output.empty() && p.output != fs::join(o.source, "ampr_emu.index") && fs::exists(H(p.output)))
+    if (o.op == Op::transfer && o.adopt) {  // copie déjà faite : elle doit exister, avec la taille de l'original
+        fs::Entry oe;
+        if (!fs::stat(H(p.output), oe)) return fail("missing_copy", "aucune copie à cet endroit : " + p.output);
+        if (src.kind != Kind::folder && oe.size != src.size) return fail("size_mismatch", "la copie n'a pas la taille de l'original");
+        p.required_bytes = 0;  // rien à écrire
+    } else if (!p.output.empty() && p.output != fs::join(o.source, "ampr_emu.index") && fs::exists(H(p.output)))
         return fail("output_exists", "la sortie existe déjà : " + p.output);
     if (p.required_bytes) {
         const std::string where = p.output.empty() ? o.source : std::string(fs::dirname(p.output));
@@ -1717,46 +2042,6 @@ Result run_set_read_only(Ctx& c) {
 }
 
 // --- copie / déplacement entre stockages (d'après run_move_op de gc_api.c) ----------------
-bool hash_file(const std::string& host_file, std::string& hex, std::atomic<bool>& interrupt, std::uint64_t& done, std::uint64_t total) {
-    const int fd = ::open(host_file.c_str(), O_RDONLY);
-    if (fd < 0) return false;
-    Sha256 h;
-    std::vector<unsigned char> buf(4u << 20);
-    for (;;) {
-        if (cancelled(interrupt)) { ::close(fd); return false; }
-        const ssize_t n = ::read(fd, buf.data(), buf.size());
-        if (n < 0 && errno == EINTR) continue;
-        if (n < 0) { ::close(fd); return false; }
-        if (n == 0) break;
-        h.add(buf.data(), static_cast<std::size_t>(n));
-        done += static_cast<std::uint64_t>(n);
-        pbc_gc_job_set_progress(done, total);
-    }
-    ::close(fd);
-    hex = h.hex();
-    return true;
-}
-// Relit source et copie : même liste de fichiers, mêmes empreintes SHA-256.
-bool same_tree(const std::string& a, const std::string& b, std::atomic<bool>& interrupt, std::uint64_t& done, std::uint64_t total,
-               std::uint64_t& files, std::string& err, int depth = 0) {
-    struct ::stat sa {}, sb {};
-    if (::stat(a.c_str(), &sa) != 0 || ::stat(b.c_str(), &sb) != 0) { err = "fichier manquant : " + C(b); return false; }
-    if (S_ISDIR(sa.st_mode) != S_ISDIR(sb.st_mode)) { err = "nature différente : " + C(b); return false; }
-    if (!S_ISDIR(sa.st_mode)) {
-        if (sa.st_size != sb.st_size) { err = "taille différente : " + C(b); return false; }
-        std::string ha, hb;
-        if (!hash_file(a, ha, interrupt, done, total) || !hash_file(b, hb, interrupt, done, total)) { err = cancelled(interrupt) ? "annulé" : "relecture impossible : " + C(b); return false; }
-        if (ha != hb) { err = "contenu différent : " + C(b); return false; }
-        ++files;
-        return true;
-    }
-    if (depth > 32) { err = "arborescence trop profonde"; return false; }
-    std::vector<fs::Entry> ea, eb;
-    if (!fs::list(a, ea) || !fs::list(b, eb) || ea.size() != eb.size()) { err = "contenu de dossier différent : " + C(b); return false; }
-    for (const auto& e : ea)
-        if (!same_tree(fs::join(a, e.name), fs::join(b, e.name), interrupt, done, total, files, err, depth + 1)) return false;
-    return true;
-}
 bool copy_one_file(const std::string& src, const std::string& dst, std::uint64_t& copied, std::uint64_t total, std::atomic<bool>& interrupt, std::string& err) {
     // Réutilise copy_tree sur un dossier temporaire d'un seul fichier serait détourné : copie directe.
     const int in = ::open(src.c_str(), O_RDONLY);
@@ -1821,41 +2106,101 @@ void touch_scan() {
     ::chmod(h.c_str(), 0666);
 }
 
+Result run_adopt(Ctx& c);
+
 Result run_transfer(Ctx& c) {
+    if (c.o.adopt) return run_adopt(c);
     Result& r = c.r;
     const bool move = c.o.mode == "move";
     const std::string out_h = H(c.plan.output);
     const std::string tmp = fs::join(std::string(fs::dirname(out_h)), std::string(move ? ".pbc-moving-" : ".pbc-copying-") + std::string(fs::basename(out_h)));
     if (!fs::mkdirs(std::string(fs::dirname(out_h)))) return fail_r(r, "failed", "dossier de destination impossible à créer");
-    fs::remove_tree(tmp);
+    // Copie en cours gardée d'une pause ou d'un redémarrage : on la reprend (journal des fichiers déjà copiés).
+    HashLog log(tmp + ".hashes"), done_log(tmp + ".verified");
+    Checkpoints ck(tmp + ".resume");
+    auto forget_tmp = [&] { fs::remove_tree(tmp); ::unlink((tmp + ".vhash").c_str()); log.erase(); done_log.erase(); ck.erase(); };
+    auto keep_for_resume = [&](const std::string& msg) {  // pause / arrêt : rien n'est jeté, la tâche reprendra ici
+        r.report = Json::object();
+        r.report.set("resume_tmp", tmp);
+        return fail_r(r, "cancelled", msg);
+    };
+    g_skip_verify = false;
     set_step(move ? "Déplacement : copie" : "Copie");
     std::uint64_t copied = 0;
     std::string err;
     const bool dir = c.src.kind == Kind::folder;
     const std::uint64_t total = c.plan.required_bytes;
-    const bool ok = dir ? copy_tree(H(c.o.source), tmp, copied, total, c.interrupt, err) : copy_one_file(H(c.o.source), tmp, copied, total, c.interrupt, err);
-    if (!ok) { fs::remove_tree(tmp); return fail_r(r, cancelled(c.interrupt) ? "cancelled" : "failed", "copie : " + err); }
+    std::vector<unsigned char> buf(4u << 20);
+    bool ok;
+    if (dir) ok = copy_tree_resumable(H(c.o.source), tmp, "", log, copied, total, c.interrupt, err, buf, &ck);
+    else {
+        struct ::stat ss {}, sd {};
+        const std::string rel = std::string(fs::basename(c.o.source));
+        if (log.find(rel) && ::stat(H(c.o.source).c_str(), &ss) == 0 && ::stat(tmp.c_str(), &sd) == 0 && ss.st_size == sd.st_size) { copied = static_cast<std::uint64_t>(ss.st_size); ok = true; }
+        else { std::string hex; ok = copy_file_hashed(H(c.o.source), tmp, copied, total, c.interrupt, hex, err, buf, &ck, "copy:" + rel); if (ok) log.add(rel, hex); }
+    }
+    if (!ok) {
+        if (cancelled(c.interrupt)) return keep_for_resume("copie interrompue : reprise là où elle s'est arrêtée");
+        forget_tmp();
+        return fail_r(r, "failed", "copie : " + err);
+    }
     // Empreintes de validation d'un .ffpfsc : elles suivent le conteneur.
     const bool vhash = c.src.kind == Kind::ffpfsc && fs::exists(H(c.o.source + ".vhash"));
     if (vhash && !copy_one_file(H(c.o.source + ".vhash"), tmp + ".vhash", copied, total, c.interrupt, err)) {
-        fs::remove_tree(tmp); ::unlink((tmp + ".vhash").c_str());
-        return fail_r(r, cancelled(c.interrupt) ? "cancelled" : "failed", "copie : " + err);
+        if (cancelled(c.interrupt)) return keep_for_resume("copie interrompue : reprise là où elle s'est arrêtée");
+        forget_tmp();
+        return fail_r(r, "failed", "copie : " + err);
     }
     Json rep = Json::object();
     rep.set("mode", c.o.mode);
     rep.set("source", c.o.source);
     rep.set("bytes", copied);
-    if (c.o.verify || move) {
-        set_step("Vérification (SHA-256 de chaque fichier)");
-        std::uint64_t done = 0, files = 0;
-        if (!same_tree(H(c.o.source), tmp, c.interrupt, done, copied * 2, files, err)) {
-            fs::remove_tree(tmp); ::unlink((tmp + ".vhash").c_str());
-            return fail_r(r, cancelled(c.interrupt) ? "cancelled" : "verify_failed", "vérification échouée, copie supprimée, original intact : " + err);
+    // Vérification : « complète » relit la copie seulement et la compare à l'empreinte de l'original prise pendant la
+    // copie ; « rapide » contrôle présence et taille. « Arrêter la vérification » garde la copie, marquée non vérifiée.
+    const bool quick = c.o.verify_mode == "quick" || (!c.o.verify && !move);
+    bool verified = false, verify_skipped = false;
+    {
+        set_step(quick ? "Contrôle des fichiers (présence et taille)" : "Vérification (SHA-256 de chaque fichier copié)");
+        std::uint64_t files = 0;
+        const std::string a = dir ? H(c.o.source) : H(c.o.source), b = tmp;
+        bool vok;
+        if (dir) vok = verify_copy(a, b, log, done_log, quick, c.interrupt, files, verify_skipped, err, &ck);
+        else {  // un seul fichier : même règle, sur ce fichier
+            struct ::stat sa {}, sb {};
+            vok = ::stat(a.c_str(), &sa) == 0 && ::stat(b.c_str(), &sb) == 0 && sa.st_size == sb.st_size;
+            if (!vok) err = "taille différente : " + C(b);
+            files = 1;
+            if (vok && !quick) {  // une image : relue seule, reprenable au milieu, « Arrêter la vérification » possible
+                set_phase("verify", static_cast<std::uint64_t>(sb.st_size));
+                std::string got;
+                const std::string rel = std::string(fs::basename(c.o.source));
+                const std::string* want = log.find(rel);
+                const int hr = hash_resumable(b, "verify:" + rel, &ck, c.interrupt, got);
+                clear_phase();
+                if (hr == 0 && g_skip_verify) verify_skipped = true;
+                else if (hr == 0) { vok = false; err = "annulé"; }
+                else if (hr < 0) { vok = false; err = "relecture impossible : " + C(b); }
+                else if (want && *want != got) { vok = false; err = "contenu différent : " + C(b); }
+                else if (!want) {  // pas d'empreinte notée à la copie (ancienne version) : on relit l'original
+                    std::string sh;
+                    std::uint64_t dummy = 0;
+                    if (!hash_file_plain(a, sh, c.interrupt, dummy)) { vok = false; err = cancelled(c.interrupt) ? "annulé" : "relecture impossible : " + C(a); }
+                    else if (sh != got) { vok = false; err = "contenu différent : " + C(b); }
+                }
+            }
         }
+        if (!vok) {
+            if (cancelled(c.interrupt)) return keep_for_resume("vérification interrompue : reprise là où elle s'est arrêtée");
+            forget_tmp();
+            return fail_r(r, "verify_failed", "vérification échouée, copie supprimée, original intact : " + err);
+        }
+        verified = !quick && !verify_skipped;
         rep.set("verified_files", files);
     }
-    rep.set("verified", c.o.verify || move);
-    rep.set("copy_verified", c.o.verify || move);  // contenu (SHA-256) — ne dit rien des droits
+    rep.set("verify_mode", quick ? "quick" : "full");
+    if (verify_skipped) rep.set("verify_skipped", true);
+    rep.set("verified", verified);
+    rep.set("copy_verified", verified);  // contenu (SHA-256) — ne dit rien des droits
     if (dir && perms::is_app_folder(tmp)) {
         // Paquet d'appli ou de jeu : exécutables et modules exécutables, dossiers traversables, RELUS avant de finir.
         set_step("Droits des exécutables");
@@ -1869,7 +2214,8 @@ Result run_transfer(Ctx& c) {
         }
     }
     rep.set("launch_validated", false);  // seul un vrai lancement le dira
-    if (::rename(tmp.c_str(), out_h.c_str()) != 0) { fs::remove_tree(tmp); ::unlink((tmp + ".vhash").c_str()); return fail_r(r, "failed", "renommage final impossible"); }
+    if (::rename(tmp.c_str(), out_h.c_str()) != 0) { forget_tmp(); return fail_r(r, "failed", "renommage final impossible"); }
+    log.erase(); done_log.erase(); ck.erase();
     if (vhash) ::rename((tmp + ".vhash").c_str(), (out_h + ".vhash").c_str());
     r.output = c.plan.output;
     rep.set("output", r.output);
@@ -1896,7 +2242,15 @@ Result run_transfer(Ctx& c) {
         r.ok = true;
         return r;
     }
-    // Déplacement : l'original ne part qu'après la vérification, et jamais si le jeu vient d'être lancé.
+    // Déplacement : l'original ne part qu'après une vérification COMPLÈTE réussie, et jamais si le jeu vient d'être lancé.
+    if (!verified) {
+        rep.set("source_deleted", false);
+        rep.set("source_kept_reason", verify_skipped ? "vérification arrêtée : original conservé" : "vérification rapide : original conservé");
+        touch_scan();
+        r.report = rep;
+        r.ok = true;
+        return r;
+    }
     const std::string run = running_title();
     if (run == "?" || (!c.src.title_id.empty() && run == c.src.title_id)) {
         rep.set("source_deleted", false);
@@ -1923,7 +2277,64 @@ Result run_transfer(Ctx& c) {
     r.ok = true;
     return r;
 }
+// Copie déjà à destination (ex. un déplacement interrompu dont la copie a été gardée) : original et copie sont relus
+// EN MÊME TEMPS (deux disques, deux fils), comparés ; si tout est identique, le jeu est inscrit à la nouvelle place.
+// L'original n'est jamais supprimé ici : on le retire après avoir vérifié que le jeu se lance.
+Result run_adopt(Ctx& c) {
+    Result& r = c.r;
+    g_skip_verify = false;
+    const std::string a = H(c.o.source), b = H(c.plan.output);
+    if (c.src.kind == Kind::folder) return fail_r(r, "failed", "copie déjà faite : seulement pour une image (un fichier)");
+    struct ::stat sa {}, sb {};
+    if (::stat(a.c_str(), &sa) != 0 || ::stat(b.c_str(), &sb) != 0 || sa.st_size != sb.st_size) return fail_r(r, "size_mismatch", "la copie n'a pas la taille de l'original");
+    const std::uint64_t n = static_cast<std::uint64_t>(sa.st_size);
+    set_step("Vérification de la copie déjà faite (original et copie relus ensemble)");
+    set_phase("verify", 2 * n);
+    // Point de reprise à côté de la copie : un arrêt ou une pause ne fait pas repartir de zéro.
+    Checkpoints ck(b + ".pbc-adopt");
+    std::string ha, hb;
+    int ra = 0, rb = 0;
+    std::thread ta([&] { ra = hash_resumable(a, "original", &ck, c.interrupt, ha); }), tb([&] { rb = hash_resumable(b, "copie", &ck, c.interrupt, hb); });
+    ta.join(); tb.join();
+    clear_phase();
+    const bool oka = ra == 1, okb = rb == 1;
+    Json rep = Json::object();
+    rep.set("mode", "adopt");
+    rep.set("source", c.o.source);
+    rep.set("output", c.plan.output);
+    rep.set("bytes", n);
+    if (cancelled(c.interrupt)) { r.report = Json::object(); r.report.set("resume_ckpt", b + ".pbc-adopt"); return fail_r(r, "cancelled", "vérification interrompue : reprise là où elle s'est arrêtée"); }
+    const bool skipped = g_skip_verify.load();
+    if (!skipped) {
+        if (!oka || !okb) return fail_r(r, "failed", "relecture impossible");
+        if (ha != hb) { rep.set("verified", false); r.report = rep; return fail_r(r, "verify_failed", "la copie est différente de l'original : rien n'a changé (copie et original gardés)"); }
+    }
+    ck.erase();
+    rep.set("verified", !skipped);
+    if (skipped) rep.set("verify_skipped", true);
+    rep.set("verify_mode", skipped ? "none" : "full");
+    // Inscription à la nouvelle place (comme un déplacement), l'original reste en place.
+    std::string which;
+    const bool relinked = relink(c.src.title_id, c.o.source, c.plan.output, which);
+    if (relinked) rep.set("relinked", which);
+    if (!c.src.title_id.empty() && relinked) {
+        std::string merr;
+        rep.set("mount_requested", request_mount(c.src.title_id, c.plan.output, merr) ? Json(true) : Json(merr));
+        report_smp(rep);
+    } else rep.set("relinked", false);
+    rep.set("source_deleted", false);
+    rep.set("source_kept_reason", "original gardé : à retirer après avoir vérifié que le jeu se lance");
+    touch_scan();
+    r.output = c.plan.output;
+    r.report = rep;
+    r.ok = true;
+    return r;
+}
+
 }  // namespace
+
+void skip_verification() { g_skip_verify = true; }
+void note_interactive() { g_interactive_until = now_ms() + 4000; }
 
 Result run(const Options& in, const std::function<void(const Progress&)>& progress, std::atomic<bool>& interrupt) {
     std::lock_guard<std::mutex> once(g_run_mu);

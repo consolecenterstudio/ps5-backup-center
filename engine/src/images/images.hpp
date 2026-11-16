@@ -80,6 +80,8 @@ struct Options {
     int seconds = 20;            // read_speed : durée
     std::string mode = "copy";   // transfer : « copy » | « move » (l'original n'est supprimé qu'après vérification)
     bool verify = true;          // transfer : relecture SHA-256 de chaque fichier copié (toujours faite pour « move »)
+    std::string verify_mode = "full";  // transfert : "full" (SHA-256 de chaque fichier) ou "quick" (présence et taille)
+    bool adopt = false;  // transfert : la copie est DÉJÀ à destination (même taille) : la vérifier puis l'inscrire, l'original reste
     std::string previous;        // version installée mise de côté (mise à jour d'une appli) : supprimée si tout va bien, remise sinon
     bool compress = false;       // transfer : compresse en .ffpfsc vers la destination au lieu de copier
     static bool from_json(const Json& body, Options& out, std::string& error);
@@ -104,7 +106,14 @@ struct Progress {
     unsigned files_done = 0, files_total = 0;
     std::string step;            // étape lisible : « Compression », « Vérification »…
     std::string current;         // détail
+    // Étape à part avec sa propre avancée (transfert : "verify" = relecture de la copie) et son temps restant.
+    std::string phase;
+    std::uint64_t phase_done = 0, phase_total = 0, phase_eta = 0;
 };
+// « Arrêter la vérification » du transfert en cours : la copie est gardée (marquée non vérifiée), rien n'est perdu.
+void skip_verification();
+// Un écran lit les sauvegardes : les gros transferts et vérifications ralentissent quelques secondes pour lui laisser les disques.
+void note_interactive();
 struct Result {
     bool ok = false;
     std::string error, code;

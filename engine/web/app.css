@@ -881,3 +881,30 @@ button.sy-dev { display: flex; border-radius: 16px; } .sy-covers > .hint { width
 .follow-chip img.dev-img { width: 34px; height: 34px; }
 .follow-chip b { display: block; font-size: 14px; } .follow-chip small { display: block; font-size: 12px; color: var(--muted); }
 .follow-chip.soon { opacity: .5; }
+
+/* Tâches : d'où → vers où, avec le logo de chaque appareil. */
+.d.route { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.route-dev { display: inline-flex; align-items: center; gap: 4px; }
+.route-dev .dev-img { width: 20px; height: 20px; }
+
+/* Transferts : bulles groupées et leurs éléments ouverts dessous. */
+.tr-group { position: relative; }
+.tr-group.open { outline: 2px solid var(--accent); }
+.tr-count { position: absolute; top: 6px; right: 8px; font-size: 12px; font-weight: 700; color: var(--accent); }
+.tr-sub { display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0 4px 24px; padding: 10px; border-left: 3px solid var(--accent); border-radius: 0 12px 12px 0; background: rgba(80, 150, 255, .08); }
+
+/* Sauvegardes › Comparer et trier */
+.cmp-sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:8px 0}
+.cmp-filters{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 12px}.cmp-filters button{padding:5px 14px;border-radius:999px;border:1px solid var(--line);background:none;color:var(--muted)}.cmp-filters button.on{background:var(--text);color:var(--bg);border-color:var(--text)}
+.cmp-game{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px 14px;margin-bottom:10px;display:flex;flex-direction:column;gap:10px}
+.cmp-head{display:flex;align-items:center;gap:12px}.cmp-head .thumb{width:52px;height:52px;flex:none}
+.cmp-verdict{margin-left:auto;font-size:13px;font-weight:600;padding:3px 12px;border-radius:999px;background:rgba(255,255,255,.08)}
+.cmp-verdict.ok,.cmp-tag.ok{color:var(--ok)}.cmp-verdict.warn,.cmp-tag.warn{color:var(--warn)}.cmp-verdict.bad{color:var(--bad)}.cmp-tag.accent{color:var(--accent)}.cmp-tag.bad{color:var(--bad)}
+.cmp-copies{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.cmp-copy{border:1px solid var(--line);border-radius:12px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;min-width:0}.cmp-copy.same{border-color:var(--ok)}
+.cmp-copy b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cmp-copy small{color:var(--muted)}.cmp-tag{font-size:12px;font-weight:700}
+.mg-title .hint.ok { color: var(--ok); }
+/* Sauvegardes : Comparer et trier et la Corbeille empilés à droite, toujours visibles (comme la télé) */
+.places-wrap { display: flex; gap: 12px; align-items: stretch; } .places-wrap .places { flex: 1; min-width: 0; }
+.place-tools { display: flex; flex-direction: column; gap: 8px; flex: 0 0 210px; } .place-tools .place-card { flex: 1; min-height: 0; padding: 6px 14px; justify-content: flex-start; }
+@media (max-width: 640px) { .places-wrap { flex-direction: column; } .place-tools { flex-direction: row; flex: none; } }

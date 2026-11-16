@@ -20,6 +20,21 @@ public:
     Sha256() { self_update_sha256_start(&h_); }
     void add(const void* p, std::size_t n) { self_update_sha256_add(&h_, p, n); }
     std::string hex() { unsigned char d[32]; char t[65]; self_update_sha256_finish(&h_, d); self_update_sha256_hex(d, t); return t; }
+    // État du calcul en cours, pour reprendre une empreinte après un arrêt (même programme, même console).
+    std::string state() const {
+        static const char x[] = "0123456789abcdef";
+        const unsigned char* p = reinterpret_cast<const unsigned char*>(&h_);
+        std::string s;
+        for (std::size_t i = 0; i < sizeof h_; ++i) { s += x[p[i] >> 4]; s += x[p[i] & 15]; }
+        return s;
+    }
+    bool restore(const std::string& s) {
+        if (s.size() != 2 * sizeof h_) return false;
+        unsigned char* p = reinterpret_cast<unsigned char*>(&h_);
+        auto v = [](char c) { return c >= 'a' ? c - 'a' + 10 : c - '0'; };
+        for (std::size_t i = 0; i < sizeof h_; ++i) p[i] = static_cast<unsigned char>(v(s[2 * i]) << 4 | v(s[2 * i + 1]));
+        return true;
+    }
 private:
     self_update_sha256 h_{};
 };

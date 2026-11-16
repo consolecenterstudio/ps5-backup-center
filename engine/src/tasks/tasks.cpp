@@ -33,6 +33,7 @@ Json progress_json(const backup::Progress& p) {
         j.set("phase", p.phase);
         j.set("phase_done", p.phase_done);
         j.set("phase_total", p.phase_total);
+        if (p.phase_eta) j.set("phase_eta", p.phase_eta);
     }
     return j;
 }
@@ -68,6 +69,10 @@ Json Task::to_json(bool with_request) const {
     else if (!request["item_key"].as_string().empty()) j.set("item", request["item_key"]);
     else if (!request["title_id"].as_string().empty()) j.set("title_id", request["title_id"]);
     if (report.is_object()) j.set("report", report);
+    // D'où vient la tâche et où elle va (liste des tâches : « Cette PS5 → Google Drive », « lancée par un plan »).
+    if (request["origin"].is_string()) j.set("origin", request["origin"]);
+    if ((type == Type::restore_save || type == Type::restore) && !request["remote"].as_string().empty()) j.set("from_place", request["remote"]);
+    else if ((type == Type::restore_save || type == Type::restore) && !request["place"].as_string().empty()) j.set("from_place", request["place"]);
     // Sauvegarde : où est la version produite (appareil + nom du dossier), pour la retrouver depuis la tâche.
     if (type == Type::backup) {
         const std::string place = !request["remote"].as_string().empty() ? request["remote"].as_string() : request["disk_id"].as_string();
@@ -158,6 +163,7 @@ std::string Queue::add_backup(const backup::Request& req) {
     if (req.keep > 0) r.set("keep", static_cast<std::int64_t>(req.keep));
     if (req.flat) r.set("flat", true);
     if (!req.bundle_name.empty()) r.set("bundle_name", req.bundle_name);  // fixé à l'avance (rangement par plateforme)
+    if (!req.origin.empty()) r.set("origin", req.origin);
     t.request = r;
     {
         std::lock_guard<std::mutex> l(mu_);
@@ -387,6 +393,13 @@ void Queue::worker() {
                 save(*t);
                 ++revision_;
                 if (t->state == State::done && on_finished) on_finished(*t);
+                // Annulé pendant un transfert de jeu : la copie gardée pour la reprise n'a plus lieu d'être.
+                if (t->state == State::cancelled && t->type == Type::image && t->report["resume_tmp"].is_string()) {
+                    const std::string tmp = t->report["resume_tmp"].as_string();
+                    fs::remove_tree(tmp);
+                    ::unlink((tmp + ".vhash").c_str()); ::unlink((tmp + ".hashes").c_str()); ::unlink((tmp + ".verified").c_str()); ::unlink((tmp + ".resume").c_str());
+                }
+                if (t->state == State::cancelled && t->type == Type::image && t->report["resume_ckpt"].is_string()) ::unlink(t->report["resume_ckpt"].as_string().c_str());
             }
         }
     }
@@ -452,6 +465,10 @@ void Queue::run_one(Task& t) {
             p.files_done = ip.files_done;
             p.files_total = ip.files_total;
             p.current = ip.current;
+            p.phase = ip.phase;
+            p.phase_done = ip.phase_done;
+            p.phase_total = ip.phase_total;
+            p.phase_eta = ip.phase_eta;
             progress(p);
         }, interrupt_);
         t.report = r.report;

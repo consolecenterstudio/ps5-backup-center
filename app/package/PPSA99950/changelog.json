@@ -1,6 +1,440 @@
 {
  "versions": [
   {
+   "version": "3.1.0",
+   "date": "2026-11-15",
+   "title": "Un centre pour vos jeux et vos sauvegardes, partout",
+   "new": [
+    "Google Drive, OneDrive et Dropbox sont disponibles : chacun connecte son compte depuis son téléphone ; sauvegarde, restauration et synchro comme avec un NAS.",
+    "Comparer et trier : toutes les copies d'un jeu côte à côte, jugées par leur contenu (Identique, Plus ancienne, Plus avancée), y compris celles rangées sur l'autre PS5.",
+    "Même partie à plusieurs endroits : des copies voulues, jamais traitées comme un problème ; « Faire le tri » et « Garder seulement sur… » quand on veut regrouper.",
+    "Origine des parties restaurées : la copie d'une partie restaurée garde l'heure de la partie d'origine, et les deux PS5 le savent.",
+    "Compresser une image sur le même disque."
+   ],
+   "improved": [
+    "Sauvegardes ouvertes en quelques secondes, même avec plusieurs NAS et nuages ; plus de « serveur occupé » ni de délai dépassé.",
+    "Chaque copie porte son empreinte et le résultat de sa lecture : une copie déjà lue n'est jamais relue, même par l'autre PS5, qui est prévenue tout de suite.",
+    "Transferts de jeux plus rapides, reprenables au milieu des gros fichiers.",
+    "Sauvegardes plus claires : bulles rangées (Partout, Cette PS5, l'autre PS5, NAS, Nuage, Corbeille) avec un aperçu de celles cachées, le logo de chaque service, et chaque endroit qui parle de ses copies.",
+    "Mises à jour : plus jamais de retour en arrière tout seul.",
+    "Parties : étiquettes courtes et jamais coupées ; « Pas sur cette PS5 » veut dire qu'une copie existe, mais pas la partie sur cette console.",
+    "Sauvegardes : Comparer et trier et la Corbeille empilés à droite, toujours visibles ; les endroits défilent à gauche.",
+    "Aides du bas de l'écran jamais coupées (plus petites, sinon sur deux lignes, dans toutes les langues) ; « △ Arrêter la tâche » au lieu de « Annuler » dans Transferts ; « Options : actions » dans Comparer."
+   ],
+   "fixed": [
+    "Plus de fausses « copies plus récentes » après une restauration ou un aller-retour par le nuage.",
+    "Connexion OneDrive et création de ses dossiers réparées.",
+    "Logo de chaque service dès le démarrage (Backblaze n'apparaît plus d'abord en nuage générique) ; arrivé au bout d'une rangée, la carte dit « ‹ 2 avant » au lieu de « + 2 de plus › » ; Synchro compte des cibles, pas des appareils.",
+    "Aides corrigées : Toutes les versions annonce △ Comparer ce jeu et R2 ; la Corbeille n'affiche « Gauche / droite » que sur les bulles ; le cœur et la loupe ont leurs propres aides ; □ change bien de groupe dans Tâches ; « Bas : bouton Lancer »."
+   ],
+   "web": "sans objet pour les dernières retouches (aides de manette, télé seulement) ; tout le reste de la 3.1.0 est fait aussi sur la page web (Comparer et Corbeille empilés, étiquettes de Parties, « Arrêter la tâche », logos, cibles de synchro)"
+  },
+  {
+   "version": "3.0.33",
+   "date": "2026-11-15",
+   "title": "Empreintes : jamais de fausse « partie différente »",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Une copie jamais lue ne reçoit plus de lettre de contenu d'après ses octets : une même partie peut s'écrire avec des octets différents. L'empreinte sert à reprendre une lecture déjà faite et à signaler une copie identique octet pour octet."
+   ],
+   "web": "fait : même ligne « identique octet pour octet » sur la page web"
+  },
+  {
+   "version": "3.0.32",
+   "date": "2026-11-15",
+   "title": "Copies reconnues par leur empreinte, lectures gardées à côté des copies",
+   "new": [
+    "Chaque copie porte son empreinte (index du disque, NAS, nuage) : les copies identiques sont reconnues tout de suite, sans comparaison ; une copie identique à une copie déjà lue reprend son analyse sans rien télécharger.",
+    "Après la lecture d'une copie, son résultat est rangé à côté d'elle (« lecture.json ») : une autre console, ou celle-ci après une réinstallation, ne la relit plus."
+   ],
+   "improved": [
+    "Après une sauvegarde, une restauration ou une comparaison, l'autre PS5 est prévenue tout de suite (avant : jusqu'à 10 minutes)."
+   ],
+   "fixed": [],
+   "web": "fait : mêmes étiquettes (« Pas comparée », ligne d'empreinte) sur la page web ; le reste est dans le moteur"
+  },
+  {
+   "version": "3.0.31",
+   "date": "2026-11-15",
+   "title": "Sauvegardes plus claires : chaque endroit parle de ses copies",
+   "new": [],
+   "improved": [
+    "Sauvegardes : dans un endroit (USB, NAS, nuage), chaque jeu dit combien de copies il y a ICI, la dernière, et combien d'autres endroits le gardent ; « doublons ici » ou « Rien à faire ici ».",
+    "Noms des bulles jamais coupés ; noms des services sans redite (« Google Drive » au lieu de « Google Drive (Google Drive) ») ; la fiche compte les mêmes copies que la liste (pas celles de l'autre PS5) ; aide R2 plus claire."
+   ],
+   "fixed": [
+    "Corbeille : tous les endroits d'un coup d'œil en tête, un même NAS par deux chemins montré une fois, et le titre du jeu retrouvé même quand le nom du fichier remplace « : » par « _ »."
+   ],
+   "web": "fait : mêmes lignes par endroit, mêmes noms et même Corbeille sur la page web"
+  },
+  {
+   "version": "3.0.30",
+   "date": "2026-11-15",
+   "title": "Même partie à plusieurs endroits : des copies voulues, triées seulement si on le demande",
+   "new": [
+    "Comparer et trier : filtre « Plusieurs endroits » ; « Faire le tri » pour un jeu (cochée = gardée) et « Garder seulement sur… » pour tous les jeux, avec l'aperçu avant la corbeille. La dernière copie d'une partie n'est jamais retirée."
+   ],
+   "improved": [
+    "La fiche d'un jeu et Comparer disent « Même partie à N endroits : … » au lieu de parler de doublons ; seul un deuxième exemplaire au même endroit reste un doublon."
+   ],
+   "fixed": [],
+   "web": "fait : même filtre, même tri et même ligne sur la page web"
+  },
+  {
+   "version": "3.0.29",
+   "date": "2026-11-15",
+   "title": "Comparer : les copies rangées sur l'autre PS5 reçoivent leur vrai verdict",
+   "new": [],
+   "improved": [
+    "Une copie de l'autre PS5 qu'elle n'a pas encore lue l'indique (« pas encore lue par … ») au lieu de « contenu non comparé »."
+   ],
+   "fixed": [
+    "Comparer : une copie rangée sur l'autre PS5 est jugée comme les autres (Identique, Plus ancienne, Plus avancée…) ; l'autre PS5 envoie l'empreinte du contenu qu'elle a lu, sans lecture en plus."
+   ],
+   "web": "fait : mêmes verdicts et même ligne sur la page web"
+  },
+  {
+   "version": "3.0.28",
+   "date": "2026-11-15",
+   "title": "Aperçu des bulles cachées, compresser sur le même disque",
+   "new": [
+    "Transferts : Compresser accepte le même disque comme destination ; l'image est écrite à côté du jeu et vérifiée, le jeu d'origine reste en place."
+   ],
+   "improved": [
+    "Sauvegardes et Transferts : quand tout ne tient pas, la dernière place montre ce qui est caché (« + 3 de plus › NAS · Nuage · Comparer »)."
+   ],
+   "fixed": [],
+   "web": "partiel : Compresser sur le même disque aussi sur la page web ; aperçu des bulles sans objet sur le web (les rangées y défilent et montrent tout)"
+  },
+  {
+   "version": "3.0.27",
+   "date": "2026-11-15",
+   "title": "Comparer avec l'autre PS5",
+   "new": [],
+   "improved": [
+    "Sauvegardes : la bulle d'une autre PS5 décrit ses copies à elle ; une copie déjà comparée montre la date de la partie au lieu de « contenu non comparé »."
+   ],
+   "fixed": [
+    "Comparer : les copies rangées sur l'autre PS5 ne bloquent plus la comparaison (elle les compare elle-même) ; elles portent « Sur … » et Croix les récupère ici."
+   ],
+   "web": "fait : mêmes étiquettes et comparaison sur la page web"
+  },
+  {
+   "version": "3.0.26",
+   "date": "2026-11-15",
+   "title": "Comparer et trier",
+   "new": [
+    "Sauvegardes › Comparer et trier : toutes les copies de chaque jeu côte à côte (partie active, identiques, plus anciennes, plus avancées, pas comparées, à vérifier), les chiffres en tête et 7 filtres ; « Comparer » sur la fiche d'un jeu y mène directement."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "fait : Comparer et trier aussi sur la page web (mêmes chiffres, filtres et étiquettes)"
+  },
+  {
+   "version": "3.0.25",
+   "date": "2026-11-15",
+   "title": "Sauvegardes : l'autre PS5 juste après cette PS5",
+   "new": [],
+   "improved": [
+    "Sauvegardes : les bulles sont rangées Partout, Cette PS5, l'autre PS5, NAS, Nuage, puis la Corbeille (l'autre PS5 n'est plus en dernier)."
+   ],
+   "fixed": [],
+   "web": "fait : même ordre des endroits dans Sauvegardes sur la page web"
+  },
+  {
+   "version": "3.0.24",
+   "date": "2026-11-14",
+   "title": "Synchro sans saturation",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Accueil : les plans de synchro (un par NAS, nuage et autre PS5) sont demandés l'un après l'autre, plus tous ensemble toutes les 15 s (le moteur saturait : « serveur occupé »)."
+   ],
+   "web": "sans objet : la page web demandait déjà les plans l'un après l'autre"
+  },
+  {
+   "version": "3.0.23",
+   "date": "2026-11-14",
+   "title": "Plus de « serveur occupé »",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Synchro : le plan de chaque NAS et nuage partage un seul calcul des sauvegardes au lieu d'en lancer un par appareil (5 calculs en même temps saturaient la console : « serveur occupé »)."
+   ],
+   "web": "sans objet : correctif du moteur (aussi pour la page web)"
+  },
+  {
+   "version": "3.0.22",
+   "date": "2026-11-14",
+   "title": "Dossiers OneDrive créés",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "OneDrive : les dossiers sont créés par l'identifiant du dossier parent (Microsoft refusait la création à la racine du dossier de l'appli)."
+   ],
+   "web": "sans objet : correctif du moteur (OneDrive)"
+  },
+  {
+   "version": "3.0.21",
+   "date": "2026-11-14",
+   "title": "Ajout de OneDrive",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "OneDrive : le dossier de l'appli est créé avant « PBC Backup » (l'ajout échouait avec « ne peut pas écrire »)."
+   ],
+   "web": "sans objet : correctif du moteur (OneDrive)"
+  },
+  {
+   "version": "3.0.20",
+   "date": "2026-11-14",
+   "title": "OneDrive sans attente",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Nuage : plus d'attente de 2 minutes quand la console passe d'un serveur à l'autre (OneDrive restait bloqué à l'ajout et à chaque envoi)."
+   ],
+   "web": "sans objet : correctif du moteur (connexions HTTPS)"
+  },
+  {
+   "version": "3.0.19",
+   "date": "2026-11-14",
+   "title": "Connexion OneDrive réparée",
+   "new": [],
+   "improved": [
+    "L'autre PS5 est relue 30 s plus tard si elle recomptait encore ses sauvegardes."
+   ],
+   "fixed": [
+    "Connexion par code (OneDrive, Google Drive) : une connexion réussie n'est plus effacée quand la télé et la page web vérifient en même temps (« code déjà utilisé »)."
+   ],
+   "web": "sans objet : correctif du moteur (connexion par code, même pour la page web)"
+  },
+  {
+   "version": "3.0.18",
+   "date": "2026-11-14",
+   "title": "Origine des parties restaurées",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Une copie faite d'une partie restaurée (sans la rejouer) garde l'heure de la partie d'origine, ici et sur l'autre PS5 : un aller-retour par le nuage ne la fait plus passer pour « plus récente »."
+   ],
+   "web": "fait : origine des parties (moteur) ; page web au niveau de la 3.0.17 : ordre des Transferts, un même NAS une seule fois dans Sauvegardes, logos des services (Backblaze…)"
+  },
+  {
+   "version": "3.0.17",
+   "date": "2026-11-14",
+   "title": "Restaurations reconnues, Transferts rangés",
+   "new": [],
+   "improved": [
+    "Transferts : Cette PS5, « + Ajouter un service », les autres PS5, les consoles, les NAS puis le nuage ; Gauche au début d'une bulle ouverte la referme.",
+    "Sauvegardes : un même NAS ajouté deux fois (FTP et WebDAV) n'a plus qu'une carte ; Backblaze a son logo dans les tâches et les sauvegardes."
+   ],
+   "fixed": [
+    "Une partie restaurée n'est plus « plus récente sur la console » tant qu'elle n'a pas été rejouée."
+   ],
+   "web": "partiel : l'état des parties (restaurations) aussi sur la page web ; ordre et regroupements d'abord sur la télé"
+  },
+  {
+   "version": "3.0.16",
+   "date": "2026-11-14",
+   "title": "Sauvegardes tout de suite",
+   "new": [],
+   "improved": [
+    "Sauvegardes : la liste s'affiche tout de suite (la dernière connue, gardée même après un redémarrage) et se met à jour d'elle-même dès que le nouveau compte est prêt."
+   ],
+   "fixed": [],
+   "web": "oui : la page web redemande la liste pendant le recompte"
+  },
+  {
+   "version": "3.0.15",
+   "date": "2026-11-14",
+   "title": "Sauvegardes ouvertes en quelques secondes",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Sauvegardes : les comparaisons déjà faites sont lues une fois au lieu d'une fois par jeu ; plus de « délai dépassé » juste après un démarrage."
+   ],
+   "web": "non : correctif du moteur"
+  },
+  {
+   "version": "3.0.14",
+   "date": "2026-11-14",
+   "title": "Sauvegardes plus rapides au démarrage",
+   "new": [],
+   "improved": [
+    "Sauvegardes : la télé, la page web et l'autre PS5 partagent un seul calcul de la liste au lieu d'en lancer chacune un."
+   ],
+   "fixed": [],
+   "web": "non : correctif du moteur"
+  },
+  {
+   "version": "3.0.13",
+   "date": "2026-11-14",
+   "title": "Sauvegardes sans attendre le nuage",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Sauvegardes : plus de « délai dépassé » ni de « serveur occupé » ; l'écran montre tout de suite la dernière liste du NAS et du nuage, relue en arrière-plan."
+   ],
+   "web": "non : correctif du moteur"
+  },
+  {
+   "version": "3.0.12",
+   "date": "2026-11-14",
+   "title": "Appareils regroupés, nuage sur l'Accueil",
+   "new": [
+    "Transferts : bulle « + Ajouter un service » toujours visible et Carré pour ajouter un NAS, un nuage, une Switch ou une PS5."
+   ],
+   "improved": [
+    "Appareils, Sauvegardes et Synchro : une bulle par famille (cette PS5, NAS, nuage, Switch) ; Croix l'ouvre sur ses appareils, Rond la referme.",
+    "Accueil : rangée « Dans le nuage » (ce qui a une copie sur Google Drive, Backblaze…) et « Nuage » dans les sauvegardes disponibles ; Synchro montre le logo du service."
+   ],
+   "fixed": [],
+   "web": "oui : bulle « + Ajouter un service » dans Transferts sur la page web ; regroupements d'abord sur la télé"
+  },
+  {
+   "version": "3.0.11",
+   "date": "2026-11-14",
+   "title": "Reprise au milieu des gros fichiers",
+   "new": [],
+   "improved": [
+    "Transferts et vérifications d'une image (un seul gros fichier) : après une pause, un arrêt du moteur ou un redémarrage de la console, ils reprennent à l'endroit atteint au lieu de repartir du début."
+   ],
+   "fixed": [],
+   "web": "sans objet : reprise dans le moteur, rien de nouveau à l'écran"
+  },
+  {
+   "version": "3.0.10",
+   "date": "2026-11-14",
+   "title": "Sauvegardes : plus de fausses « plus récentes »",
+   "new": [],
+   "improved": [
+    "Sauvegardes et Partout s'ouvrent vite même pendant un gros transfert ou une vérification (ils laissent la priorité à l'écran), et le nuage ne bloque plus la liste."
+   ],
+   "fixed": [
+    "Une partie restaurée ou copiée ailleurs (autre PS5, NAS, nuage) avec la même avancée n'est plus « à sauvegarder » ni « plus récente » : seule une partie réellement jouée compte."
+   ],
+   "web": "sans objet : décisions du moteur, la page web affiche les mêmes états"
+  },
+  {
+   "version": "3.0.9",
+   "date": "2026-11-14",
+   "title": "Reprendre une copie déjà faite",
+   "new": [
+    "Transferts de jeux : une copie déjà faite (déplacement interrompu) peut être vérifiée contre l'original, les deux relus en même temps, puis le jeu est inscrit à la nouvelle place ; l'original reste jusqu'à ce qu'on l'enlève."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "sans objet : action du moteur (lancée depuis une tâche), sans écran nouveau"
+  },
+  {
+   "version": "3.0.8",
+   "date": "2026-11-14",
+   "title": "Mises à jour : plus de retour en arrière tout seul",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Mises à jour : une version plus récente reçue d'une autre PS5 n'est plus remplacée par l'ancienne version du site (seuls « Revenir à la version d'avant » et « Versions disponibles » redescendent)."
+   ],
+   "web": "sans objet : correction du moteur de mise à jour, rien de visible à changer"
+  },
+  {
+   "version": "3.0.7",
+   "date": "2026-11-14",
+   "title": "Transferts de jeux : plus rapides, reprenables",
+   "new": [
+    "« Arrêter la vérification » garde la copie (marquée non vérifiée) ; un déplacement non vérifié garde l'original."
+   ],
+   "improved": [
+    "La vérification ne relit plus que la copie (l'empreinte de l'original est prise pendant la copie) : deux fois moins à relire, plusieurs fichiers à la fois.",
+    "Pause, redémarrage ou coupure : le transfert reprend là où il s'était arrêté au lieu de tout recopier.",
+    "Vérification complète (SHA-256) ou rapide (présence et taille), au choix ; la vérification a sa propre barre et son temps restant."
+   ],
+   "fixed": [
+    "Transferts de jeux : le compteur n'additionne plus copie et vérification (un jeu de 318 Go n'affiche plus 636 Go ni des centaines d'heures)."
+   ],
+   "web": "oui : Arrêter la vérification, temps restant et choix Complète / Rapide sur la page web"
+  },
+  {
+   "version": "3.0.6",
+   "date": "2026-11-14",
+   "title": "Transferts et tâches : corrections",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Transferts : chaque appareil n'apparaît qu'une fois dans sa bulle (les Switch et le nuage étaient comptés deux fois, la bulle NAS manquait).",
+    "Tâches : la taille et le nombre de fichiers s'affichent de nouveau à côté de « d'où → vers où »."
+   ],
+   "web": "sans objet : corrections de l'écran télé (la page web regroupait déjà correctement)"
+  },
+  {
+   "version": "3.0.5",
+   "date": "2026-11-14",
+   "title": "Transferts et tâches plus lisibles",
+   "new": [],
+   "improved": [
+    "Transferts : une bulle par appareil ou famille (cette PS5, l'autre PS5, NAS, nuage, Switch) ; Croix l'ouvre sur ses disques ou ses comptes, Rond la referme.",
+    "Transferts : DEPUIS et VERS tiennent chacun sur une rangée qui défile, rangés par famille (PS5, disques, NAS, nuage, Switch) ; Google Drive et Backblaze ont leur logo ; « Que faire ? », « Sauvegarde complète » et « Transferts en cours » restent toujours à l'écran.",
+    "Tâches : chaque sauvegarde ou restauration montre d'où elle part et où elle va (avec les logos) et qui l'a lancée (plan, synchro).",
+    "Transferts en cours : Triangle retire un transfert terminé de la liste ; Options vide tous les terminés."
+   ],
+   "fixed": [
+    "Restaurer depuis Google Drive : la sauvegarde est cherchée dans le bon dossier (« PBC Backup » choisi comme dossier de l'appareil).",
+    "Nuage : « Sauvegardes et Synchro » par défaut pour un stockage S3 ; « nuage » au lieu de « réseau » dans le choix de la destination ; le formulaire de la télé se ferme quand on enregistre depuis le téléphone."
+   ],
+   "web": "oui : mêmes bulles groupées, rangées, logos, d'où → vers où et bouton Vider les terminés sur la page web"
+  },
+  {
+   "version": "3.0.4",
+   "date": "2026-11-14",
+   "title": "Un logo par service dans le nuage",
+   "new": [],
+   "improved": [
+    "Appareils et Sauvegardes : chaque stockage dans le nuage montre le logo de son service (Google Drive, Dropbox, OneDrive, Backblaze, Amazon S3) ; les autres gardent le nuage."
+   ],
+   "fixed": [
+    "Parcourir : si le dossier choisi n'existe pas encore (« PBC Backup » avant l'enregistrement), l'explorateur ouvre le dossier au-dessus ; il porte le nom de l'appareil."
+   ],
+   "web": "oui : mêmes logos sur la page web"
+  },
+  {
+   "version": "3.0.3",
+   "date": "2026-11-14",
+   "title": "Google Drive comme un NAS",
+   "new": [],
+   "improved": [
+    "Google Drive, OneDrive, Dropbox : les sauvegardes vont dans « PBC Backup » par défaut et le compte sert aux sauvegardes et à la synchro, comme un NAS ; « Parcourir » pour choisir un autre dossier.",
+    "Choisir un dossier sur un NAS, une Switch ou dans le nuage : « Nouveau dossier… » le crée avec le clavier, puis l'ouvre.",
+    "Synchro : un stockage dans le nuage est nommé par son service (« Google Drive »), plus « FTP »."
+   ],
+   "fixed": [],
+   "web": "oui : mêmes réglages par défaut, Parcourir et Nouveau dossier sur la page web"
+  },
+  {
+   "version": "3.0.2",
+   "date": "2026-11-14",
+   "title": "Google Drive : enregistrement corrigé",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Google Drive, OneDrive, Dropbox : « Enregistrer » et « Tester » ne ferment plus l'appli ; l'appareil prend le nom du service.",
+    "Connexion par code : « En attente de votre accord… » ne chevauche plus l'étape 3."
+   ],
+   "web": "oui : sur la page web, l'appareil prend aussi le nom du service"
+  },
+  {
+   "version": "3.0.1",
+   "date": "2026-11-14",
+   "title": "Google Drive est disponible",
+   "new": [
+    "Google Drive : connectez votre propre compte depuis votre téléphone (code QR, connexion chez Google), sans rien taper sur la PS5. L'appli n'a accès qu'aux fichiers qu'elle crée ; Google Drive s'utilise comme un NAS (sauvegardes, destination, synchro)."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : Google Drive s'ajoute aussi depuis la page web"
+  },
+  {
    "version": "3.0.0",
    "date": "2026-11-14",
    "title": "PS5 Backup Center 3",

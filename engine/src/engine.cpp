@@ -283,9 +283,38 @@ bool Engine::start() {
         if (t.type == tasks::Type::backup && t.state == tasks::State::done && t.request["keep"].as_int() > 0 && t.request["remote"].as_string().empty())
             apply_retention(t.request["folder"].as_string(), t.request["item"]["key"].as_string(), static_cast<int>(t.request["keep"].as_int()));
         ++revision_;
-        if (t.type == tasks::Type::restore_save && !t.request["check_only"].as_bool()) request_scan();
+        if (t.state == tasks::State::done && (t.type == tasks::Type::backup || t.type == tasks::Type::restore_save || t.type == tasks::Type::inspect_save))
+            notify_peers_later();
+        if (t.type == tasks::Type::restore_save && !t.request["check_only"].as_bool()) {
+            if (t.state == tasks::State::done) {
+                const std::string tid = t.request["title_id"].as_string();
+                Restored r;
+                r.at = now_unix();
+                r.place = !t.request["remote"].as_string().empty() ? t.request["remote"].as_string() : t.request["place"].as_string();
+                r.bundle = std::string(fs::basename(t.request["bundle"].as_string()));
+                restored_note(std::string(tid.rfind("CUSA", 0) == 0 ? "ps4:" : "ps5:") + t.request["user_id"].as_string() + "|" + tid, r);
+            }
+            request_scan();
+        }
     };
+    summary_memo_load();
+    restored_load();
     if (!queue_->load()) return false;
+    // Restaurations déjà faites (avant que l'heure en soit notée) : reprises de l'historique des tâches.
+    for (const auto& t : queue_->list()) {
+        if (t.type != tasks::Type::restore_save || t.state != tasks::State::done || t.request["check_only"].as_bool() || !t.finished) continue;
+        const std::string tid = t.request["title_id"].as_string();
+        const std::string key = std::string(tid.rfind("CUSA", 0) == 0 ? "ps4:" : "ps5:") + t.request["user_id"].as_string() + "|" + tid;
+        bool known = false;
+        { std::lock_guard<std::mutex> l(restored_mu_); for (const auto& r : restored_[key]) if (r.at >= t.finished - 120 && r.at <= t.finished + 120) known = true; }
+        if (!known) {
+            Restored r;
+            r.at = t.finished;
+            r.place = !t.request["remote"].as_string().empty() ? t.request["remote"].as_string() : t.request["place"].as_string();
+            r.bundle = std::string(fs::basename(t.request["bundle"].as_string()));
+            restored_note(key, r);
+        }
+    }
     queue_->start();
     fetcher_->set_enabled(settings_.covers_online);
     // Nouvelle jaquette téléchargée : on la pose sur l'élément et l'affichage se met à jour.
@@ -390,6 +419,24 @@ void Engine::refresh_peer_places() {
 
 // Backups rangés sur les PS5 jumelées : leur résumé (toutes leurs copies) et leurs comptes (pour reconnaître la même
 // personne PSN). Lu dans le fil de fond : la page Backups ne fait jamais attendre un appel réseau.
+void Engine::notify_peers_later() {
+    if (!link_ || notify_pending_.exchange(true)) return;
+    std::thread([this] {
+        // Un moment pour que notre liste soit à jour (et pour regrouper plusieurs fins de tâche en un appel).
+        for (int i = 0; i < 20 && !quit_; ++i) std::this_thread::sleep_for(std::chrono::seconds(1));
+        notify_pending_ = false;
+        if (quit_ || !link_) return;
+        const Json peers = link_->peers();
+        for (const auto& p : peers.items()) {
+            if (!p["paired"].as_bool() || !p["online"].as_bool()) continue;
+            Json out;
+            std::string err;
+            if (!link_->call(p["instance"].as_string(), "POST", "/api/v2/backups/peer-changed", Json::object(), out, err))
+                log("peer-changed %s : %s", p["instance"].as_string().c_str(), err.c_str());
+        }
+    }).detach();
+}
+
 void Engine::refresh_peer_backups() {
     OpMark op("backups des PS5 jumelées");
     peer_backups_at_ = now_unix();
@@ -402,6 +449,7 @@ void Engine::refresh_peer_backups() {
         Json sum, accs;
         std::string err;
         if (!link_->call(inst, "GET", "/api/v2/backups/summary?account=&local=1", Json(), sum, err) || !sum.is_object()) continue;
+        if (sum["updating"].as_bool()) peer_backups_at_ = now_unix() - 570;  // l'autre PS5 recomptait : on redemande dans 30 s
         link_->call(inst, "GET", "/api/v2/accounts", Json(), accs, err);
         Json items;
         link_->call(inst, "GET", "/api/v2/items", Json(), items, err);  // ses jeux installés (Accueil › « Sur … »)
@@ -1759,7 +1807,33 @@ Json Engine::browse_config(const Json& body, std::string& error) {
     if (body["type"].as_string() == "webdav" && cfg.pin.empty() && !store::webdav_trust(cfg, error)) return Json();
     auto st = store::connect(body["type"].as_string(), cfg, error);
     if (!st) return Json();
+    if (body["mkdir"].as_bool(false)) {  // « Nouveau dossier… » de l'explorateur, avant ou après l'enregistrement
+        if (!mkdir_in(*st, body["path"].as_string(), error)) return Json();
+        Json o = Json::object(); o.set("path", body["path"].as_string());
+        return o;
+    }
     return list_store(*st, body["path"].as_string(), error);
+}
+
+// Créer un dossier sur un appareil réseau (NAS, Switch, nuage) depuis l'explorateur : nom simple, dans un dossier existant.
+bool Engine::mkdir_in(store::Store& st, const std::string& path, std::string& error) {
+    const std::string p = path;
+    const auto sl = p.rfind('/');
+    const std::string name = sl == std::string::npos ? p : p.substr(sl + 1);
+    if (p.empty() || p[0] != '/' || name.empty() || name == "." || name == ".." || name.find_first_of("\\:*?\"<>|") != std::string::npos) {
+        error = "nom de dossier invalide";
+        return false;
+    }
+    if (!st.mkdirs(p)) { error = "dossier impossible à créer : " + p; return false; }
+    return true;
+}
+
+Json Engine::mkdir_remote(const std::string& id, const std::string& path, std::string& error) {
+    auto st = remotes_->open(id, error);
+    if (!st) return Json();
+    if (!mkdir_in(*st, path, error)) return Json();
+    Json o = Json::object(); o.set("path", path);
+    return o;
 }
 
 // Tester des réglages pas encore enregistrés : connexion, puis écriture d'un témoin dans le dossier choisi
@@ -1852,6 +1926,8 @@ Json Engine::places_json() {
         j.set("protocol", r.type);
         j.set("use", r.use.empty() ? std::string("both") : r.use);  // Sauvegardes et Synchro, ou l'un des deux
         j.set("same_as", remotes_->same_as(r.id, "sync"));  // Synchro : même dossier du même NAS qu'un autre appareil, vide sinon
+        j.set("same_backups_as", remotes_->same_as(r.id, "backups"));  // Sauvegardes : même dossier (ex. le NAS en FTP et en WebDAV)
+        j.set("service", r.ftp.service);  // S3 : « b2 », « aws »… (logo du service)
         j.set("mount", r.address());
         j.set("label", r.name);
         j.set("free", static_cast<std::uint64_t>(0));
@@ -2075,6 +2151,12 @@ bool Engine::resolve_place(const std::string& place_id, Place& out, std::string&
     return true;
 }
 
+// Qui lance la sauvegarde en cours (plan programmé, synchro) : noté dans la tâche, montré dans la liste.
+namespace { thread_local std::string tl_origin; }
+std::string Engine::task_origin() { return tl_origin; }
+Engine::OriginScope::OriginScope(std::string o) : prev(tl_origin) { tl_origin = std::move(o); }
+Engine::OriginScope::~OriginScope() { tl_origin = prev; }
+
 bool Engine::backup(const std::string& key, const std::vector<Part>& parts, const std::string& place_id,
                     std::string& task_id, std::string& error, const std::string& account, int keep) {
     Item item;
@@ -2134,7 +2216,7 @@ bool Engine::backup_item(Item item, const std::vector<Part>& parts, const std::s
             req.disk_id = place_id;
             req.remote_id = place_id;
             req.keep = keep;
-            task_id = queue_->add_backup(req);
+            req.origin = task_origin(); task_id = queue_->add_backup(req);
             return true;
         }
     }
@@ -2162,7 +2244,7 @@ bool Engine::backup_item(Item item, const std::vector<Part>& parts, const std::s
                 name = backup::platform_bundle(item, date + " (" + std::to_string(n) + ")");  // déjà une sauvegarde ce jour-là
             req.bundle_name = name;
         }
-        task_id = queue_->add_backup(req);
+        req.origin = task_origin(); task_id = queue_->add_backup(req);
         return true;
     }
     Place place;
@@ -2190,9 +2272,16 @@ bool Engine::backup_item(Item item, const std::vector<Part>& parts, const std::s
     req.folder = folder;
     req.disk_id = place.id;
     req.keep = keep;
-    task_id = queue_->add_backup(req);
+    req.origin = task_origin(); task_id = queue_->add_backup(req);
     return true;
 }
+// Dossier « PBC Backup » d'un appareil réseau : sa racine, ou la racine elle-même si on a choisi « PBC Backup »
+// (cas de Google Drive, réglé directement sur « /PBC Backup ») — jamais « PBC Backup/PBC Backup ».
+static std::string pbc_dir(std::string root) {
+    if (root.size() > 1 && root.back() == '/') root.pop_back();
+    return fs::basename(root) == "PBC Backup" ? root : fs::join(root, "PBC Backup");
+}
+
 
 bool Engine::restore(const std::string& place_id, const std::string& bundle_name, const std::vector<Part>& parts,
                      const std::string& target, std::string& task_id, std::string& error, bool overwrite) {
@@ -2205,7 +2294,7 @@ bool Engine::restore(const std::string& place_id, const std::string& bundle_name
         std::string root = r.ftp.root.empty() ? "/" : r.ftp.root;
         if (root.size() > 1 && root.back() == '/') root.pop_back();
         backup::RestoreRequest req;
-        req.bundle = bundle_name.find('/') == std::string::npos ? fs::join(fs::join(root, "PBC Backup"), bundle_name) : fs::join(root, bundle_name);
+        req.bundle = bundle_name.find('/') == std::string::npos ? fs::join(pbc_dir(root), bundle_name) : fs::join(root, bundle_name);
         req.parts = parts;
         req.target = target;
         req.overwrite = overwrite;
@@ -2243,7 +2332,7 @@ bool Engine::restore_save(const std::string& place_id, const std::string& bundle
         if (root.size() > 1 && root.back() == '/') root.pop_back();
         Json r = Json::object();
         r.set("remote", place_id);
-        r.set("bundle", bundle_name.find('/') == std::string::npos ? fs::join(fs::join(root, "PBC Backup"), bundle_name) : fs::join(root, bundle_name));
+        r.set("bundle", bundle_name.find('/') == std::string::npos ? fs::join(pbc_dir(root), bundle_name) : fs::join(root, bundle_name));
         r.set("user_id", user_id);
         r.set("title_id", title_id);
         r.set("allow_resign", allow_resign);
@@ -2279,6 +2368,7 @@ bool Engine::restore_save(const std::string& place_id, const std::string& bundle
         m.set("item", item);
     }
     r.set("bundle", bundle);
+    r.set("place", place_id);
     r.set("user_id", user_id);
     r.set("title_id", title_id);
     r.set("allow_resign", allow_resign);
@@ -2309,7 +2399,7 @@ bool Engine::inspect_save(const Json& body, std::string& task_id, std::string& e
             if (root.size() > 1 && root.back() == '/') root.pop_back();
             o.set("kind", "remote");
             o.set("remote", place_id);
-            o.set("path", bundle.find('/') == std::string::npos ? fs::join(fs::join(root, "PBC Backup"), bundle) : fs::join(root, bundle));
+            o.set("path", bundle.find('/') == std::string::npos ? fs::join(pbc_dir(root), bundle) : fs::join(root, bundle));
             o.set("label", rm.name + " · " + bundle);
         } else {
             Place place;
@@ -2346,6 +2436,23 @@ bool Engine::inspect_save(const Json& body, std::string& task_id, std::string& e
 }
 
 Json Engine::save_inspections(const std::string& title_id, const std::string& user_id) { return saves::cached_inspections(dir_, title_id, user_id); }
+
+// Vue d'ensemble (Partout, Accueil) : jamais d'attente réseau. La dernière liste connue tout de suite ; sans liste ou
+// trop vieille (2 min), une relecture part en arrière-plan et l'écran suivant l'aura.
+Json Engine::remote_index_cached(const std::string& id) {
+    bool refresh = false;
+    Json cached;
+    bool have = false;
+    {
+        std::lock_guard<std::mutex> l(remote_index_mu_);
+        const auto it = remote_index_.find(id);
+        if (it != remote_index_.end()) { cached = it->second.second; have = true; refresh = now_unix() - it->second.first >= 120; }
+        else refresh = true;
+        if (remote_fetching_.count(id)) refresh = false;
+    }
+    if (refresh) std::thread([this, id] { (void)remote_index(id, true); ++revision_; }).detach();
+    return have ? cached : Json::object();
+}
 
 Json Engine::remote_index(const std::string& id, bool fresh) {
     // Une seule lecture d'un même appareil à la fois : pendant qu'elle tourne, les autres demandes reçoivent
@@ -2385,9 +2492,12 @@ Json Engine::remote_index(const std::string& id, bool fresh) {
             for (const auto& b : all.items()) seen.insert(b["bundle"].as_string());
             const std::string pbc = fs::join(root, "PBC Backup");
             fs::Entry pe;
-            if (fs::basename(root) == "PBC Backup")  // dossier de l'appareil = « PBC Backup » lui-même : son index est là
-                for (const auto& b : backup::read_index(*st, root)["backups"].items())
+            if (fs::basename(root) == "PBC Backup") {  // dossier de l'appareil = « PBC Backup » lui-même : son index est là
+                const Json own = backup::read_index(*st, root);
+                log("remote_index %s: %s → %d sauvegarde(s) dans l'index", id.c_str(), root.c_str(), static_cast<int>(own["backups"].size()));
+                for (const auto& b : own["backups"].items())
                     if (seen.insert(b["bundle"].as_string()).second) all.push(b);
+            }
             if (st->stat(pbc, pe) && pe.dir) {
                 auto add = [&](const Json& list) {
                     for (const auto& b : list.items()) {
@@ -2823,6 +2933,7 @@ int Engine::run_plan(const std::string& id, std::string& error) {
     for (const auto& key : plan_items(p)) {
         std::string task, err;
         const std::string account = p.rule == "ps5_saves" ? p.rule_arg : "";
+        OriginScope by("plan:" + p.name);
         if (backup(key, parts, p.place, task, err, account, p.keep)) ++queued;
         else last_err = err;
     }
@@ -2859,8 +2970,129 @@ void Engine::apply_retention(const std::string& folder, const std::string& item_
 // récente de chaque disque ; le reste des copies au contenu identique est proposé à la corbeille. Jamais
 // proposées : les copies protégées (inconnues ici, refusées au moment de supprimer), incomplètes, d'un autre
 // compte PSN, ou pas encore comparées (on ne devine pas).
-Json Engine::backups_summary(const std::string& account, bool with_peers) {
+static std::int64_t mono_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+static std::string restored_path(const std::string& dir) { return fs::host(fs::join(dir, "restored.json")); }
+
+void Engine::restored_load() {
+    std::string text;
+    Json j;
+    if (!fs::read(restored_path(dir_), text) || !Json::parse(text, j) || !j.is_object()) return;
+    std::lock_guard<std::mutex> l(restored_mu_);
+    for (const auto& [k, v] : j.members()) {
+        auto& list = restored_[k];
+        if (v.is_number()) { Restored r; r.at = v.as_int(); list.push_back(r); continue; }  // ancien format : l'heure seule
+        for (const auto& x : v.items()) { Restored r; r.at = x["at"].as_int(); r.place = x["place"].as_string(); r.bundle = x["bundle"].as_string(); if (r.at) list.push_back(r); }
+    }
+}
+
+void Engine::restored_note(const std::string& key, const Restored& r) {
+    Json j = Json::object();
+    {
+        std::lock_guard<std::mutex> l(restored_mu_);
+        auto& list = restored_[key];
+        list.push_back(r);
+        std::sort(list.begin(), list.end(), [](const Restored& a, const Restored& b) { return a.at < b.at; });
+        if (list.size() > 20) list.erase(list.begin(), list.end() - 20);  // les 20 dernières suffisent
+        for (const auto& [k, v] : restored_) {
+            Json a = Json::array();
+            for (const auto& x : v) { Json o = Json::object(); o.set("at", x.at); o.set("place", x.place); o.set("bundle", x.bundle); a.push(o); }
+            j.set(k, a);
+        }
+    }
+    fs::write_atomic(restored_path(dir_), j.dump(false) + "\n");
+}
+
+Json Engine::restores_json() {
+    std::map<std::string, std::string> aid;  // « ps5:<utilisateur> » → identifiant PSN
+    for (const auto& a : accounts::list()) { aid["ps5:" + a.user_id] = a.account_id; aid["ps4:" + a.user_id] = a.account_id; }
+    Json out = Json::array();
+    std::lock_guard<std::mutex> l(restored_mu_);
+    for (const auto& [k, v] : restored_) {
+        const auto bar = k.find('|');
+        if (bar == std::string::npos) continue;
+        const auto a = aid.find(k.substr(0, bar));
+        if (a == aid.end() || a->second.empty()) continue;
+        for (const auto& r : v) {
+            Json o = Json::object();
+            o.set("platform", k.substr(0, 3));
+            o.set("account_id", a->second);
+            o.set("title_id", k.substr(bar + 1));
+            o.set("at", r.at);
+            out.push(o);
+        }
+    }
+    return out;
+}
+
+static std::string summary_memo_path(const std::string& dir) { return fs::host(fs::join(dir, "summary-cache.json")); }
+
+void Engine::summary_memo_load() {
+    std::string text;
+    Json j;
+    if (!fs::read(summary_memo_path(dir_), text) || !Json::parse(text, j) || !j.is_object()) return;
+    std::lock_guard<std::mutex> l(summary_mu_);
+    for (const auto& [key, v] : j.members()) if (v.is_object()) summary_memo_[key].value = v;  // rev 0 : à recalculer, mais montrable
+}
+
+void Engine::summary_memo_save() {
+    Json j = Json::object();
+    {
+        std::lock_guard<std::mutex> l(summary_mu_);
+        for (const auto& [key, m] : summary_memo_) if (m.value.is_object()) j.set(key, m.value);
+    }
+    fs::write_atomic(summary_memo_path(dir_), j.dump(false) + "\n");
+}
+
+Json Engine::backups_summary(const std::string& account, bool with_peers, bool exact) {
+    const std::string key = account + (with_peers ? "|p" : "|l");
+    std::unique_lock<std::mutex> l(summary_mu_);
+    {
+        SummaryMemo& m = summary_memo_[key];
+        if (m.value.is_object() && m.rev && m.rev == revision_.load()) return m.value;  // rien n'a changé : réponse immédiate
+        if (!m.busy) {
+            m.busy = true;
+            std::thread([this, account, with_peers, key] {
+                const std::uint64_t rev = revision_.load();
+                const std::int64_t t0 = mono_ms();
+                Json v;
+                v = backups_summary_compute(account, with_peers);
+                const std::int64_t ms = mono_ms() - t0;
+                if (ms > 1500) log("backups_summary %s : %lld ms", key.c_str(), static_cast<long long>(ms));
+                {
+                    std::lock_guard<std::mutex> g(summary_mu_);
+                    SummaryMemo& mm = summary_memo_[key];
+                    mm.busy = false;
+                    if (v.is_object()) { mm.value = v; mm.rev = rev; }
+                }
+                summary_cv_.notify_all();
+                if (v.is_object()) summary_memo_save();
+            }).detach();
+        }
+    }
+    // Nouveau calcul en cours : on l'attend un peu (3 s ; 25 s s'il n'y a encore rien à montrer).
+    const bool have = summary_memo_[key].value.is_object();
+    // exact (plan de synchro, nettoyage, reprise) : on attend le calcul partagé, sans en lancer un de plus.
+    summary_cv_.wait_for(l, std::chrono::seconds(exact ? 120 : have ? 3 : 25), [&] { return !summary_memo_[key].busy; });
+    const SummaryMemo& m = summary_memo_[key];
+    if (!m.busy && m.value.is_object()) return m.value;
+    Json out = m.value.is_object() ? m.value : Json::object();
+    if (!out["games"].is_array()) out.set("games", Json::array());
+    out.set("updating", true);  // dernier résultat connu ; le nouveau arrive : redemander dans quelques secondes
+    return out;
+}
+
+Json Engine::backups_summary_compute(const std::string& account, bool with_peers) {
+    std::int64_t tp = mono_ms();
+    auto lap = [&](const char* what) {  // étapes lentes notées dans le journal (diagnostic « délai dépassé »)
+        const std::int64_t n = mono_ms();
+        if (n - tp > 700) log("backups_summary étape %s : %lld ms", what, static_cast<long long>(n - tp));
+        tp = n;
+    };
     const Json ov = saves_overview();
+    lap("vue d'ensemble");
     auto norm = [](std::string id) {  // « 0x14B0846B… » / « 14b0846b… » → « 14b0846b… »
         if (id.rfind("0x", 0) == 0 || id.rfind("0X", 0) == 0) id = id.substr(2);
         for (auto& c : id) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -2914,15 +3146,24 @@ Json Engine::backups_summary(const std::string& account, bool with_peers) {
         struct C { std::size_t i; std::string place, fp; std::int64_t at, bytes; bool usable; };
         std::vector<C> cs;
         bool all_compared = true, any_outdated = false;
+        std::map<std::string, int> raw_seen;  // empreinte brute → nombre de copies de ce jeu qui l'ont
+        for (const auto& b : e["backups"].items()) if (b["raw"].is_string()) ++raw_seen[b["raw"].as_string()];
         for (const auto& b : e["backups"].items()) {
             Json c = b;
             const auto it = by_src.find(b["place"].as_string() + "|" + b["bundle"].as_string());
             const Json* v = it == by_src.end() ? nullptr : it->second;
+            // Jamais lue, mais identique octet pour octet (même empreinte au manifeste) à un contenu déjà lu :
+            // son analyse est reprise telle quelle, sans rien télécharger.
+            Json known;
+            const std::string raw = b["raw"].as_string();
+            if (!v && !raw.empty() && console_v && (*console_v)["raw_signature"].as_string() == raw) v = console_v;  // la partie de la console, octet pour octet
+            if (!v && !raw.empty()) { known = saves::known_by_raw(dir_, raw, e["title_id"].as_string()); if (known.is_object()) v = &known; }
             std::string fp, owner;
             if (v) {
                 fp = (*v)["fingerprint"].as_string();
                 for (const auto& im : (*v)["images"].items()) if (owner.empty()) owner = norm(im["account_id"].as_string());
                 c.set("group", letter(fp));
+                if (!fp.empty()) c.set("content_fp", fp);  // l'autre PS5 s'en sert pour ranger nos copies avec les siennes
                 c.set("progress_text", (*v)["progress_text"]);
                 c.set("play_time_seconds", (*v)["play_time_seconds"]);
                 c.set("percent", (*v)["percent"]);
@@ -2931,7 +3172,13 @@ Json Engine::backups_summary(const std::string& account, bool with_peers) {
                 c.set("game_saved_at", (*v)["newest_inner_mtime"]);
                 if ((*v)["settings_only"].as_bool()) c.set("settings_only", true);
                 for (const auto& im : (*v)["images"].items()) if (im["catalog"]["source"].as_string() == "generic") c.set("progress_auto", true);
-            } else if (b["progress"].is_object()) {  // pas encore comparée : avancée notée au moment de la copie
+            } else if (!raw.empty() && raw_seen[raw] > 1) {
+                // Pas encore lue, mais identique octet pour octet à une autre copie de ce jeu. Pas de lettre de
+                // contenu pour autant : une même partie peut s'écrire avec des octets différents (seule la lecture
+                // dit « même contenu »).
+                c.set("same_bytes", true);
+            }
+            if (!v && b["progress"].is_object()) {  // pas encore comparée : avancée notée au moment de la copie
                 c.set("progress_text", b["progress"]["text"]);
                 c.set("play_time_seconds", b["progress"]["play_time_seconds"]);
                 c.set("percent", b["progress"]["percent"]);
@@ -2989,7 +3236,10 @@ Json Engine::backups_summary(const std::string& account, bool with_peers) {
         Json g = Json::object();
         for (const char* k : {"account", "title_id", "title", "item", "status", "play_time_tracked"}) g.set(k, e[k]);
         Json con = e["console"];
-        if (con.is_object() && console_v) con.set("group", letter((*console_v)["fingerprint"].as_string()));
+        if (con.is_object() && console_v) {
+            con.set("group", letter((*console_v)["fingerprint"].as_string()));
+            if (!(*console_v)["fingerprint"].as_string().empty()) con.set("content_fp", (*console_v)["fingerprint"]);
+        }
         g.set("console", con);
         if (foreign) g.set("other_account", true);
         g.set("copies", copies);
@@ -3006,6 +3256,7 @@ Json Engine::backups_summary(const std::string& account, bool with_peers) {
         total_freed += freed;
         if (!all_compared || any_outdated) ++to_compare;
     }
+    lap("parties et comparaisons");
     // Backups complets (jeu, appli, homebrew, ROM — pas seulement la partie) de chaque disque et NAS : listés eux aussi,
     // pour pouvoir les supprimer (corbeille) même sans comparaison. Regroupés par élément.
     {
@@ -3016,7 +3267,8 @@ Json Engine::backups_summary(const std::string& account, bool with_peers) {
         std::map<std::string, std::string> labels;
         for (const auto& [pid, plabel] : plist) {
             // NAS : liste gardée en cache (relue au plus toutes les 2 min), pour que le résumé reste rapide.
-            const Json idx = pid.rfind("remote:", 0) == 0 ? remote_index(pid) : backups_json(pid);
+            const Json idx = pid.rfind("remote:", 0) == 0 ? remote_index_cached(pid) : backups_json(pid);  // jamais d'attente réseau
+            lap(pid.c_str());
             for (const auto& b : idx["backups"].items()) {
                 bool only_save = b["parts"].size() > 0;
                 for (const auto& part : b["parts"].items()) if (part.as_string() != "save") only_save = false;
@@ -3094,6 +3346,7 @@ Json Engine::backups_summary(const std::string& account, bool with_peers) {
                     if (pl.rfind("peer:", 0) == 0) continue;                                            // vu par elle chez une autre
                     if (pl.rfind("remote:", 0) == 0 && my_nas.count(c["place_label"].as_string())) continue;  // même NAS, déjà listé ici
                     Json nc = c;
+                    nc.set("group", Json());  // sa lettre ne veut rien dire ici : refaite plus bas avec l'empreinte du contenu
                     nc.set("place", "peer:" + inst + ":" + pl);
                     nc.set("place_label", pname + " · " + c["place_label"].as_string());
                     nc.set("peer", inst);
@@ -3109,18 +3362,50 @@ Json Engine::backups_summary(const std::string& account, bool with_peers) {
                 for (auto& g : gv)
                     if (g["full"].as_bool() == full && (full ? g["item"].as_string() == pg["item"].as_string()
                                                             : g["title_id"].as_string() == pg["title_id"].as_string() && g["account"].as_string() == mapped)) { into = &g; break; }
+                // L'autre PS5 a déjà lu ses copies : son empreinte du contenu les range avec les nôtres (même lettre =
+                // même contenu). Sans empreinte (version d'avant, ou pas encore lue là-bas) : pas de lettre.
+                auto reletter = [](const Json& g0, Json& list) {
+                    std::map<std::string, std::string> by_fp;
+                    std::set<std::string> used;
+                    if (g0["console"]["content_fp"].is_string()) by_fp[g0["console"]["content_fp"].as_string()] = g0["console"]["group"].as_string();
+                    if (g0["console"]["group"].is_string()) used.insert(g0["console"]["group"].as_string());
+                    for (const auto& c : g0["copies"].items()) {
+                        if (c["group"].is_string()) used.insert(c["group"].as_string());
+                        if (c["content_fp"].is_string() && c["group"].is_string()) by_fp.emplace(c["content_fp"].as_string(), c["group"].as_string());
+                    }
+                    Json out = Json::array();
+                    for (const auto& c0 : list.items()) {
+                        Json c = c0;
+                        const std::string fp = c["content_fp"].as_string();
+                        if (!fp.empty()) {
+                            auto it = by_fp.find(fp);
+                            if (it == by_fp.end()) {
+                                char L = 'A';
+                                while (used.count(std::string(1, L)) && L < 'Z') ++L;
+                                used.insert(std::string(1, L));
+                                it = by_fp.emplace(fp, std::string(1, L)).first;
+                            }
+                            c.set("group", it->second);
+                        }
+                        out.push(c);
+                    }
+                    list = out;
+                };
                 if (into) {
+                    reletter(*into, ncs);
                     Json cs = (*into)["copies"];
                     for (const auto& c : ncs.items()) cs.push(c);
                     into->set("copies", cs);
                 } else {
                     Json g = pg;
                     g.set("account", mapped);
+                    g.set("console", Json());
+                    g.set("copies", Json::array());
+                    reletter(g, ncs);
                     g.set("copies", ncs);
                     g.set("keep", Json::array());
                     g.set("remove", Json::array());
                     g.set("freed_bytes", static_cast<std::int64_t>(0));
-                    g.set("console", Json());
                     g.set("on_peer_only", true);
                     if (foreign) g.set("other_account", true);
                     gv.push_back(g);
@@ -3130,7 +3415,9 @@ Json Engine::backups_summary(const std::string& account, bool with_peers) {
         games = Json::array();
         for (auto& g : gv) games.push(g);
     }
+    lap("autres PS5");
     Json out = Json::object();
+    out.set("restores", restores_json());  // l'autre PS5 reconnaît ainsi les copies de parties restaurées ici
     out.set("games", games);
     out.set("copies", total_copies);
     out.set("to_remove", total_remove);
@@ -3336,7 +3623,7 @@ bool Engine::send_save(const std::string& instance, const std::string& place_id,
         std::string root = rm.ftp.root.empty() ? "/" : rm.ftp.root;
         if (root.size() > 1 && root.back() == '/') root.pop_back();
         remote_id = place_id;
-        bundle_path = bundle_name.find('/') == std::string::npos ? fs::join(fs::join(root, "PBC Backup"), bundle_name) : fs::join(root, bundle_name);
+        bundle_path = bundle_name.find('/') == std::string::npos ? fs::join(pbc_dir(root), bundle_name) : fs::join(root, bundle_name);
     } else {
         Place place;
         if (!resolve_place(place_id, place, error)) return false;
@@ -3820,7 +4107,7 @@ Json Engine::takeover(const std::string& from, const std::string& user_id, const
     if (const auto nz = id.find_first_not_of('0'); nz != std::string::npos) id = id.substr(nz);
     if (id.empty() || id.size() > 16 || id.find_first_not_of("0123456789abcdef") != std::string::npos) { error = "identifiant invalide"; return Json(); }
     if (user_id.size() != 8 || user_id.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) { error = "compte invalide"; return Json(); }
-    const Json sum = backups_summary("ps5:" + user_id, false);
+    const Json sum = backups_summary("ps5:" + user_id, false, true);  // réponse exacte, calcul partagé
     const std::string running = images::running_title();
     std::set<std::string> wanted;
     for (const auto& t : titles.items()) wanted.insert(t.as_string());
@@ -3873,7 +4160,7 @@ Json Engine::takeover(const std::string& from, const std::string& user_id, const
 // « Tout comparer » : une tâche de comparaison par jeu dont des copies n'ont pas encore été lues (le cache évite de
 // relire les autres). La sauvegarde de la console du jeu en cours n'est jamais ouverte.
 Json Engine::compare_all(const std::string& account, std::string& error) {
-    const Json sum = backups_summary(account, false);
+    const Json sum = backups_summary(account, false, true);  // réponse exacte, calcul partagé
     const std::string running = images::running_title();
     int queued = 0, skipped_running = 0;
     for (const auto& g : sum["games"].items()) {
@@ -4136,7 +4423,7 @@ static Json local_index(const std::string& folder) {
 }
 
 Json Engine::backups_json(const std::string& place_id) {
-    if (place_id.rfind("remote:", 0) == 0) return remote_index(place_id, true);
+    if (place_id.rfind("remote:", 0) == 0) return remote_index(place_id);  // liste gardée 2 min : pas une lecture réseau à chaque écran
     Place place;
     std::string error, folder;
     if (!resolve_place(place_id, place, error)) { Json j = Json::object(); j.set("error", error); return j; }
@@ -4150,7 +4437,9 @@ Json Engine::playtime() { std::lock_guard<std::mutex> l(playtime_mu_); return pl
 Json Engine::saves_overview(bool include_ignored) {
     struct Acc { std::string key, name, user_id, account_id, platform; bool on_console = false; unsigned titles = 0; };
     std::map<std::string, Acc> accs;          // clé : plateforme:utilisateur
-    struct Entry { std::string account, title_id, title, item_key; Json console; Json backups = Json::array(); std::int64_t newest = 0, newest_save = 0; };
+    struct Seen { std::int64_t saved = 0, created = 0; std::string text; std::int64_t play = -1; };
+    struct Entry { std::string account, title_id, title, item_key; Json console; Json backups = Json::array(); std::int64_t newest = 0, newest_save = 0;
+                   std::vector<Seen> seen; };  // heure de partie + avancée de chaque copie (ici, NAS, nuage, autre PS5)
     std::map<std::string, Entry> entries;     // clé : compte|jeu
     auto acc_key = [](const std::string& format, const std::string& uid) { return std::string(format == "ps4-savedata" ? "ps4:" : "ps5:") + uid; };
     std::vector<Place> places;
@@ -4201,7 +4490,7 @@ Json Engine::saves_overview(bool include_ignored) {
     }
     for (const auto& p : places) {
         Json idx;
-        if (p.mount == "remote") idx = remote_index(p.id);
+        if (p.mount == "remote") idx = remote_index_cached(p.id);  // le nuage ou un NAS lent ne bloque jamais l'écran
         else {
             const std::string folder = custom.empty() ? fs::join(p.mount, places::default_folder) : custom;
             if (!fs::is_dir(fs::host(folder))) continue;
@@ -4263,11 +4552,14 @@ Json Engine::saves_overview(bool include_ignored) {
                 if (b["legacy"].as_bool()) v.set("legacy", true);
                 if (a["save_mtime"].as_int()) v.set("save_mtime", a["save_mtime"]);
                 if (a["progress"].is_object()) v.set("progress", a["progress"]);  // avancée notée à la copie
+                if (a["raw"].is_string()) v.set("raw", a["raw"]);  // empreinte du contenu (manifeste)
                 e.backups.push(v);
                 if (b["complete"].as_bool()) {
                     e.newest = std::max<std::int64_t>(e.newest, b["created_unix"].as_int());
                     // Heure de la sauvegarde du jeu contenue (connue pour nos backups ; pas pour les anciens faits par script).
                     e.newest_save = std::max<std::int64_t>(e.newest_save, a["save_mtime"].as_int());
+                    e.seen.push_back({a["save_mtime"].as_int(), b["created_unix"].as_int(), a["progress"]["text"].as_string(),
+                                      a["progress"]["play_time_seconds"].is_number() ? a["progress"]["play_time_seconds"].as_int() : -1});
                 }
             }
         }
@@ -4291,6 +4583,8 @@ Json Engine::saves_overview(bool include_ignored) {
                 for (const auto& c : g["copies"].items()) {
                     if (!c["complete"].as_bool(true) || c["place"].as_string().rfind("peer:", 0) == 0) continue;
                     const std::int64_t saved = std::max(c["save_mtime"].as_int(), c["game_saved_at"].as_int());
+                    en->second.seen.push_back({saved, c["created_unix"].as_int(), c["progress_text"].as_string(),
+                                               c["play_time_seconds"].is_number() && c["play_time_seconds"].as_int() > 0 ? c["play_time_seconds"].as_int() : -1});
                     if (saved > en->second.newest_save) { en->second.newest_save = saved; en->second.newest = std::max(en->second.newest, c["created_unix"].as_int()); }
                 }
             }
@@ -4307,8 +4601,52 @@ Json Engine::saves_overview(bool include_ignored) {
     }
     const Settings cfg = settings();
     Json out = Json::object(), al = Json::array(), el = Json::array();
+    // Restaurations (ici et sur les PS5 jumelées) : « compte|jeu » → restaurations.
+    std::map<std::string, std::vector<Restored>> restores;
+    { std::lock_guard<std::mutex> l(restored_mu_); restores = restored_; }
+    {
+        Json pb;
+        { MuGuard l(mu_, __FILE__, __LINE__); pb = peer_backups_; }
+        for (const auto& [inst, x] : pb.members())
+            for (const auto& r : x["summary"]["restores"].items()) {
+                const auto sp = same_person.find(r["platform"].as_string() + "|" + norm_aid(r["account_id"].as_string()));
+                if (sp == same_person.end()) continue;
+                Restored rr;
+                rr.at = r["at"].as_int();
+                if (rr.at) restores[sp->second + "|" + r["title_id"].as_string()].push_back(rr);
+            }
+    }
     for (auto& [key, e] : entries) {
         if (!include_ignored && (cfg.is_ignored(e.title_id) || cfg.is_ignored(e.item_key))) continue;  // ignoré : ni listé ni compté
+        // Origine d'une partie : une copie dont l'heure de partie est celle d'une restauration (à 10 min près) n'est pas
+        // une partie jouée, c'est la copie restaurée. Elle prend l'heure de la partie d'origine (connue si la copie d'où
+        // venait la restauration est listée), sinon 0 : jamais « plus récente » à cause d'un aller-retour.
+        std::int64_t console_origin = -1;  // partie de la console = restaurée sans être rejouée (heure d'origine, 0 si inconnue)
+        if (const auto rs = restores.find(e.account + "|" + e.title_id); rs != restores.end()) {
+            auto origin_of = [&](const Restored& r) -> std::int64_t {
+                if (r.place.empty() || r.bundle.empty()) return 0;
+                for (const auto& v : e.backups.items())
+                    if (v["place"].as_string() == r.place && std::string(fs::basename(v["bundle"].as_string())) == r.bundle) return v["save_mtime"].as_int();
+                return 0;
+            };
+            auto restored_at = [&](std::int64_t t, std::int64_t& origin) {
+                if (t <= 0) return false;
+                for (const auto& r : rs->second) if (t >= r.at - 600 && t <= r.at + 600) { origin = origin_of(r); if (origin >= r.at - 600) origin = 0; return true; }
+                return false;
+            };
+            for (int pass = 0; pass < 2; ++pass) {  // deux passes : une restauration d'une copie elle-même restaurée
+                Json fixed = Json::array();
+                for (auto v : e.backups.items()) {
+                    std::int64_t o;
+                    if (restored_at(v["save_mtime"].as_int(), o)) { v.set("save_mtime", o); v.set("restored_copy", true); }
+                    fixed.push(v);
+                }
+                e.backups = fixed;
+            }
+            for (auto& s : e.seen) { std::int64_t o; if (restored_at(s.saved, o)) s.saved = o; }
+            std::int64_t o;
+            if (e.console.is_object() && restored_at(e.console["mtime"].as_int(), o)) console_origin = o;
+        }
         if (e.console.is_object()) {
             const auto pa = prog.find(e.account);
             if (pa != prog.end()) {
@@ -4335,7 +4673,32 @@ Json Engine::saves_overview(bool include_ignored) {
         // Plus d'une minute d'écart : l'un des deux côtés est plus récent (sinon : à jour).
         // « Plus récent dans un backup » : seulement si la sauvegarde de jeu qu'il contient est plus récente que
         // celle de la console (heure notée dans nos backups). L'heure d'une copie ne prouve rien sur le contenu.
-        else status = e.console["mtime"].as_int() > e.newest + 60 ? "console_newer" : e.newest_save > e.console["mtime"].as_int() + 60 ? "backup_newer" : "up_to_date";
+        else {
+            // Témoin de contenu : la même avancée (texte du jeu et temps de jeu) = la même partie, quelle que soit l'heure.
+            // Une partie restaurée (heure = restauration) ou copiée ailleurs plus tard n'est ni « à sauvegarder » ni
+            // « plus récente » : seule une partie réellement jouée change l'avancée.
+            const std::string ctext = e.console["progress"]["text"].as_string();
+            const std::int64_t cplay = e.console["progress"]["play_time_seconds"].is_number() ? e.console["progress"]["play_time_seconds"].as_int() : -1;
+            auto same = [&](const Seen& s) {
+                if (ctext.empty() || s.text.empty() || s.text != ctext) return false;
+                return cplay < 0 || s.play < 0 || cplay == s.play;
+            };
+            bool backed = false;  // une copie de cette même partie existe quelque part
+            std::int64_t newer = 0;  // heure de la copie d'une partie DIFFÉRENTE, plus récente que celle de la console
+            for (const auto& s : e.seen) {
+                if (same(s)) { backed = true; continue; }
+                // Partie différente : plus récente seulement si elle va plus loin (temps de jeu connus des deux côtés),
+                // sinon d'après l'heure de la partie.
+                if (cplay >= 0 && s.play >= 0) { if (s.play > cplay) newer = std::max(newer, s.saved); }
+                else newer = std::max(newer, s.saved);
+            }
+            std::int64_t cm = e.console["mtime"].as_int();
+            // Restaurée et pas rejouée depuis (heure du fichier = celle de la restauration) : c'est une copie ; elle vaut
+            // l'heure de sa partie d'origine (une copie jouée plus loin reste « plus récente »).
+            if (console_origin >= 0) { backed = true; if (console_origin > 0) cm = console_origin; else newer = 0; }
+            if (backed) status = newer > cm + 60 ? "backup_newer" : "up_to_date";
+            else status = cm > e.newest + 60 ? "console_newer" : newer > cm + 60 ? "backup_newer" : "up_to_date";
+        }
         ++accs[e.account].titles;
         Json j = Json::object();
         j.set("account", e.account);

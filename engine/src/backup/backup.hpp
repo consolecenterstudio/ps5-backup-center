@@ -20,7 +20,7 @@ struct Progress {
     // Étape à part, avec sa propre avancée (« Fichiers ») : "verify" = relecture de la copie, "compare" = un fichier
     // de même taille est déjà là, on compare les empreintes. Vide sinon.
     std::string phase;
-    std::uint64_t phase_done = 0, phase_total = 0;
+    std::uint64_t phase_done = 0, phase_total = 0, phase_eta = 0;  // phase_eta : secondes restantes de l'étape
 };
 using ProgressFn = std::function<void(const Progress&)>;
 
@@ -50,6 +50,7 @@ struct Request {
     // Rangement « par plateforme » : les images de sauvegarde vont directement dans le dossier
     // (« …/saves/<date>/sdimg_* »), le reste et le manifeste dans « _pbc/ ».
     bool flat = false;
+    std::string origin;            // qui l'a lancée : vide = l'utilisateur, « plan:<nom> », « sync »
 };
 
 // Rangement « par plateforme » (rangement classique d'un NAS).

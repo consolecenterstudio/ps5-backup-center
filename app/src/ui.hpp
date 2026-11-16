@@ -3,6 +3,7 @@
 // Croix valide, Rond revient, Options = menu de l'élément.
 #pragma once
 #include <atomic>
+#include <deque>
 #include <functional>
 #include <map>
 #include <cstdint>
@@ -47,8 +48,9 @@ public:
     void draw(Surface& s);
     void set_logo(Image logo) { logo_ = logo; }
     // Images d'appareils (Destinations) : interne, USB, Switch, NAS, réseau, nuage.
-    enum Device { dev_internal, dev_usb, dev_switch, dev_nas, dev_network, dev_cloud, dev_synology, dev_qnap, dev_consoles, dev_x, dev_youtube, dev_reddit, dev_discord, device_count };
-    static constexpr const char* device_files[device_count] = {"internal", "usb", "switch", "nas", "network", "cloud", "synology", "qnap", "consoles", "x", "youtube", "reddit", "discord"};
+    enum Device { dev_internal, dev_usb, dev_switch, dev_nas, dev_network, dev_cloud, dev_synology, dev_qnap, dev_consoles, dev_x, dev_youtube, dev_reddit, dev_discord, dev_gdrive, dev_dropbox, dev_onedrive, dev_b2, dev_aws, device_count };
+    static constexpr const char* device_files[device_count] = {"internal", "usb", "switch", "nas", "network", "cloud", "synology", "qnap", "consoles", "x", "youtube", "reddit", "discord", "svc-gdrive", "svc-dropbox", "svc-onedrive", "svc-b2", "svc-aws"};
+    int cloud_dev(const std::string& type, const std::string& service = {}) const;  // logo du service (Google Drive…), sinon le nuage
     void set_device(int i, Image img) { if (i >= 0 && i < device_count) devices_[i] = img; }
     void skip_whats_new() { whats_new_checked_ = true; }  // aperçu Mac : captures sans fenêtre
     bool start_engine_requested() { bool r = start_engine_; start_engine_ = false; return r; }
@@ -200,6 +202,7 @@ private:
     int dest_zone_ = 0, dest_sel_ = 0, dest_add_ = 0;
     pbc::Json remotes_all_, pending_remotes_all_;
     bool ed_open_ = false, ed_busy_ = false, ed_forget_armed_ = false;
+    int ed_count0_ = -1;  // nombre d'appareils à l'ouverture : un ajout depuis le téléphone ferme le formulaire
     std::string ed_id_, ed_type_;
     std::string ed_service_;              // stockage S3 : « aws », « b2 » ou « other »
     pbc::Json ed_qr_, pending_ed_qr_;          // code QR de la page web (coller les clés depuis un téléphone)
@@ -247,6 +250,9 @@ private:
     bool br_view_ = false;                         // simple consultation (Destinations) : rien à choisir
     pbc::Json br_entries_, pending_br_;
     bool has_pending_br_ = false;
+    bool br_fallback_ = false;     // dossier de départ absent (ex. « PBC Backup » pas encore créé) : on ouvre son parent
+    std::string pending_br_goto_;  // dossier créé par « Nouveau dossier… » : on y entre
+    bool br_can_mkdir() const;
     int br_sel_ = 0, br_top_ = 0;
     std::function<void(const std::string&)> br_pick_;
     void open_browser(std::string title, std::string start, bool files, std::function<void(const std::string&)> pick);
@@ -367,7 +373,11 @@ private:
     void sync_followed_dialog(const std::string& peer, const std::string& name);    // « Synchroniser les jeux suivis »
     void sy_set_follow(const std::vector<std::string>& title_ids, bool on);         // suivre / ne plus suivre (mémorisé)
     // Onglet Synchro (ui_synchro.cpp) : une carte par appareil (autres PS5, Switch), ses sections et ses boutons.
-    struct SyDev { std::string kind, id, name; };
+    struct SyDev { std::string kind, id, name; int count = 0; };  // kind "group" : famille fermée (id = famille)
+    std::vector<SyDev> sy_devices_all() const;  // tous les appareils, sans regroupement
+    std::string sy_fam(const SyDev& d) const;
+    std::string sn_open_;                       // famille ouverte sur le côté de Synchro
+    void sy_select(const std::string& id);      // choisir un appareil (ouvre sa famille si besoin)
     std::vector<SyDev> sy_devices() const;
     std::string sy_nas_name(const Place& pl) const;  // nom d'un NAS de synchro, + protocole / dossier s'il y en a deux du même nom
     const pbc::Json* sy_plan_for(const std::string& peer) const;
@@ -398,6 +408,13 @@ private:
     pbc::Json sync_copies_status_;           // GET /api/v2/sync/copies/status (bulle d'avancement)
     std::uint64_t sync_copies_at_ = 0, sync_plans_at_ = 0;
     void load_sync_plans();
+    // Plans de synchro demandés UN À LA FOIS (avant : ~18 demandes ensemble toutes les 15 s, un par appareil et par sorte :
+    // le moteur saturait, « serveur occupé »). Une demande déjà en attente n'est pas reposée.
+    void plan_cmd(const std::string& path, std::function<void(const std::string&, const std::string&)> cb);
+    void plan_next();
+    std::mutex plan_mu_;
+    std::deque<std::pair<std::string, std::function<void(const std::string&, const std::string&)>>> plan_q_;
+    bool plan_busy_ = false;
     // Parties actives (ui_synchro.cpp) : plan par PS5 jumelée, état de la mise à niveau, écran de choix
     std::vector<std::pair<std::string, pbc::Json>> parties_plans_, apps_plans_, dlc_plans_, emu_plans_;
     int sy_section_ = 0;                          // écran ouvert : 0 = parties actives, 1 = applis
@@ -475,6 +492,17 @@ private:
     std::string wan_code_;                                    // saisie (code d'invitation, port, adresse)
     std::vector<pbc::Json> paired_peers() const;
     struct PeerCard { pbc::Json peer; const Place* disk; };  // disk nul : la console elle-même (hors ligne)
+    // Appareils groupés : une bulle par famille (cette PS5, NAS, nuage, Switch) ; Croix l'ouvre sur place, Rond la referme.
+    struct DestEntry { int old = -1; std::string fam; bool group = false; int count = 0; };  // old : rang dans l'ancienne liste
+    std::vector<DestEntry> dest_entries() const;
+    std::string dest_fam(int old) const;
+    std::string dest_open_;
+    // Sauvegardes : choix du haut groupés (Partout · Cette PS5 · NAS · Nuage · chaque autre PS5 · Corbeille).
+    struct MgChip { int old = 0; std::string fam; bool group = false; int count = 0; };
+    std::vector<MgChip> mg_chips() const;
+    std::string mg_fam(int old) const;
+    std::string mg_open_;
+    int mg_chip_ = 0;  // bulle sous le curseur (rang visible)
     std::vector<PeerCard> peer_cards() const;
     void open_peer(const pbc::Json& p);
     void link_pair(const std::string& host, const std::string& name);
@@ -512,6 +540,25 @@ private:
     void mg_finish_delete();
     void mg_compare_game(const pbc::Json& g);
     void draw_mg_overview(Surface& s, int x, int w);
+    // Sauvegardes › Comparer et trier : toutes les copies d'un jeu côte à côte, jugées par leur contenu.
+    bool mg_compare_ = false;
+    int mg_cfilter_ = 0, mg_cmp_row_ = 0;
+    std::vector<std::size_t> mg_cmp_rows() const;
+    void draw_mg_compare(Surface& s, int x, int w);
+    void input_mg_compare(std::uint32_t k);
+    // Même partie à plusieurs endroits : tri à la demande (un jeu, ou « Garder seulement sur… » pour tous).
+    struct MgTidyRow { std::string gk, key, label, sub, letter; bool keep = true, lock = false; int n = 0; };
+    bool mg_tidy_open_ = false, mg_tidy_all_ = false;
+    int mg_tidy_row_ = 0;
+    std::string mg_tidy_title_;
+    std::vector<MgTidyRow> mg_tidy_rows_;
+    std::set<std::string> mg_tidy_games_;  // jeux dont le tri a coché des copies (décochées si l'aperçu est annulé)
+    void mg_tidy_start(const pbc::Json* g);
+    void mg_tidy_locks();
+    void mg_tidy_apply();
+    void draw_mg_tidy(Surface& s);
+    void input_mg_tidy(std::uint32_t k);
+    void open_compare(const std::string& title_id, const std::string& item);  // fiche du jeu › Comparer
     void draw_mg_game(Surface& s, int x, int w);
     void draw_mg_trash(Surface& s, int x, int w, int y0);
     void draw_mg_preview(Surface& s);
@@ -550,6 +597,11 @@ private:
     struct TrDevice { std::string id, name, sub, kind; int image = 0; std::uint64_t free = 0; bool has_free = false; };
     std::vector<TrDevice> tr_devices() const;
     int tr_screen_ = 0, tr_zone_ = 0, tr_from_ = 0, tr_to_ = 1, tr_action_ = 0;
+    int tr_first_[2] = {0, 0};  // première carte visible des rangées DEPUIS / VERS (elles défilent)
+    // Bulles groupées : une par appareil ou famille (cette PS5, autre PS5, NAS, nuage, Switch) ; Croix ouvre ses éléments.
+    struct TrGroup { std::string key, name; int image = 0; std::vector<int> members; };
+    std::vector<TrGroup> tr_groups(const std::vector<TrDevice>& devs) const;
+    int tr_gsel_[2] = {0, 0}, tr_open_[2] = {-1, -1}, tr_msel_[2] = {0, 0};
     // Transferts › Fichiers (écran 5) : DEPUIS (étape 0) puis VERS (étape 1) ; [0] départ, [1] destination.
     int fl_step_ = 0, fl_zone_ = 0, fl_row_ = 0, fl_top_ = 0, fl_pcur_ = 0;
     int fl_place_[2] = {-1, -1};
@@ -561,6 +613,9 @@ private:
     void draw_tr_files(Surface& s);
     void input_tr_files(std::uint32_t k);
     void fl_open(int side, int place, const std::string& path);
+    void verify_menu(const Task& t);
+    void open_add_service();  // « Ajouter un service » : PS5, USB, Switch, NAS, nuage
+    void add_device(int which);
     void files_task_menu(const Task& t);
     void files_delete_flow();
     // Désinstaller un jeu : sur cette PS5 (inst vide) ou sur une PS5 jumelée (inst = son identifiant de liaison).

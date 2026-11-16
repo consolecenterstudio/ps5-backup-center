@@ -218,9 +218,9 @@ public:
     bool read_small(const std::string& path, std::string& out, std::uint64_t limit) override {
         std::string id;
         Json meta;
-        if (!d_.resolve(path, id, &meta) || id == "root") return false;
+        if (!d_.resolve(path, id, &meta) || id == "root") { log("gdrive read_small: introuvable %s", path.c_str()); return false; }
         const http::Reply r = d_.send("GET", d_.base() + "/files/" + id + "?alt=media", {}, {}, static_cast<std::size_t>(limit));
-        if (!r.ok()) return false;
+        if (!r.ok()) { log("gdrive read_small: %s -> %d %s", path.c_str(), r.status, r.error.c_str()); return false; }
         out = r.body;
         return true;
     }
@@ -325,7 +325,7 @@ bool drive_about(const std::string& type, const std::string& refresh, Json& out,
     }
     const http::Reply me = api.send("GET", p->api_base + "/me?$select=mail,userPrincipalName,displayName");
     Json m;
-    if (!me.ok() || !Json::parse(me.body, m)) { err = cloud::api_error(me); return false; }
+    if (!me.ok() || !Json::parse(me.body, m)) { err = cloud::api_error(me); log("%s profil refusé : %d %s %s", type.c_str(), me.status, me.error.c_str(), me.body.substr(0, 300).c_str()); return false; }
     out.set("account", !m["mail"].as_string().empty() ? m["mail"].as_string() : !m["userPrincipalName"].as_string().empty() ? m["userPrincipalName"].as_string() : m["displayName"].as_string());
     const http::Reply d = api.send("GET", p->api_base + "/me/drive?$select=quota");
     Json q;

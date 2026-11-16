@@ -413,7 +413,7 @@ bool Ui::update(const InputState& in, std::uint64_t now) {
     if (k & key::touchpad) {  // pavé tactile : retour à l'Accueil, d'où qu'on soit (rien n'est annulé en cours de route)
         if (!kb_open_ && !hold_open_ && !mg_deleting_) {
             whats_new_.clear(); popup_ = false; sheet_ = false; rsheet_ = false; br_open_ = false; pe_open_ = false; pp_open_ = false; em_open_ = false; ed_open_ = false; cl_open_ = false;
-            mg_preview_ = false; mg_ign_open_ = false; sy_pick_ = false; loupe_ = false;
+            mg_preview_ = false; mg_ign_open_ = false; mg_tidy_open_ = false; sy_pick_ = false; loupe_ = false;
             tab_ = home; home_zone_ = 0;
             return true;
         }
@@ -442,6 +442,7 @@ bool Ui::update(const InputState& in, std::uint64_t now) {
         }
         return true;
     }
+    if (mg_tidy_open_) { input_mg_tidy(k); return true; }  // tri « même partie à plusieurs endroits »
     if (mg_preview_ || mg_ign_open_) { input_manage(k); return true; }  // aperçu avant la corbeille, ignorer (Gérer les backups, fiche, Bibliothèque)
     if (sheet_) { input_sheet(k); return true; }
     if (rsheet_) { input_remote_sheet(k); return true; }
@@ -611,6 +612,7 @@ void Ui::input_library(std::uint32_t k) {
             const std::string key2 = focus->key, tid = focus->title_id, title2 = focus->title;
             const bool ign = focus->ignored;
             acts.push_back({tr("Toutes les versions"), [this, key2, tid, title2] { open_versions("", tid, title2, key2); }});
+            acts.push_back({tr("Comparer"), [this, key2, tid] { open_compare(tid, key2); }});
             if (ign) acts.push_back({tr("Sauvegarder de nouveau"), [this, key2] { for (const auto& it : snap_->items) if (it.key == key2) { set_ignored(it, false); break; } }});
             else acts.push_back({tr("Ignorer…"), [this, key2, tid, title2] { open_ignore({{tid.empty() ? "key" : "title_id", tid.empty() ? key2 : tid, title2}}, -1); }});
             if (has_console_save(tid)) acts.push_back({tr("Supprimer la partie de la console…"), [this, tid, title2] { delete_console_save(tid, title2); }});
@@ -1001,6 +1003,7 @@ void Ui::input_sheet(std::uint32_t k) {
         i = (k & key::left) ? std::max(0, i - 1) : std::min(n - 1, i + 1);
         sheet_focus_ = sheet_btns_[static_cast<std::size_t>(i)].focus;
     }
+    if ((k & key::cross) && sheet_focus_ == comps + 10) { const std::string tid = it->title_id, key = it->key; sheet_ = false; open_compare(tid, key); return; }  // Sauvegardes › Comparer et trier, sur ce jeu
     if ((k & key::cross) && sheet_focus_ == comps + 8) { open_image_tools(*it); return; }
     if ((k & key::cross) && sheet_focus_ == comps + 9) { delete_console_save(it->title_id, it->title); return; }
     if ((k & key::cross) && sheet_focus_ == comps + 7) {  // envoyer ce jeu à une PS5 jumelée et l'y installer
@@ -1074,7 +1077,7 @@ void Ui::input_sheet(std::uint32_t k) {
             if (p.type == "switch" || p.use == "sync") continue;  // Switch : une source ; NAS « Synchro seulement » : pas une destination de backup
             dest_places_.push_back(static_cast<int>(i));
             if (dest_ == static_cast<int>(i) + 1) sel = static_cast<int>(dest_places_.size());
-            opts.push_back(p.label + (p.type == "ftp" ? std::string("  ·  ") + tr("réseau") : "  ·  " + trf("%s libres", size_text(p.free).c_str())));
+            opts.push_back(p.label + (p.type == "ftp" ? std::string("  ·  ") + ((p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox") ? tr("nuage") : tr("réseau")) : "  ·  " + trf("%s libres", size_text(p.free).c_str())));
         }
         open_popup(3, tr("Où sauvegarder ?"), opts, sel);
         return;
@@ -1205,6 +1208,7 @@ bool Ui::filter_bar(std::uint32_t k, int& value, int count, int& row) {
     if (bar_) {
         if (k & key::left) { value = std::max(0, value - 1); row = 0; }
         if (k & key::right) { value = std::min(count - 1, value + 1); row = 0; }
+        if (k & key::square) { value = (value + 1) % count; row = 0; }  // « □ changer », comme annoncé en bas
         if (k & (key::down | key::cross | key::circle)) bar_ = false;
         return true;
     }
@@ -1284,6 +1288,7 @@ void Ui::input_tasks(std::uint32_t k) {
         else { actions[0] = "details"; actions[1] = "remove"; }
         const char* a = actions[std::min(tasks_action_, actions[1] ? 1 : 0)];
         if (a && std::string(a) == "details") { task_details(t); return; }
+        if (a && std::string(a) == "cancel" && t.state == "running" && t.phase == "verify") { verify_menu(t); return; }  // arrêter la vérification seule
         if (a) model_.command("POST", "/api/v2/tasks/" + t.id + "/" + a, "{}");
     }
 }
@@ -1809,19 +1814,43 @@ static std::string hours_text(std::int64_t s) {
 
 void Ui::draw_footer(Surface& s, std::initializer_list<std::pair<int, const char*>> hints) {
     // Sur la rangée de filtres, les aides de la liste ne servent pas : on dit comment s'y déplacer.
-    const std::initializer_list<std::pair<int, const char*>> on_bar = {{-1, tr("Gauche / droite")}, {2, tr("changer")}, {0, tr("Revenir à la liste")}};
+    const std::initializer_list<std::pair<int, const char*>> on_bar = {{-1, tr("Gauche / droite")}, {2, tr("changer")}, {0, tr("Revenir à la liste")}, {1, tr("Retour")}};
     if (bar_ && tab_ == tasks && !popup_ && !sync_menu_ && !sync_stage_) hints = on_bar;
-    int x = margin;
-    const int y = 1012;
+    // Sur le cœur ou la loupe (posés au-dessus de Tâches) : leurs propres aides, pas celles de Tâches.
+    const std::initializer_list<std::pair<int, const char*>> on_heart = {{0, tr("Soutenir le projet")}, {-1, tr("L1 / R1 : onglets")}, {1, tr("Fermer")}};
+    const std::initializer_list<std::pair<int, const char*>> on_loupe = {{0, tr("Rechercher")}, {-1, tr("L1 / R1 : onglets")}, {1, tr("Fermer")}};
+    if (heart_ && !popup_) hints = on_heart;
+    else if (loupe_ && !popup_) hints = on_loupe;
     // « Maintenir Rond : quitter » est dessiné à part, en bas à droite de chaque vue (draw_quit_hint).
     const std::string_view q1 = tr("Maintenir : quitter"), q2 = tr("Maintenir 2 s : quitter");
     const int right = 1920 - margin - quit_hint_width() - 48;
-    for (const auto& [which, label] : hints) {
-        if (!label || !*label || label == q1 || label == q2) continue;
-        if (x + (which >= 0 ? 36 : 0) + Surface::measure(label, body) > right) break;  // jamais par-dessus « quitter »
-        if (which >= 0) { icon(s, which, x, y, color::muted); x += 36; }
-        x += s.text(font_, x, y - 2, label, body, color::muted) + 48;
+    std::vector<std::pair<int, const char*>> items;
+    for (const auto& h : hints) if (h.second && *h.second && h.second != q1 && h.second != q2) items.push_back(h);
+    // Aucune aide n'est jamais coupée : la taille normale si tout tient, sinon plus petit, sinon sur deux lignes.
+    auto width = [&](FontSize f, std::size_t from, std::size_t to) {
+        int w = 0;
+        for (std::size_t i = from; i < to; ++i) w += (items[i].first >= 0 ? 36 : 0) + Surface::measure(items[i].second, f) + (f == body ? 48 : 32);
+        return w;
+    };
+    const int avail = right - margin;
+    FontSize f = body;
+    std::size_t split = items.size();
+    if (width(body, 0, items.size()) > avail) {
+        f = small;
+        if (width(small, 0, items.size()) > avail) {
+            split = items.size();
+            while (split > 1 && width(small, 0, split) > avail) --split;
+        }
     }
+    auto line = [&](std::size_t from, std::size_t to, int y) {
+        int x = margin;
+        for (std::size_t i = from; i < to; ++i) {
+            if (items[i].first >= 0) { icon(s, items[i].first, x, y, color::muted); x += 36; }
+            x += s.text(font_, x, y - 2, items[i].second, f, color::muted) + (f == body ? 48 : 32);
+        }
+    };
+    if (split >= items.size()) line(0, items.size(), f == body ? 1012 : 1016);
+    else { line(0, split, 984); line(split, items.size(), 1030); }
 }
 
 // Clé d'une jaquette dans le cache de l'app : la clé de l'élément et sa source (une jaquette officielle
@@ -2175,7 +2204,7 @@ std::vector<Ui::Shelf> Ui::home_shelves() const {
         // Place réservée pour les copies des autres PS5 aussi (les pointeurs des rangées doivent rester valables).
         std::size_t peer_copies = 0;
         if (mg_sum_.is_object()) peer_copies = mg_sum_["games"].size();
-        home_bk_items_.reserve(avail.size() + peer_copies);
+        home_bk_items_.reserve(avail.size() + 2 * peer_copies);  // + la rangée « Dans le nuage »
         for (const auto& [t, g] : avail) {
             Item tmp;
             const Item* f = find_or_stand_in((*g)["item"].as_string(), (*g)["title"].as_string(), (*g)["title_id"].as_string(), tmp, (*g)["kind"].as_string());
@@ -2184,24 +2213,57 @@ std::vector<Ui::Shelf> Ui::home_shelves() const {
         }
         Shelf bk{tr("Sauvegardes disponibles"), {}};
         bk.bk_first = 0;
-        {   // seulement les endroits qui ont vraiment une de ces sauvegardes : « Ici », « NAS », le nom de l'autre PS5
-            bool here = false, nas = false;
+        // Stockage dans le nuage (Google Drive, Backblaze…) : son nom de service, pas « NAS ».
+        auto cloud_name = [this](const std::string& place) -> std::string {
+            for (const auto& p : snap_->places)
+                if (p.id == place && (p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox")) return p.label;
+            return {};
+        };
+        {   // seulement les endroits qui ont vraiment une de ces sauvegardes : « Ici », « NAS », « Nuage », le nom de l'autre PS5
+            bool here = false, nas = false, cloud = false;
             std::vector<std::string> peers;
             for (const auto& g : home_bk_games_)
                 for (const auto& c : g["copies"].items()) {
                     if (c["on_peer"].as_bool()) { const std::string pn = c["peer_name"].as_string(); if (!pn.empty() && std::find(peers.begin(), peers.end(), pn) == peers.end()) peers.push_back(pn); }
-                    else if (c["place"].as_string().rfind("remote:", 0) == 0) nas = true;
+                    else if (c["place"].as_string().rfind("remote:", 0) == 0) (cloud_name(c["place"].as_string()).empty() ? nas : cloud) = true;
                     else here = true;
                 }
             std::string w;
             auto add = [&w](const std::string& x) { w += (w.empty() ? "" : " · ") + x; };
             if (here) add(tr("Ici"));
             if (nas) add("NAS");
+            if (cloud) add(tr("Nuage"));
             for (const auto& pn : peers) add(pn);
             bk.away = w;
         }
         for (const auto& it : home_bk_items_) bk.items.push_back(&it);
         if (!bk.items.empty()) out.push_back(std::move(bk));
+        // « Dans le nuage » : tout ce qui a une copie sur un stockage dans le nuage, installé ici ou non, avec ses services.
+        if (mg_sum_.is_object()) {
+            Shelf cl{tr("Dans le nuage"), {}};
+            cl.bk_first = static_cast<int>(home_bk_games_.size());
+            std::vector<std::string> services;
+            for (const auto& g : mg_sum_["games"].items()) {
+                if (g["other_account"].as_bool() || cl.items.size() >= 24) continue;
+                bool in_cloud = false;
+                for (const auto& c : g["copies"].items()) {
+                    const std::string n = c["on_peer"].as_bool() ? std::string() : cloud_name(c["place"].as_string());
+                    if (n.empty() || !c["complete"].as_bool(true)) continue;
+                    in_cloud = true;
+                    if (std::find(services.begin(), services.end(), n) == services.end()) services.push_back(n);
+                }
+                if (!in_cloud) continue;
+                Item tmp;
+                const Item* f = find_or_stand_in(g["item"].as_string(), g["title"].as_string(), g["title_id"].as_string(), tmp, g["kind"].as_string());
+                home_bk_items_.push_back(*f);
+                home_bk_games_.push_back(g);
+                cl.items.push_back(&home_bk_items_.back());
+            }
+            std::string w;
+            for (const auto& n : services) w += (w.empty() ? "" : " · ") + n;
+            cl.away = w;
+            if (!cl.items.empty()) out.push_back(std::move(cl));
+        }
     }
     // Sur les autres PS5 : leurs jeux installés qui ne sont pas ici. Croix : les recevoir ici.
     {
@@ -2341,7 +2403,17 @@ std::vector<Ui::HomeCard> Ui::home_cards() const {
         Games idle;  // un appareil sans jeu choisi par ligne, avec son image (PS5 ou NAS) : ils défilent dans la carte
         for (std::size_t i = 0; i < sync_plans_.size(); ++i) {
             const auto& [name, pl] = sync_plans_[i];
-            const char* dev_key = pl["peer"].as_string().rfind("remote:", 0) == 0 ? "dev:nas" : "dev:ps5";  // l'image de l'autre côté : NAS ou PS5
+            // L'image de l'autre côté : PS5, NAS, ou le logo du service dans le nuage (Google Drive, Backblaze…).
+            std::string dev_key = "dev:ps5";
+            if (pl["peer"].as_string().rfind("remote:", 0) == 0) {
+                dev_key = "dev:nas";
+                for (const auto& p : snap_->places)
+                    if (p.id == pl["peer"].as_string() && (p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox")) {
+                        std::string svc = p.service;  // connu dès le démarrage (la liste des appareils arrive plus tard)
+                        if (svc.empty()) for (const auto& r : remotes_all_.items()) if (r["id"].as_string() == p.id) svc = r["config"]["service"].as_string();
+                        dev_key = "dev:cloud:" + p.protocol + ":" + svc;
+                    }
+            }
             int chosen = 0, n = 0;
             for (const auto& t : pl["titles"].items()) {
                 chosen += t["followed"].as_bool();
@@ -2355,7 +2427,7 @@ std::vector<Ui::HomeCard> Ui::home_cards() const {
             if (same_first < 0) same_first = static_cast<int>(i);
         }
         if (!sync_plans_.empty()) {
-            const std::string head = sync_plans_.size() > 1 ? trf("SYNCHRO · %d appareils", static_cast<int>(sync_plans_.size())) : std::string(tr("SYNCHRO"));
+            const std::string head = sync_plans_.size() > 1 ? trf("SYNCHRO · %d cibles disponibles", static_cast<int>(sync_plans_.size())) : std::string(tr("SYNCHRO"));
             if (need_total) {
                 g.insert(g.end(), idle.begin(), idle.end());
                 out.push_back({head, trf("%d jeu(x) à mettre à niveau", need_total), "", color::warn, 100 + first, g});
@@ -2420,8 +2492,7 @@ void Ui::run_home_card(int action) {
         const std::string peer = sync_plans_[static_cast<std::size_t>(action - 100)].second["peer"].as_string();
         tab_ = synchro;
         sy_pick_ = false;
-        const auto devs = sy_devices();
-        for (std::size_t i = 0; i < devs.size(); ++i) if (devs[i].id == peer) sn_card_ = static_cast<int>(i);
+        sy_select(peer);
         sn_zone_ = 1;
         sn_target_ = 0;
     }
@@ -2494,17 +2565,40 @@ void Ui::input_home(std::uint32_t k) {
 }
 
 // Plans de synchro des copies, une fois par minute (ou tout de suite après un changement : sync_plans_at_ = 0).
+void Ui::plan_cmd(const std::string& path, std::function<void(const std::string&, const std::string&)> cb) {
+    {
+        std::lock_guard<std::mutex> l(plan_mu_);
+        for (const auto& q : plan_q_) if (q.first == path) return;  // déjà en attente
+        plan_q_.push_back({path, std::move(cb)});
+        if (plan_busy_) return;
+        plan_busy_ = true;
+    }
+    plan_next();
+}
+
+void Ui::plan_next() {
+    std::pair<std::string, std::function<void(const std::string&, const std::string&)>> q;
+    {
+        std::lock_guard<std::mutex> l(plan_mu_);
+        if (plan_q_.empty()) { plan_busy_ = false; return; }
+        q = std::move(plan_q_.front());
+        plan_q_.pop_front();
+    }
+    auto cb = std::move(q.second);
+    model_.command("GET", q.first, "", [this, cb](const std::string& e, const std::string& b) { if (cb) cb(e, b); plan_next(); });
+}
+
 void Ui::load_sync_plans() {
     bool has_nas = false;
     for (const auto& pl : snap_->places) has_nas = has_nas || pl.type == "ftp";
     bool failed = false;  // une section n'a pas eu de réponse : nouvel essai au bout de 20 s au lieu d'une minute
     for (const auto* v : {&parties_plans_, &apps_plans_, &dlc_plans_, &emu_plans_}) for (const auto& [n, pl] : *v) failed = failed || pl.has("error");
-    if ((peer_games_.size() || has_nas) && (!sync_plans_at_ || now_ - sync_plans_at_ > (failed ? 10000u : 15000u)  /* le moteur prépare les plans d'avance : relire souvent ne coûte rien */)) {  // PS5 jumelées et NAS
+    if ((peer_games_.size() || has_nas) && (!sync_plans_at_ || now_ - sync_plans_at_ > (failed ? 10000u : 30000u)  /* le moteur prépare les plans d'avance : relire souvent ne coûte rien */)) {  // PS5 jumelées et NAS
         sync_plans_at_ = now_ ? now_ : 1;
         for (const auto& pl : snap_->places) {
             if (pl.type != "ftp" || pl.use == "backups" || !pl.same_as.empty()) continue;  // un NAS qui sert à la synchro (un dossier une fois) : la synchro des sauvegardes entre cette console et lui
             const std::string id = pl.id, name = sy_nas_name(pl);
-            model_.command("GET", "/api/v2/sync/copies/plan?peer=" + id + "&full=1", "", [this, name](const std::string& e, const std::string& body) {
+            plan_cmd("/api/v2/sync/copies/plan?peer=" + id + "&full=1", [this, name](const std::string& e, const std::string& body) {
                 Json j;
                 if (!e.empty() || !Json::parse(body, j) || j.has("error")) return;
                 post_ui([this, name, j] {
@@ -2514,7 +2608,7 @@ void Ui::load_sync_plans() {
             });
             // Le NAS comme dépôt : parties actives et applis (mêmes écrans qu'avec une autre PS5)
             for (int sec = 0; sec < 2; ++sec)
-                model_.command("GET", std::string(sec ? "/api/v2/sync/apps/plan?peer=" : "/api/v2/sync/parties/plan?peer=") + id, "", [this, name, id, sec](const std::string& e, const std::string& body) {
+                plan_cmd(std::string(sec ? "/api/v2/sync/apps/plan?peer=" : "/api/v2/sync/parties/plan?peer=") + id, [this, name, id, sec](const std::string& e, const std::string& body) {
                     Json j;
                     if (!e.empty() || !Json::parse(body, j) || !j.is_object()) { j = Json::object(); j.set("peer", id); j.set("error", e.empty() ? std::string(tr("réponse illisible")) : e); }
                     post_ui([this, name, j, sec] {
@@ -2526,7 +2620,7 @@ void Ui::load_sync_plans() {
         }
         for (const auto& p : peer_games_.items()) {
             const std::string inst = p["instance"].as_string(), name = p["name"].as_string();
-            model_.command("GET", "/api/v2/sync/copies/plan?peer=" + inst + "&full=1", "", [this, name](const std::string& e, const std::string& body) {
+            plan_cmd("/api/v2/sync/copies/plan?peer=" + inst + "&full=1", [this, name](const std::string& e, const std::string& body) {
                 Json j;
                 if (!e.empty() || !Json::parse(body, j) || j.has("error")) return;
                 post_ui([this, name, j] {
@@ -2534,7 +2628,7 @@ void Ui::load_sync_plans() {
                     sync_plans_.push_back({name, j});
                 });
             });
-            model_.command("GET", "/api/v2/sync/parties/plan?peer=" + inst, "", [this, name, inst](const std::string& e, const std::string& body) {
+            plan_cmd("/api/v2/sync/parties/plan?peer=" + inst, [this, name, inst](const std::string& e, const std::string& body) {
                 Json j;
                 if (!e.empty() || !Json::parse(body, j) || !j.is_object()) {  // pas de réponse : on le dit (et on réessaie vite), jamais « lecture… » sans fin
                     Json d = Json::object();  // diagnostic : le moteur garde la raison (status › tv_app › recent)
@@ -2547,7 +2641,7 @@ void Ui::load_sync_plans() {
                     parties_plans_.push_back({name, j});
                 });
             });
-            model_.command("GET", "/api/v2/sync/apps/plan?peer=" + inst, "", [this, name, inst](const std::string& e, const std::string& body) {
+            plan_cmd("/api/v2/sync/apps/plan?peer=" + inst, [this, name, inst](const std::string& e, const std::string& body) {
                 Json j;
                 if (!e.empty() || !Json::parse(body, j) || !j.is_object()) {  // pas de réponse : on le dit (et on réessaie vite), jamais « lecture… » sans fin
                     Json d = Json::object();  // diagnostic : le moteur garde la raison (status › tv_app › recent)
@@ -2560,7 +2654,7 @@ void Ui::load_sync_plans() {
                     apps_plans_.push_back({name, j});
                 });
             });
-            model_.command("GET", "/api/v2/sync/emu/plan?peer=" + inst, "", [this, name, inst](const std::string& e, const std::string& body) {
+            plan_cmd("/api/v2/sync/emu/plan?peer=" + inst, [this, name, inst](const std::string& e, const std::string& body) {
                 Json j;
                 if (!e.empty() || !Json::parse(body, j) || !j.is_object()) { j = Json::object(); j.set("peer", inst); j.set("error", e.empty() ? std::string(tr("réponse illisible")) : e); }
                 post_ui([this, name, j] {
@@ -2568,7 +2662,7 @@ void Ui::load_sync_plans() {
                     emu_plans_.push_back({name, j});
                 });
             });
-            model_.command("GET", "/api/v2/sync/dlc/plan?peer=" + inst, "", [this, name, inst](const std::string& e, const std::string& body) {
+            plan_cmd("/api/v2/sync/dlc/plan?peer=" + inst, [this, name, inst](const std::string& e, const std::string& body) {
                 Json j;
                 if (!e.empty() || !Json::parse(body, j) || !j.is_object()) {  // pas de réponse : on le dit (et on réessaie vite), jamais « lecture… » sans fin
                     Json d = Json::object();  // diagnostic : le moteur garde la raison (status › tv_app › recent)
@@ -2586,7 +2680,7 @@ void Ui::load_sync_plans() {
     const bool prun = parties_status_["state"].as_string() == "running";
     if (!parties_status_at_ || now_ - parties_status_at_ > (prun ? 2000u : 30000u)) {
         parties_status_at_ = now_ ? now_ : 1;
-        model_.command("GET", "/api/v2/sync/parties/status", "", [this, prun](const std::string& e, const std::string& body) {
+        plan_cmd("/api/v2/sync/parties/status", [this, prun](const std::string& e, const std::string& body) {
             Json j;
             if (!e.empty() || !Json::parse(body, j)) return;
             post_ui([this, j, prun] {
@@ -2785,7 +2879,11 @@ void Ui::draw_home(Surface& s) {
                     const std::size_t n = c.games.size(), at = static_cast<std::size_t>(now_ / 3000) % n;
                     const auto& [key, title] = c.games[at];
                     Item stand_in;
-                    const int dev = key == "dev:ps5" ? dev_internal : key == "dev:switch" ? dev_switch : key == "dev:nas" ? dev_nas : -1;  // bulle d'un appareil : son image
+                    int dev = key == "dev:ps5" ? dev_internal : key == "dev:switch" ? dev_switch : key == "dev:nas" ? dev_nas : -1;  // bulle d'un appareil : son image
+                    if (key.rfind("dev:cloud:", 0) == 0) {  // « dev:cloud:<type>:<service> » : logo du service
+                        const std::string rest = key.substr(10), type = rest.substr(0, rest.find(':')), svc = rest.find(':') == std::string::npos ? std::string() : rest.substr(rest.find(':') + 1);
+                        dev = cloud_dev(type, svc);
+                    }
                     if (dev >= 0 && devices_[dev].valid()) {
                         s.image(devices_[dev], kx + 30, ky + 28, kh - 56, kh - 56);  // sans fond : l'image seule
                     } else if (key == "pbc:logo" && logo_.valid()) {  // mise à jour de Backup Center : notre logo
@@ -3116,7 +3214,7 @@ void Ui::draw_sheet(Surface& s) {
     const auto& places = snap_->places;
     const bool chosen = dest_ > 0 && dest_ <= static_cast<int>(places.size());
     const std::string dest = trf("Destination : %s", (!chosen ? std::string(tr("automatique")) : places[static_cast<std::size_t>(dest_ - 1)].label +
-                             (places[static_cast<std::size_t>(dest_ - 1)].type == "ftp" ? std::string(" · ") + tr("réseau") : " · " + trf("%s libres", size_text(places[static_cast<std::size_t>(dest_ - 1)].free).c_str()))).c_str());
+                             (places[static_cast<std::size_t>(dest_ - 1)].type == "ftp" ? std::string(" · ") + (places[static_cast<std::size_t>(dest_ - 1)].protocol == "gdrive" || places[static_cast<std::size_t>(dest_ - 1)].protocol == "s3" || places[static_cast<std::size_t>(dest_ - 1)].protocol == "onedrive" || places[static_cast<std::size_t>(dest_ - 1)].protocol == "dropbox" ? tr("nuage") : tr("réseau")) : " · " + trf("%s libres", size_text(places[static_cast<std::size_t>(dest_ - 1)].free).c_str()))).c_str());
     const int dw = Surface::measure(dest, body) + 40;
     s.rect(px + 48, y, dw, 52, color::bg2, 26);
     sheet_btns_.clear();
@@ -3139,7 +3237,7 @@ void Ui::draw_sheet(Surface& s) {
         int by = y + 76;
         int line = 1;
         const bool tools = (it->kind == "game_ps5" || it->kind == "game_ps4") && it->key.rfind("save:", 0) != 0;  // sauvegarde sans le jeu : pas d'image
-        std::vector<std::pair<int, const char*>> btns = {{0, tr("Plans programmés…")}, {1, tr("Parcourir")}, {2, tr("Toutes les versions")},
+        std::vector<std::pair<int, const char*>> btns = {{0, tr("Plans programmés…")}, {1, tr("Parcourir")}, {2, tr("Toutes les versions")}, {7, tr("Comparer")},
                                                          {3, it->ignored ? tr("Sauvegarder de nouveau") : tr("Ne plus sauvegarder…")}, {4, tr("Envoyer à une PS5…")}};
         if (tools) btns.push_back({5, tr("Outils de l'image…")});
         if (has_console_save(it->title_id)) btns.push_back({6, tr("Supprimer la partie de la console…")});
@@ -3170,8 +3268,16 @@ void Ui::draw_destinations(Surface& s) {
         if (!link_peers_at_ || now_ - link_peers_at_ > (pushing ? 2000u : 10000u)) load_link_peers();  // consoles jumelées : leur propre minuterie
     }
     // Hauteur des cartes selon le nombre de rangées : tout tient au-dessus des aides du bas (rangée « Ajouter » comprise).
-    int n_cards = static_cast<int>(remotes_all_.size() + peer_cards().size());
-    for (const auto& p : snap_->places) if (p.type == "usb" || p.type == "internal") ++n_cards;
+    // Bulles groupées : chaque carte est montrée (0), remplacée par la bulle de sa famille (1) ou cachée (2).
+    const auto entries = dest_entries();
+    std::vector<int> vis;
+    {
+        int total = static_cast<int>(remotes_all_.size() + peer_cards().size());
+        for (const auto& p : snap_->places) if (p.type == "usb" || p.type == "internal") ++total;
+        vis.assign(static_cast<std::size_t>(total), 2);
+        for (const auto& e : entries) vis[static_cast<std::size_t>(e.old)] = e.group ? 1 : 0;
+    }
+    int n_cards = static_cast<int>(entries.size());
     const int rows = std::max(1, (n_cards + 2) / 3), ah = 150, row_gap = 16;
     const int ch = std::clamp((975 - 244 - (36 + ah + 12) - (rows - 1) * row_gap) / rows, 120, 176), cw = 552, gap = 36;
     int x = margin, y = 244;
@@ -3188,8 +3294,31 @@ void Ui::draw_destinations(Surface& s) {
         const int im = std::min(150, ch - 16);
         if (devices_[dev].valid()) s.image(devices_[dev], x + 20 + (150 - im) / 2, y + (ch - im) / 2, im, im);
     };
+    // Bulle d'une famille fermée : son image, son nom, ce qu'elle contient ; Croix l'ouvre.
+    auto group_card = [&](int old) {
+        const std::string fam = dest_fam(old);
+        int count = 0;
+        for (const auto& e : entries) if (e.old == old) count = e.count;
+        const int dev = fam == "ps5" ? dev_internal : fam == "switch" ? dev_switch : fam == "cloud" ? dev_cloud : dev_nas;
+        card(dev, false);
+        const int tx = x + 200, tw = cw - 220;
+        const std::string name = fam == "ps5" ? tr("Cette PS5") : fam == "switch" ? std::string("Switch") : fam == "cloud" ? tr("Nuage") : std::string("NAS");
+        const std::string tag = trf("%d ›", count);
+        card_title(s, tx, y, name, tw - Surface::measure(tag, small) - 20);
+        s.text(font_, x + cw - 20 - Surface::measure(tag, small), y + 30, tag, small, color::accent);
+        std::string list;
+        std::uint64_t free = 0;
+        int k = 0;
+        for (const auto& p : snap_->places) if (p.type == "usb" || p.type == "internal") { if (fam == "ps5") { list += (list.empty() ? "" : " · ") + (p.type == "internal" ? std::string(tr("Interne")) : p.label); free += p.free; } ++k; }
+        for (const auto& r : remotes_all_.items()) { if (dest_fam(k) == fam) list += (list.empty() ? "" : " · ") + r["name"].as_string(); ++k; }
+        s.text(font_, tx, y + 66, list, small, color::muted, tw);
+        if (fam == "ps5") s.text(font_, tx, y + 110, trf("%s libres", size_text(free).c_str()), body, color::text, tw);
+        else s.text(font_, tx, y + 110, tr("Croix : voir les appareils"), small, color::accent, tw);
+    };
+    int oi = 0;  // rang de la carte dans l'ancienne liste
     for (const auto& p : snap_->places) {
         if (p.type != "usb" && p.type != "internal") continue;  // les Switch ont leur propre carte plus bas
+        { const int me = oi++; if (vis[static_cast<std::size_t>(me)] == 2) continue; if (vis[static_cast<std::size_t>(me)] == 1) { group_card(me); next(); continue; } }
         card(p.type == "usb" ? dev_usb : dev_internal, snap_->default_place == p.id);
         const int tx = x + 200, tw = cw - 220;
         card_title(s, tx, y, p.label, tw - 110);
@@ -3204,12 +3333,13 @@ void Ui::draw_destinations(Surface& s) {
         next();
     }
     for (const auto& r : remotes_all_.items()) {
+        { const int me = oi++; if (vis[static_cast<std::size_t>(me)] == 2) continue; if (vis[static_cast<std::size_t>(me)] == 1) { group_card(me); next(); continue; } }
         const bool sw = r["type"].as_string() == "switch";
         const bool drive = r["type"].as_string() == "gdrive" || r["type"].as_string() == "onedrive" || r["type"].as_string() == "dropbox";
         const bool s3 = r["type"].as_string() == "s3" || drive;  // stockage dans le nuage : image du nuage
-        card(sw ? dev_switch : s3 ? dev_cloud : dev_nas, false);  // un appareil FTP enregistré = un NAS (boîtier)
-        const int tx = x + 200, tw = cw - 220;
         const std::string service = r["config"]["service"].as_string();
+        card(sw ? dev_switch : s3 ? cloud_dev(r["type"].as_string(), service) : dev_nas, false);  // nuage : logo du service ; FTP = un NAS (boîtier)
+        const int tx = x + 200, tw = cw - 220;
         const char* tag = sw ? "Switch" : drive ? (r["type"].as_string() == "gdrive" ? "Drive" : r["type"].as_string() == "dropbox" ? "Dropbox" : "OneDrive") : s3 ? (service == "b2" ? "B2" : "S3") : r["type"].as_string() == "webdav" ? "WebDAV" : "FTP";
         card_title(s, tx, y, r["name"].as_string(), cw - 20 - Surface::measure(tag, small) - 16 - (tx - x));  // le nom s'arrête avant l'étiquette
         s.text(font_, x + cw - 20 - Surface::measure(tag, small), y + 30, tag, small, sw ? rgb(255, 120, 120) : color::accent);
@@ -3231,6 +3361,7 @@ void Ui::draw_destinations(Surface& s) {
         next();
     }
     for (const auto& pc : peer_cards()) {  // autres PS5 jumelées : leurs disques, comme s'ils étaient branchés ici
+        { const int me = oi++; if (vis[static_cast<std::size_t>(me)] == 2) continue; if (vis[static_cast<std::size_t>(me)] == 1) { group_card(me); next(); continue; } }
         const Json& p = pc.peer;
         const std::string pname = p["name"].as_string().empty() ? p["host"].as_string() : p["name"].as_string();
         card(dev_internal, false);
@@ -3390,6 +3521,38 @@ void Ui::draw_destinations(Surface& s) {
 
 // ---- Destinations : choisir, régler, ajouter ----
 
+// Famille d'une carte (même ordre que l'écran : disques, appareils réseau / nuage, autres PS5).
+std::string Ui::dest_fam(int old) const {
+    int np = 0;
+    for (const auto& p : snap_->places) if (p.type == "usb" || p.type == "internal") ++np;
+    if (old < np) return "ps5";
+    const int ri = old - np;
+    if (ri < static_cast<int>(remotes_all_.size())) {
+        const std::string t = remotes_all_[static_cast<std::size_t>(ri)]["type"].as_string();
+        return t == "switch" ? "switch" : (t == "s3" || t == "gdrive" || t == "onedrive" || t == "dropbox") ? "cloud" : "nas";
+    }
+    return "peer:" + std::to_string(old);  // chaque autre PS5 reste seule (ses disques sont déjà dans sa carte)
+}
+
+std::vector<Ui::DestEntry> Ui::dest_entries() const {
+    int np = 0;
+    for (const auto& p : snap_->places) if (p.type == "usb" || p.type == "internal") ++np;
+    const int total = np + static_cast<int>(remotes_all_.size()) + static_cast<int>(peer_cards().size());
+    std::map<std::string, int> size;
+    for (int i = 0; i < total; ++i) ++size[dest_fam(i)];
+    std::vector<DestEntry> out;
+    std::set<std::string> shown;
+    for (int i = 0; i < total; ++i) {
+        const std::string f = dest_fam(i);
+        if (size[f] > 1 && f != dest_open_) {  // famille fermée : une seule bulle, à la place de son premier élément
+            if (shown.insert(f).second) out.push_back({i, f, true, size[f]});
+            continue;
+        }
+        out.push_back({i, f, false, size[f]});
+    }
+    return out;
+}
+
 void Ui::input_destinations(std::uint32_t k) {
     std::vector<const Place*> places;
     for (const auto& p : snap_->places) if (p.type == "usb" || p.type == "internal") places.push_back(&p);
@@ -3397,6 +3560,29 @@ void Ui::input_destinations(std::uint32_t k) {
     const auto peers = peer_cards();
     const int cards = static_cast<int>(places.size()) + remotes + static_cast<int>(peers.size());
     const int peer_at = static_cast<int>(places.size()) + remotes;  // première carte de console jumelée
+    const auto entries = dest_entries();
+    int restore_sel = -1;
+    if (dest_zone_ == 0) {
+        const int shown = static_cast<int>(entries.size());
+        int vsel = std::min(dest_sel_, std::max(0, shown - 1));
+        if (k & key::left) { dest_sel_ = std::max(0, vsel - 1); return; }
+        if (k & key::right) { dest_sel_ = std::min(std::max(0, shown - 1), vsel + 1); return; }
+        if (k & key::up) { dest_sel_ = std::max(0, vsel - 3); return; }
+        if (k & key::down) { if (vsel + 3 < shown) dest_sel_ = vsel + 3; else dest_zone_ = 1; return; }
+        if ((k & key::circle) && !dest_open_.empty()) { dest_open_.clear(); dest_sel_ = 0; return; }  // refermer la famille
+        if (vsel < shown && entries[static_cast<std::size_t>(vsel)].group) {
+            if (k & key::cross) {  // ouvrir la famille sur place : le curseur va sur son premier élément
+                dest_open_ = entries[static_cast<std::size_t>(vsel)].fam;
+                const auto after = dest_entries();
+                for (int j = 0; j < static_cast<int>(after.size()); ++j) if (after[static_cast<std::size_t>(j)].fam == dest_open_) { dest_sel_ = j; break; }
+            }
+            return;
+        }
+        // Rang dans l'ancienne liste : les actions des cartes (plus bas) ne changent pas ; la sélection visible revient après.
+        restore_sel = vsel;
+        dest_sel_ = vsel < shown ? entries[static_cast<std::size_t>(vsel)].old : cards;
+    }
+    struct Restore { int& r; int v; ~Restore() { if (v >= 0) r = v; } } restore{dest_sel_, restore_sel};
     if (dest_zone_ == 0) {
         if (k & key::left) dest_sel_ = std::max(0, dest_sel_ - 1);
         if (k & key::right) dest_sel_ = std::min(std::max(0, cards - 1), dest_sel_ + 1);
@@ -3456,7 +3642,25 @@ void Ui::input_destinations(std::uint32_t k) {
     if (k & key::left) dest_add_ = std::max(0, dest_add_ - 1);
     if (k & key::right) dest_add_ = std::min(7, dest_add_ + 1);
     if (k & (key::up | key::circle)) dest_zone_ = 0;
-    if (k & key::cross) {
+    if (k & key::cross) add_device(dest_add_);
+}
+
+// « Ajouter un service » : un seul choix pour tous les appareils (Appareils, et la bulle + Ajouter de Transferts).
+void Ui::open_add_service() {
+    open_actions(tr("Ajouter un service"), {
+        {tr("Une autre PS5"), [this] { add_device(0); }},
+        {tr("PS5 à distance (par Internet)"), [this] { add_device(1); }},
+        {tr("Disque USB"), [this] { add_device(2); }},
+        {tr("Switch"), [this] { add_device(3); }},
+        {tr("NAS (Synology, QNAP, FTP, SMB, WebDAV)"), [this] { add_device(6); }},
+        {tr("Nuage (Google Drive, OneDrive, Dropbox, S3…)"), [this] { add_device(7); }},
+        {tr("Annuler"), [] {}},
+    });
+}
+
+void Ui::add_device(int which) {
+    {
+        const int dest_add_ = which;
         // 0 PS5, 1 PS5 à distance, 2 USB, 3 Switch, 4 Synology, 5 QNAP, 6 FTP / SMB, 7 Cloud
         if (dest_add_ == 0) open_other_ps5();
         else if (dest_add_ == 1) open_remote_ps5();
@@ -3996,8 +4200,17 @@ void Ui::wan_test(const std::string& inst, const std::string& name) {
     });
 }
 
+// Image d'un stockage dans le nuage : le logo de son service (Google Drive, Dropbox, OneDrive, Backblaze, Amazon),
+// sinon le nuage (Wasabi, R2, Scaleway…, ou logo absent).
+int Ui::cloud_dev(const std::string& type, const std::string& service) const {
+    const int d = type == "gdrive" ? dev_gdrive : type == "dropbox" ? dev_dropbox : type == "onedrive" ? dev_onedrive
+                : type == "s3" && service == "b2" ? dev_b2 : type == "s3" && service == "aws" ? dev_aws : dev_cloud;
+    return devices_[d].valid() ? d : dev_cloud;
+}
+
 void Ui::open_editor(const std::string& id, const std::string& type) {
     ed_open_ = true;
+    ed_count0_ = id.empty() ? static_cast<int>(remotes_all_.size()) : -1;
     ed_link_.clear();
     ed_busy_ = ed_forget_armed_ = false;
     ed_id_ = id;
@@ -4025,8 +4238,9 @@ void Ui::open_editor(const std::string& id, const std::string& type) {
             use = r["use"].as_string();
         }
     if (ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox") {  // compte connecté par code : rien à saisir que le nom et l'usage
-        ed_fields_ = {{N_("Compte"), bucket}, {N_("Nom"), name.empty() ? bucket : name}, {N_("Dossier"), root},
-                      {N_("Utilisé pour"), id.empty() || use == "backups" ? N_("Sauvegardes seulement") : use == "sync" ? N_("Synchro seulement") : N_("Sauvegardes et Synchro")}};
+        // Comme un NAS : les sauvegardes dans « PBC Backup » (créé à l'enregistrement), sauvegardes et synchro par défaut.
+        ed_fields_ = {{N_("Compte"), bucket}, {N_("Nom"), name.empty() ? bucket : name}, {N_("Dossier"), id.empty() ? std::string("/PBC Backup") : root},
+                      {N_("Utilisé pour"), use == "backups" ? N_("Sauvegardes seulement") : use == "sync" ? N_("Synchro seulement") : N_("Sauvegardes et Synchro")}};
         return;
     }
     if (ed_type_ == "s3") {  // stockage S3 : clés au lieu d'une adresse et d'un mot de passe ; « Sauvegardes seulement » par défaut
@@ -4035,7 +4249,7 @@ void Ui::open_editor(const std::string& id, const std::string& type) {
         ed_fields_ = {{N_("Nom"), name}, {N_("Service"), s3_service(ed_service_).name},
                       {N_("Adresse du service"), s3_host_typed(ed_service_) ? host : ""}, {N_("Région"), region}, {N_("Compartiment"), bucket},
                       {N_("Clé d'accès"), user == "anonymous" ? "" : user}, {N_("Clé secrète"), ""}, {N_("Dossier"), root},
-                      {N_("Utilisé pour"), id.empty() || use == "backups" ? N_("Sauvegardes seulement") : use == "sync" ? N_("Synchro seulement") : N_("Sauvegardes et Synchro")}};
+                      {N_("Utilisé pour"), use == "backups" ? N_("Sauvegardes seulement") : use == "sync" ? N_("Synchro seulement") : N_("Sauvegardes et Synchro")}};  // comme un NAS : les deux par défaut
         ed_qr_ = Json();
         model_.command("GET", "/api/v2/web-link?place=cloud", "", [this](const std::string& e, const std::string& body) {  // coller les clés depuis un téléphone
             Json j;
@@ -4132,7 +4346,9 @@ void Ui::draw_cloud_link(Surface& s) {
         const std::string link = cl_id_, account = cl_status_["account"].as_string();
         open_editor("", cl_provider_);
         ed_link_ = link;
-        for (auto& f : ed_fields_) if (f.first == "Compte" || f.first == "Nom") f.second = account;
+        // Display the service device name separately from the account name.
+        const std::string svc = cl_provider_ == "gdrive" ? "Google Drive" : cl_provider_ == "dropbox" ? "Dropbox" : "OneDrive";
+        for (auto& f : ed_fields_) { if (f.first == "Compte") f.second = account; if (f.first == "Nom") f.second = svc; }
         if (cl_status_["total"].as_int() > 0)
             toast(trf("Compte connecté : %s libres sur %s", size_text(static_cast<std::uint64_t>(cl_status_["free"].as_int())).c_str(), size_text(static_cast<std::uint64_t>(cl_status_["total"].as_int())).c_str()));
         return;
@@ -4156,7 +4372,7 @@ void Ui::draw_cloud_link(Surface& s) {
     s.rect(x + 10, y + 14, w, h, rgb(0, 0, 0, 120), 30);
     s.rect(x, y, w, h, color::panel, 30);
     s.outline(x, y, w, h, color::line, 30, 2);
-    if (devices_[dev_cloud].valid()) s.image(devices_[dev_cloud], x + 36, y + 26, 96, 96);
+    if (devices_[cloud_dev(cl_provider_)].valid()) s.image(devices_[cloud_dev(cl_provider_)], x + 36, y + 26, 96, 96);
     s.text(font_, x + 150, y + 36, trf("Connecter %s", name), large, color::text);
     s.text(font_, x + 150, y + 84, tr("Rien à taper ici : la connexion se fait sur votre téléphone, chez le service."), small, color::muted, w - 190);
     const int qs = 340, qx = x + 50, qy = y + 160;
@@ -4192,8 +4408,9 @@ void Ui::draw_cloud_link(Surface& s) {
         s.text(font_, tx, ty + 110, tr("2. Saisissez ce code :"), body, color::muted, tw);
         s.rect(tx, ty + 154, std::min(tw, 420), 84, rgb(255, 255, 255, 18), 18);
         s.text(font_, tx + 28, ty + 168, cl_code_.empty() ? std::string("…") : cl_code_, large, color::text);
-        for (const auto& line : wrap(tr("3. Connectez-vous (e-mail, mot de passe, code de validation…) et acceptez."), body, tw)) { s.text(font_, tx, ty + 262, line, body, color::muted); ty += 40; }
-        const int sy = qy + qs - 30;
+        int ly = ty + 262;  // l'étape 3 tient sur deux lignes : l'attente passe dessous, sans la chevaucher
+        for (const auto& line : wrap(tr("3. Connectez-vous (e-mail, mot de passe, code de validation…) et acceptez."), body, tw)) { s.text(font_, tx, ly, line, body, color::muted); ly += 40; }
+        const int sy = std::max(qy + qs - 30, ly + 16);
         if (cl_state_ == "denied") s.text(font_, tx, sy, tr("Refusé sur le téléphone. Carré : nouveau code."), body, color::bad, tw);
         else if (cl_state_ == "expired") s.text(font_, tx, sy, tr("Code expiré. Carré : nouveau code."), body, color::warn, tw);
         else { spinner(s, tx + 16, sy + 18, 14); s.text(font_, tx + 44, sy, tr("En attente de votre accord…"), body, color::accent, tw - 44); }
@@ -4268,17 +4485,20 @@ void Ui::input_editor(std::uint32_t k) {
         const bool cloudy = ed_type_ == "s3" || ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox";
         if (!cloudy && ed_fields_[1].second.empty()) { toast(tr("Saisissez d'abord l'adresse IP de l'appareil")); return; }
         Json c = Json::object();
-        c.set("type", ed_type_);
-        c.set("id", ed_id_);
-        c.set("host", ed_fields_[1].second);
-        c.set("port", std::atoi(ed_fields_[2].second.c_str()));
-        c.set("user", ed_fields_[3].second);
-        c.set("password", ed_fields_[4].second);
-        c.set("proto", ed_field("Protocole") == "SMB" ? "smb" : "ftp");
         if (ed_type_ == "s3") c = ed_s3_body();
-        if (ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox") c = ed_drive_body();
+        else if (ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox") c = ed_drive_body();  // 4 champs seulement : pas d'adresse
+        else {
+            c.set("type", ed_type_);
+            c.set("id", ed_id_);
+            c.set("host", ed_fields_[1].second);
+            c.set("port", std::atoi(ed_fields_[2].second.c_str()));
+            c.set("user", ed_fields_[3].second);
+            c.set("password", ed_fields_[4].second);
+            c.set("proto", ed_field("Protocole") == "SMB" ? "smb" : "ftp");
+        }
         br_open_ = true;
-        br_title_ = ed_fields_[0].second.empty() ? ed_fields_[1].second : ed_fields_[0].second;
+        br_title_ = cloudy && !ed_field("Nom").empty() ? ed_field("Nom") : ed_fields_[0].second.empty() ? ed_fields_[1].second : ed_fields_[0].second;
+        br_fallback_ = true;
         br_files_ = false;
         br_view_ = false;
         br_remote_.clear();
@@ -4307,8 +4527,12 @@ void Ui::input_editor(std::uint32_t k) {
         });
         return;
     }
+    // Google Drive, OneDrive, Dropbox : 4 champs seulement (Compte, Nom, Dossier, Utilisé pour). La demande d'un NAS lit les
+    // champs 1 à 5 : on ne la construit que pour un NAS ou une Switch (sinon lecture hors de la liste → plantage).
+    const bool cloud_form = ed_type_ == "s3" || ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox";
     if (a == 0) {  // Enregistrer : le moteur teste la connexion avant
-        std::string body = "{\"type\":" + json_str(ed_type_) + ",\"name\":" + json_str(ed_fields_[0].second) + ",\"host\":" + json_str(ed_fields_[1].second) +
+        ed_count0_ = -1;
+        std::string body = cloud_form ? std::string() : "{\"type\":" + json_str(ed_type_) + ",\"name\":" + json_str(ed_fields_[0].second) + ",\"host\":" + json_str(ed_fields_[1].second) +
                            ",\"port\":" + std::to_string(std::atoi(ed_fields_[2].second.c_str())) + ",\"user\":" + json_str(ed_fields_[3].second) +
                            ",\"password\":" + json_str(ed_fields_[4].second) + ",\"root\":" + json_str(ed_fields_[5].second) +
                            ",\"layout\":" + json_str(ed_field("Rangement") == "Par plateforme (PS5 backup…)" ? std::string("platform") : std::string("pbc")) +
@@ -4328,7 +4552,7 @@ void Ui::input_editor(std::uint32_t k) {
         });
     } else if (a == 1) {  // Tester avec ce qui est saisi (avant ou après l'enregistrement) : rien n'est gardé
         ed_busy_ = true;
-        std::string body = "{\"type\":" + json_str(ed_type_) + ",\"id\":" + json_str(ed_id_) + ",\"host\":" + json_str(ed_fields_[1].second) +
+        std::string body = cloud_form ? std::string() : "{\"type\":" + json_str(ed_type_) + ",\"id\":" + json_str(ed_id_) + ",\"host\":" + json_str(ed_fields_[1].second) +
                            ",\"port\":" + std::to_string(std::atoi(ed_fields_[2].second.c_str())) + ",\"user\":" + json_str(ed_fields_[3].second) +
                            ",\"password\":" + json_str(ed_fields_[4].second) + ",\"root\":" + json_str(ed_fields_[5].second) +
                            ",\"layout\":" + json_str(ed_field("Rangement") == "Par plateforme (PS5 backup…)" ? std::string("platform") : std::string("pbc")) +
@@ -4353,13 +4577,18 @@ void Ui::input_editor(std::uint32_t k) {
 }
 
 void Ui::draw_editor(Surface& s) {
+    // Nouveau stockage : s'il est enregistré depuis le téléphone (page web du code QR), le formulaire de la télé se ferme.
+    if (ed_count0_ >= 0 && !ed_busy_) {
+        if (static_cast<int>(remotes_all_.size()) > ed_count0_) { ed_open_ = false; ed_count0_ = -1; toast(tr("Appareil enregistré depuis le téléphone")); return; }
+        if (now_ - switches_loaded_ > 3000) load_remotes();
+    }
     s.rect(0, 0, 1920, 1080, rgb(2, 8, 20, 170));
     const int w = 1000, h = 690 + std::max(0, static_cast<int>(ed_fields_.size()) - 6) * 66, x = (1920 - w) / 2, y = std::max(40, 150 - std::max(0, static_cast<int>(ed_fields_.size()) - 7) * 50);  // une ligne de plus par champ (Rangement, Protocole)
     s.rect(x + 10, y + 14, w, h, rgb(0, 0, 0, 120), 30);
     s.rect(x, y, w, h, color::panel, 30);
     s.outline(x, y, w, h, color::line, 30, 2);
     const bool sw = ed_type_ == "switch", s3 = ed_type_ == "s3", drive = ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox";
-    const int dev = sw ? dev_switch : s3 || drive ? dev_cloud : dev_nas;
+    const int dev = sw ? dev_switch : s3 || drive ? cloud_dev(ed_type_, ed_service_) : dev_nas;
     if (devices_[dev].valid()) s.image(devices_[dev], x + 36, y + 26, 96, 96);
     const std::string s3_title = trf("Ajouter un stockage %s", ed_service_ == "other" ? "S3" : s3_service(ed_service_).name);
     s.text(font_, x + 150, y + 36, drive ? (ed_type_ == "gdrive" ? "Google Drive" : ed_type_ == "dropbox" ? "Dropbox" : "OneDrive") : ed_id_.empty() ? (sw ? tr("Ajouter une Switch") : s3 ? s3_title.c_str() : ed_type_ == "smb" ? tr("Ajouter un partage SMB") : ed_type_ == "webdav" ? tr("Ajouter un NAS en WebDAV") : tr("Ajouter un serveur FTP")) : tr("Régler l'appareil"), large, color::text);
@@ -4516,6 +4745,7 @@ void Ui::draw_emulator(Surface& s) {
 
 void Ui::open_browser(std::string title, std::string start, bool files, std::function<void(const std::string&)> pick) {
     br_open_ = true;
+    br_fallback_ = false;
     br_title_ = std::move(title);
     br_files_ = files;
     br_remote_.clear();
@@ -4556,11 +4786,29 @@ void Ui::input_browser(std::uint32_t k) {
     if (br_loading_) return;
     const auto& list = br_entries_["entries"];
     const int n = static_cast<int>(list.size());
+    const int total = n + (br_can_mkdir() && br_entries_["error"].as_string().empty() ? 1 : 0);  // + « Nouveau dossier… »
     if (k & key::up) br_sel_ = std::max(0, br_sel_ - 1);
-    if (k & key::down) br_sel_ = std::min(std::max(0, n - 1), br_sel_ + 1);
-    if (k & key::r2) br_sel_ = std::min(std::max(0, n - 1), br_sel_ + 10);
+    if (k & key::down) br_sel_ = std::min(std::max(0, total - 1), br_sel_ + 1);
+    if (k & key::r2) br_sel_ = std::min(std::max(0, total - 1), br_sel_ + 10);
     if (k & key::l2) br_sel_ = std::max(0, br_sel_ - 10);
     if ((k & key::square) && !br_view_ && !br_files_ && br_path_ != "/") { if (br_pick_) br_pick_(br_path_); br_open_ = false; return; }
+    if ((k & key::cross) && br_sel_ == n && total > n) {  // « Nouveau dossier… » : le clavier, puis création sur l'appareil
+        open_keyboard(tr("Nom du dossier"), "", [this](const std::string& t) {
+            if (t.empty()) return;
+            const std::string path = (br_path_ == "/" ? "" : br_path_) + "/" + t;
+            std::string url = "/api/v2/remotes/" + br_remote_ + "/mkdir", body;
+            Json b = Json::object();
+            if (br_config_.is_object()) { b = br_config_; b.set("mkdir", true); url = "/api/v2/remotes/browse"; }
+            b.set("path", path);
+            body = b.dump();
+            model_.command("POST", url, body, [this, path](const std::string& e, const std::string&) {
+                if (!e.empty()) { post_toast(trf("Dossier impossible à créer : %s", e.c_str())); return; }
+                std::lock_guard<std::mutex> l(async_mu_);
+                pending_br_goto_ = path;
+            });
+        });
+        return;
+    }
     if ((k & key::cross) && br_sel_ < n) {
         const Json& e = list[static_cast<std::size_t>(br_sel_)];
         const std::string next = (br_path_ == "/" ? "" : br_path_) + "/" + e["name"].as_string();
@@ -4569,7 +4817,24 @@ void Ui::input_browser(std::uint32_t k) {
     }
 }
 
+// « Nouveau dossier… » : seulement quand on choisit un dossier d'un appareil réseau (NAS, Switch, nuage), avant ou
+// après l'enregistrement — pas pour la console ni l'autre PS5.
+bool Ui::br_can_mkdir() const {
+    return br_pick_ && !br_files_ && !br_view_ && (br_config_.is_object() || (!br_remote_.empty() && br_remote_.rfind("peer:", 0) != 0));
+}
+
 void Ui::draw_browser(Surface& s) {
+    {
+        std::string go;
+        { std::lock_guard<std::mutex> l(async_mu_); go.swap(pending_br_goto_); }
+        if (!go.empty()) { toast(tr("Dossier créé")); browse_to(go); }
+    }
+    if (!br_loading_ && br_fallback_) {  // dossier de départ absent : on remonte jusqu'à un dossier qui existe
+        if (!br_entries_["error"].as_string().empty() && br_path_ != "/" && !br_path_.empty()) {
+            const auto sl = br_path_.rfind('/');
+            browse_to(sl == 0 || sl == std::string::npos ? "/" : br_path_.substr(0, sl));
+        } else br_fallback_ = false;
+    }
     s.rect(0, 0, 1920, 1080, rgb(2, 8, 20, 150));
     const int w = 1100, h = 800, x = (1920 - w) / 2, y = 120;
     s.rect(x + 10, y + 14, w, h, rgb(0, 0, 0, 120), 30);
@@ -4580,12 +4845,13 @@ void Ui::draw_browser(Surface& s) {
     s.text(font_, x + 60, y + 89, br_path_, body, color::accent, w - 120);
     const auto& list = br_entries_["entries"];
     const int n = static_cast<int>(list.size()), per = 10;
+    const bool mk = !br_loading_ && br_can_mkdir() && br_entries_["error"].as_string().empty();
     if (br_sel_ < br_top_) br_top_ = br_sel_;
     if (br_sel_ >= br_top_ + per) br_top_ = br_sel_ - per + 1;
     int yy = y + 146;
     if (br_loading_) { spinner(s, x + 80, yy + 30); s.text(font_, x + 124, yy + 14, tr("Lecture du dossier…"), body, color::muted); }
     else if (!br_entries_["error"].as_string().empty()) s.text(font_, x + 60, yy + 10, br_entries_["error"].as_string(), body, color::bad, w - 120);
-    else if (n == 0) s.text(font_, x + 60, yy + 10, tr("Dossier vide"), body, color::muted);
+    else if (n == 0 && !mk) s.text(font_, x + 60, yy + 10, tr("Dossier vide"), body, color::muted);
     for (int i = br_top_; i < n && i < br_top_ + per; ++i) {
         const Json& e = list[static_cast<std::size_t>(i)];
         const bool on = i == br_sel_, dir = e["dir"].as_bool();
@@ -4600,6 +4866,12 @@ void Ui::draw_browser(Surface& s) {
             s.text(font_, x + w - 60 - Surface::measure(sz, small), yy + 15, sz, small, color::muted);
         }
         yy += 58;
+    }
+    if (mk && n >= br_top_ && n < br_top_ + per) {  // dernière ligne : « Nouveau dossier… »
+        const bool on = br_sel_ == n;
+        s.rect(x + 40, yy, w - 80, 52, on ? color::panel2 : rgb(255, 255, 255, 8), 12);
+        if (on) s.outline(x + 40, yy, w - 80, 52, color::accent, 12, 3);
+        s.text(font_, x + 64, yy + 11, std::string("+  ") + tr("Nouveau dossier…"), body, color::accent, w - 300);
     }
     s.rect(0, 996, 1920, 84, color::bg, 0);
     if (br_view_) draw_footer(s, {{0, tr("Ouvrir")}, {1, tr("Dossier parent")}, {3, tr("Fermer")}});
@@ -4995,16 +5267,20 @@ void Ui::draw_parties(Surface& s) {
         if (focus) s.outline(gx - 5, yy - 5, cs + 10, cs + 10, color::accent, 22, 4);
         s.text(font_, gx, yy + cs + 8, e["title"].as_string(), small, focus ? color::text : color::muted, cs);
         const std::string st = e["status"].as_string();
-        const char* label = st == "up_to_date" ? tr("À jour") : st == "console_newer" || st == "not_backed_up" ? tr("À sauvegarder") : st == "backup_newer" ? tr("Sauvegarde plus récente") : st == "system" ? tr("Données système") : tr("Seulement en sauvegarde");
+        const char* label = st == "up_to_date" ? tr("À jour") : st == "console_newer" || st == "not_backed_up" ? tr("À sauvegarder") : st == "backup_newer" ? tr("Copie plus récente") : st == "system" ? tr("Données système") : tr("Pas sur cette PS5");  // une copie existe, pas la partie ici
         if (st == "not_backed_up") label = tr("Jamais sauvegardée");
         const std::uint32_t tone = st == "up_to_date" ? color::ok : st == "backup_newer" || st == "console_newer" || st == "not_backed_up" ? color::warn : color::muted;
-        const int lw = std::min(cs, Surface::measure(label, small) + 20);
-        s.rect(gx, yy + cs + 38, lw, 30, (tone & 0x00FFFFFFu) | 0x30000000u, 15);
-        s.text(font_, gx + 10, yy + cs + 40, label, small, tone, cs - 20);
+        // L'étiquette n'est jamais coupée : sur deux lignes si elle ne tient pas (langues plus longues).
+        const auto lab = wrap(label, small, cs - 20);
+        const int nl = std::min<int>(2, static_cast<int>(lab.size()));
+        int lw = 0;
+        for (int li = 0; li < nl; ++li) lw = std::max(lw, Surface::measure(lab[static_cast<std::size_t>(li)], small) + 20);
+        s.rect(gx, yy + cs + 38, std::min(cs, lw), 30 * nl, (tone & 0x00FFFFFFu) | 0x30000000u, 15);
+        for (int li = 0; li < nl; ++li) s.text(font_, gx + 10, yy + cs + 40 + li * 28, lab[static_cast<std::size_t>(li)], small, tone, cs - 20);
         std::string adv = e["console"]["progress"]["text"].as_string();
         const std::int64_t pts = e["console"]["progress"]["play_time_seconds"].as_int(-1);
         if (pts > 0 && adv.find(':') == std::string::npos) adv += (adv.empty() ? "" : " · ") + trf("%s de jeu", hours_text(pts).c_str());
-        if (!adv.empty()) s.text(font_, gx, yy + cs + 74, adv, small, color::accent, cs);
+        if (!adv.empty()) s.text(font_, gx, yy + cs + 74 + (nl - 1) * 28, adv, small, color::accent, cs);
     }
     if (rows.empty()) s.text(font_, x, 440, overview_.is_object() ? tr("Rien dans ce filtre.") : tr("Lecture des sauvegardes…"), large, color::muted);
     if (!pt_sel_.empty()) draw_checked(s, static_cast<int>(pt_sel_.size()));
@@ -5596,7 +5872,7 @@ void Ui::draw_plans(Surface& s) {
         y += 128;
     }
     if (tasks_row_ == 0) draw_footer(s, {{0, tr("Créer")}, {2, trf("Voir : %s", tr(group_names[(tasks_group_ + 1) % 5])).c_str()}, {1, tr("Maintenir 2 s : quitter")}});
-    else draw_footer(s, {{0, tr("Modifier")}, {-1, tr("R2 lancer maintenant")}, {3, tr("Pause / reprendre")}, {2, trf("Voir : %s", tr(group_names[(tasks_group_ + 1) % 5])).c_str()}});
+    else draw_footer(s, {{0, tr("Modifier")}, {-1, tr("R2 : lancer maintenant")}, {3, tr("Pause / reprendre")}, {2, trf("Voir : %s", tr(group_names[(tasks_group_ + 1) % 5])).c_str()}});
 }
 
 void Ui::draw_tasks(Surface& s) {
@@ -5671,7 +5947,35 @@ void Ui::draw_tasks(Surface& s) {
         if (t.state == "done" && t.report["bytes_per_second"].is_number() && t.report["seconds"].is_number())
             detail += " · " + trf("lecture %s/s", size_text(static_cast<std::uint64_t>(t.report["bytes_per_second"].as_number())).c_str()) +
                       (t.report["note"].is_string() ? " · " + std::string(tr("jeu trop petit : mesure peu fiable")) : std::string());
-        s.text(font_, tx, y + 54, detail, small, color::muted, 1300 - (tx - margin - 28));
+        s.text(font_, tx, y + 54, detail, small, color::muted, 880);
+        // D'où → vers où (avec le logo de l'appareil) et qui l'a lancée, sans ouvrir Détails.
+        {
+            auto place_name = [&](const std::string& id, int& dev) -> std::string {
+                for (const auto& p : snap_->places) if (p.id == id) {
+                    const bool cl = p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox";
+                    dev = p.type == "ftp" ? (cl ? cloud_dev(p.protocol, p.service) : dev_nas) : p.type == "usb" ? dev_usb : dev_internal;
+                    return p.type == "internal" ? std::string(tr("Interne")) : p.label;
+                }
+                dev = dev_nas;
+                return id;
+            };
+            std::string from, to;
+            int fd = dev_internal, td = dev_internal;
+            if (t.type == "backup" && !t.to_place.empty()) { from = tr("Cette PS5"); to = place_name(t.to_place, td); }
+            else if ((t.type == "restore_save" || t.type == "restore") && !t.from_place.empty()) { from = place_name(t.from_place, fd); to = tr("Cette PS5"); }
+            std::string by = t.origin.rfind("plan:", 0) == 0 ? trf("Plan « %s »", t.origin.substr(5).c_str()) : t.origin == "sync" ? std::string(tr("Synchro")) : std::string();
+            int rx = tx + Surface::measure(detail, small) + 24;
+            if (rx > 1300) rx = tx + 900;
+            if (!from.empty()) {
+                s.text(font_, rx, y + 54, "·", small, color::muted); rx += 22;
+                if (devices_[fd].valid()) { s.image(devices_[fd], rx, y + 52, 28, 28); rx += 34; }
+                rx += s.text(font_, rx, y + 54, from, small, color::text) + 10;
+                rx += s.text(font_, rx, y + 54, "→", small, color::accent) + 10;
+                if (devices_[td].valid()) { s.image(devices_[td], rx, y + 52, 28, 28); rx += 34; }
+                rx += s.text(font_, rx, y + 54, to, small, color::text, std::max(60, 1560 - rx)) + 10;
+            }
+            if (!by.empty()) s.text(font_, rx, y + 54, "· " + by, small, color::muted, std::max(60, 1560 - rx));
+        }
         if (in_group(t.state, 0)) {
             const int bw = 1920 - margin - 28 - tx;
             s.rect(tx, y + 96, bw, 8, rgb(255, 255, 255, 26), 4);
@@ -6511,6 +6815,7 @@ void Ui::draw(Surface& s) {
     if (popup_) draw_popup(s);
     if (mg_preview_) draw_mg_preview(s);
     if (mg_ign_open_) draw_mg_ignore(s);
+    if (mg_tidy_open_) draw_mg_tidy(s);
     if (hold_open_) draw_hold_confirm(s);  // par-dessus l'aperçu qui l'a ouvert
     if (ed_open_) draw_editor(s);
     if (cl_open_) draw_cloud_link(s);

@@ -481,6 +481,14 @@ void HttpServer::handle(int fd, bool local) {
         json(fd, 200, j);
         return;
     }
+    // POST /api/v2/remotes/<id>/mkdir {path} : « Nouveau dossier… » dans l'explorateur d'un appareil enregistré
+    if (r.method == "POST" && r.path.rfind("/api/v2/remotes/", 0) == 0 && r.path.size() > 22 && r.path.substr(r.path.size() - 6) == "/mkdir") {
+        std::string err;
+        const Json j = e.mkdir_remote(r.path.substr(16, r.path.size() - 16 - 6), body["path"].as_string(), err);
+        if (!err.empty()) { error(fd, 409, err); return; }
+        json(fd, 200, j);
+        return;
+    }
     // /api/v2/remotes/<id>/list?path= : explorateur d'un appareil réseau
     if (r.method == "GET" && r.path.rfind("/api/v2/remotes/", 0) == 0 && r.path.size() > 21 && r.path.substr(r.path.size() - 5) == "/list") {
         std::string err;
@@ -511,7 +519,7 @@ void HttpServer::handle(int fd, bool local) {
         error(fd, 404, "action inconnue");
         return;
     }
-    if (r.method == "GET" && r.path == "/api/v2/saves/overview") { json(fd, 200, e.saves_overview()); return; }
+    if (r.method == "GET" && r.path == "/api/v2/saves/overview") { images::note_interactive(); json(fd, 200, e.saves_overview()); return; }
     if (r.method == "GET" && r.path == "/api/v2/playtime") { json(fd, 200, e.playtime()); return; }  // notre compteur, par jeu
     // Versions d'une sauvegarde déjà comparées par leur contenu (cache de la tâche « inspect_save »).
     if (r.method == "GET" && r.path == "/api/v2/saves/inspect") { json(fd, 200, e.save_inspections(r.param("title_id"), r.param("user_id"))); return; }
@@ -559,7 +567,7 @@ void HttpServer::handle(int fd, bool local) {
         respond(fd, 200, jpg ? "image/jpeg" : "image/png", tga ? png : data);
         return;
     }
-    if (r.method == "GET" && r.path == "/api/v2/backups") { json(fd, 200, e.backups_json(r.param("place"))); return; }
+    if (r.method == "GET" && r.path == "/api/v2/backups") { images::note_interactive(); json(fd, 200, e.backups_json(r.param("place"))); return; }
     // Liaison par Internet (« PS5 à distance ») : état, invitation, rejoindre, test. Réglages : wan_enabled, wan_port,
     // wan_public_host dans /api/v2/settings.
     if (r.path.rfind("/api/v2/wan", 0) == 0 && e.link()) {
@@ -1219,6 +1227,7 @@ void HttpServer::handle(int fd, bool local) {
         json(fd, 200, j);
         return;
     }
+    if (r.method == "POST" && r.path == "/api/v2/backups/peer-changed") { e.peer_changed(); json(fd, 200, Json::object()); return; }  // l'autre PS5 a changé ses copies
     if (r.method == "POST" && r.path == "/api/v2/backups/compare-all") {
         std::string err;
         const Json j = e.compare_all(body["account"].as_string(), err);
@@ -1226,7 +1235,7 @@ void HttpServer::handle(int fd, bool local) {
         json(fd, 200, j);
         return;
     }
-    if (r.method == "GET" && r.path == "/api/v2/backups/summary") { json(fd, 200, e.backups_summary(r.param("account"), r.param("local") != "1")); return; }
+    if (r.method == "GET" && r.path == "/api/v2/backups/summary") { images::note_interactive(); json(fd, 200, e.backups_summary(r.param("account"), r.param("local") != "1")); return; }
     if (r.method == "GET" && r.path == "/api/v2/trash") {
         std::string err;
         const Json j = e.trash_list(r.param("place"), err);
@@ -1293,6 +1302,13 @@ void HttpServer::handle(int fd, bool local) {
             Json j = e.task_backup(id, err);
             if (!err.empty()) { error(fd, 409, err); return; }
             json(fd, 200, j);
+            return;
+        }
+        if (action == "skip-verify") {  // « Arrêter la vérification » : la copie est gardée, marquée non vérifiée
+            std::string rid, title;
+            if (!e.queue().running(rid, title) || rid != id) { error(fd, 409, "ce transfert ne vérifie rien en ce moment"); return; }
+            images::skip_verification();
+            json(fd, 200, Json::object());
             return;
         }
         if (action == "cleanup") {  // « Fichiers » : retirer ce que la copie a créé

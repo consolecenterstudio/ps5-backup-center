@@ -486,7 +486,7 @@ function homeTodo() {
         sameFirst = sameFirst || p;
       }
       const idleLine = idle;  // chaque appareil défile avec son image
-      const head = syncState.plans.length > 1 ? T("SYNCHRO · %d appareils", syncState.plans.length) : T("SYNCHRO");
+      const head = syncState.plans.length > 1 ? T("SYNCHRO · %d cibles disponibles", syncState.plans.length) : T("SYNCHRO");
       const open = (p) => () => { if (p) SY.dev = p.plan.peer; SY.pick = null; setTab("synchro"); };
       if (need) cards.push({ eyebrow: head, title: T("%d jeu(x) à mettre à niveau", need), tone: "warn", games: [...games, ...idleLine], go: open(first) });
       else if (same.length) cards.push({ eyebrow: head, title: T("Tout est au même niveau"), tone: "ok", games: [...same, ...idleLine], go: open(sameFirst) });
@@ -592,7 +592,7 @@ function synchroView() {
 }
 // Deux synchros sur le même NAS (deux entrées du même nom) : « NAS (WebDAV) », et le dossier si le protocole est le même.
 function nasSyncName(p) {
-  const proto = (x) => (x.protocol === "webdav" ? "WebDAV" : x.protocol === "smb" ? "SMB" : "FTP");
+  const proto = (x) => ({ gdrive: "Google Drive", onedrive: "OneDrive", dropbox: "Dropbox", s3: "S3", webdav: "WebDAV", smb: "SMB" })[x.protocol] || "FTP";
   const twins = state.places.filter((o) => o.id !== p.id && o.type === "ftp" && o.use !== "backups" && !o.same_as && o.label === p.label);
   if (!twins.length) return p.label;
   const folder = (p.mount.match(/^\w+:\/\/[^/]*(\/.*)$/) || [, "/"])[1];
@@ -1540,7 +1540,7 @@ function openBrowser({ title, start, remote = "", config = null, pick = null, fi
   box.className = "modal";
   box.innerHTML = `<div class="dialog wide"><h2>${esc(title)}</h2><div class="br-path"><button class="secondary small" id="br-up">↑ ${T("Dossier parent")}</button><span class="mono" id="br-path"></span></div>
     <div class="br-list" id="br-list"></div>
-    <div class="actions">${pick && !files ? `<button class="primary" id="br-pick">${T("Choisir ce dossier")}</button>` : ""}${pick && files ? `<span class="hint">${T("Touchez un fichier pour le choisir.")}</span>` : ""}<button class="secondary" id="br-close">${T("Fermer")}</button></div></div>`;
+    <div class="actions">${pick && !files && (config || (remote && !remote.startsWith("peer:"))) ? `<button class="secondary" id="br-mkdir">＋ ${T("Nouveau dossier")}</button>` : ""}${pick && !files ? `<button class="primary" id="br-pick">${T("Choisir ce dossier")}</button>` : ""}${pick && files ? `<span class="hint">${T("Touchez un fichier pour le choisir.")}</span>` : ""}<button class="secondary" id="br-close">${T("Fermer")}</button></div></div>`;
   document.body.appendChild(box);
   let path = start || "/";
   const go = async (p) => {
@@ -1562,6 +1562,19 @@ function openBrowser({ title, start, remote = "", config = null, pick = null, fi
   };
   $("#br-up", box).onclick = () => { if (path === "/" || !path) return; const i = path.lastIndexOf("/"); go(i <= 0 ? "/" : path.slice(0, i)); };
   $("#br-close", box).onclick = () => box.remove();
+  // « Nouveau dossier » (appareil réseau : NAS, Switch, nuage) : créé dans le dossier ouvert, puis on y entre.
+  if ($("#br-mkdir", box)) $("#br-mkdir", box).onclick = async () => {
+    window.__fNew = "";
+    const ok = await ask(T("Nouveau dossier"), `<input id="f-newname" class="input" placeholder="${esc(T("Nom du dossier"))}" oninput="window.__fNew=this.value">`, T("Créer"));
+    const name = (window.__fNew || "").trim();
+    if (!ok || !name) return;
+    const p = (path === "/" ? "" : path) + "/" + name;
+    try {
+      if (config) await post("/remotes/browse", { ...config, path: p, mkdir: true });
+      else await post(`/remotes/${encodeURIComponent(remote)}/mkdir`, { path: p });
+      toast(T("Dossier créé")); go(p);
+    } catch (e) { toast(T("Dossier impossible à créer : %s", e.message)); }
+  };
   if (pick && !files) $("#br-pick", box).onclick = () => { if (path === "/") { toast(T("Choisissez un dossier.")); return; } pick(path); box.remove(); };
   go(path);
 }
@@ -1569,7 +1582,10 @@ function openBrowser({ title, start, remote = "", config = null, pick = null, fi
 // ---- Appareils (ex-Destinations) ---------------------------------------------------------------------
 // Images d'appareils : les mêmes que l'app télé (engine/web/devices/*.png, tirées de make_devices.py).
 const DEVICE_FILES = { ps5: "internal", internal: "internal", usb: "usb", switch: "switch", consoles: "consoles", nas: "nas",
-  network: "network", cloud: "cloud", synology: "synology", qnap: "qnap", x: "x", youtube: "youtube", reddit: "reddit", discord: "discord" };
+  network: "network", cloud: "cloud", synology: "synology", qnap: "qnap", x: "x", youtube: "youtube", reddit: "reddit", discord: "discord",
+  gdrive: "svc-gdrive", dropbox: "svc-dropbox", onedrive: "svc-onedrive", b2: "svc-b2", aws: "svc-aws" };
+// Logo du service dans le nuage (comme la télé) ; sinon le nuage.
+const cloudIcon = (type, service) => ICONS[type === "s3" ? (service === "b2" ? "b2" : service === "aws" ? "aws" : "cloud") : (type === "gdrive" || type === "dropbox" || type === "onedrive") ? type : "cloud"];
 const ICONS = new Proxy({}, { get: (_, k) => `<img class="dev-img" src="/devices/${DEVICE_FILES[k] || "network"}.png" alt="">` });
 function devCardHtml(p) {
   const def = state.settings.default_place === p.id;
@@ -1591,7 +1607,7 @@ function remoteCardHtml(r) {
   const s3 = r.type === "s3" || drive;  // stockage dans le nuage : service et compte plutôt qu'une adresse
   const where = drive ? esc(c.bucket || "") : s3 ? `${c.service === "b2" ? "Backblaze B2" : c.service === "other" ? esc(c.host || "") : "Amazon S3"}${c.region ? " · " + esc(c.region) : ""} · ${esc(c.bucket || "")}`
     : `${esc(c.host || "")}:${esc(c.port || "")}`;
-  return `<div class="dev"><div class="dev-ico">${sw ? ICONS.switch : s3 ? ICONS.cloud : ICONS.nas}</div><div class="dev-body">
+  return `<div class="dev"><div class="dev-ico">${sw ? ICONS.switch : s3 ? cloudIcon(r.type, c.service) : ICONS.nas}</div><div class="dev-body">
     <div class="title"><b>${esc(r.name)}</b><span class="tag ${sw ? "sw" : "info"}">${sw ? "Switch" : drive ? (r.type === "gdrive" ? "Drive" : r.type === "dropbox" ? "Dropbox" : "OneDrive") : s3 ? (c.service === "b2" ? "B2" : "S3") : r.type === "webdav" ? "WebDAV" : "FTP"}</span></div>
     <div class="hint">${where}${c.root && c.root !== "/" ? " · " + esc(c.root) : ""}</div>
     <div class="dev-line">${sw ? T("Un joueur : ses parties et leur synchro avec Eden") : `<span class="tag ${r.use === "sync" ? "off" : "ok"}">${T("Sauvegardes")}</span><span class="tag ${r.use === "backups" ? "off" : "ok"}">${T("Synchro")}</span>`}</div>
@@ -1787,15 +1803,24 @@ function devicesView() {
   });
   $$("[data-peer-wantest]").forEach((b) => b.onclick = () => wanTest(b.dataset.peerWantest, b.dataset.name));
   $$("[data-peer-session]").forEach((b) => b.onclick = () => { const p = (state.linkPeers || []).find((x) => x.instance === b.dataset.peerSession); if (p) wanSession(p); });
-  $$("[data-add]").forEach((b) => b.onclick = () => {
-    const i = +b.dataset.add;  // 0 PS5, 1 PS5 à distance, 2 USB, 3 Switch, 4 Synology, 5 QNAP, 6 FTP / SMB, 7 Cloud
-    if (i === 0) otherPs5();
-    else if (i === 1) remotePs5();
-    else if (i === 2) toast(T("Branchez le disque : il apparaît tout seul, et reste reconnu même sur un autre port."));
-    else if (i === 3) openEditor("", "switch");
-    else if (i >= 4 && i <= 6) openEditor("", "ftp");
-    else cloudPick();
-  });
+  $$("[data-add]").forEach((b) => b.onclick = () => addDevice(+b.dataset.add));
+}
+// 0 PS5, 1 PS5 à distance, 2 USB, 3 Switch, 4 Synology, 5 QNAP, 6 FTP / SMB / WebDAV, 7 nuage
+function addDevice(i) {
+  if (i === 0) otherPs5();
+  else if (i === 1) remotePs5();
+  else if (i === 2) toast(T("Branchez le disque : il apparaît tout seul, et reste reconnu même sur un autre port."));
+  else if (i === 3) openEditor("", "switch");
+  else if (i >= 4 && i <= 6) openEditor("", "ftp");
+  else cloudPick();
+}
+// « Ajouter un service » (Transferts) : le même choix que dans Appareils.
+async function addService() {
+  const opts = [[0, T("Une autre PS5")], [1, T("PS5 à distance (par Internet)")], [2, T("Disque USB")], [3, T("Switch")],
+    [6, T("NAS (Synology, QNAP, FTP, SMB, WebDAV)")], [7, T("Nuage (Google Drive, OneDrive, Dropbox, S3…)")]];
+  window.__addSvc = -1;
+  const ok = await ask(T("Ajouter un service"), `<div class="actions" style="flex-direction:column;align-items:stretch">${opts.map(([i, n]) => `<button class="secondary" onclick="window.__addSvc=${i};this.closest('.modal').querySelector('.primary').click()">${esc(n)}</button>`).join("")}</div>`, T("Fermer"));
+  if (ok && window.__addSvc >= 0) addDevice(window.__addSvc);
 }
 // Nuage : Amazon S3, Backblaze B2, autre service S3 ; Google Drive et OneDrive viendront ensuite.
 const S3_SERVICES = () => [["aws", "Amazon S3", T("clés S3")], ["b2", "Backblaze B2", T("clés S3")], ["wasabi", "Wasabi", T("clés S3")], ["r2", "Cloudflare R2", T("clés S3")],
@@ -1844,7 +1869,7 @@ function linkPage() {
   const id = decodeURIComponent(location.hash.slice(6));
   const box = document.createElement("div");
   box.className = "modal";
-  box.innerHTML = `<div class="dialog"><div class="ed-head"><span class="dev-ico">${ICONS.cloud}</span><div><h2>${esc(T("Connecter %s", "Dropbox"))}</h2>
+  box.innerHTML = `<div class="dialog"><div class="ed-head"><span class="dev-ico">${cloudIcon("dropbox")}</span><div><h2>${esc(T("Connecter %s", "Dropbox"))}</h2>
     <p class="hint">${T("L'appli n'aura accès qu'à son propre dossier, jamais à vos autres fichiers.")}</p></div></div><div id="lp-body">${SPIN}</div></div>`;
   document.body.appendChild(box);
   fetch(`/api/v2/cloud/link/info?id=${encodeURIComponent(id)}`).then((r) => r.json()).then((info) => {
@@ -1857,7 +1882,7 @@ function linkPage() {
 async function driveLink(provider) {
   const box = document.createElement("div");
   box.className = "modal";
-  box.innerHTML = `<div class="dialog"><div class="ed-head"><span class="dev-ico">${ICONS.cloud}</span><div><h2>${esc(T("Connecter %s", DRIVE_NAME[provider]))}</h2>
+  box.innerHTML = `<div class="dialog"><div class="ed-head"><span class="dev-ico">${cloudIcon(provider)}</span><div><h2>${esc(T("Connecter %s", DRIVE_NAME[provider]))}</h2>
     <p class="hint">${T("Rien à taper ici : la connexion se fait sur votre téléphone, chez le service.")}</p></div></div>
     <div id="dl-body">${SPIN}</div>
     <p class="hint">${T("L'appli n'aura accès qu'à son propre dossier, jamais à vos autres fichiers.")}</p>
@@ -1910,13 +1935,13 @@ function openDriveEditor(id, provider, link, linked) {
   const box = document.createElement("div");
   box.className = "modal";
   const place = linked && linked.total ? T("%s libres sur %s", size(linked.free), size(linked.total)) : "";
-  box.innerHTML = `<div class="dialog"><div class="ed-head"><span class="dev-ico">${ICONS.cloud}</span><div><h2>${esc(DRIVE_NAME[provider])}</h2>
+  box.innerHTML = `<div class="dialog"><div class="ed-head"><span class="dev-ico">${cloudIcon(provider)}</span><div><h2>${esc(DRIVE_NAME[provider])}</h2>
       <p class="hint">${T("Par Internet : plus lent qu'un NAS. Le service peut facturer le stockage et les téléchargements.")}</p></div></div>
     <label class="field-row">${T("Compte")}<input class="field" value="${esc(account)}" disabled></label>
     ${place ? `<label class="field-row">${T("Place")}<input class="field" value="${esc(place)}" disabled></label>` : ""}
-    <label class="field-row">${T("Nom")}<input class="field" id="dr-name" value="${esc(r ? r.name : account)}"></label>
-    <label class="field-row">${T("Dossier")}<input class="field" id="dr-root" value="${esc(c.root || "/")}"></label>
-    <label class="field-row">${T("Utilisé pour")}<select id="dr-use"><option value="backups">${T("Sauvegardes seulement")}</option><option value="both" ${r && !r.use ? "selected" : ""}>${T("Sauvegardes et Synchro")}</option><option value="sync" ${r && r.use === "sync" ? "selected" : ""}>${T("Synchro seulement")}</option></select></label>
+    <label class="field-row">${T("Nom")}<input class="field" id="dr-name" value="${esc(r ? r.name : DRIVE_NAME[provider])}"></label>
+    <label class="field-row">${T("Dossier")}<span class="row-inline"><input class="field" id="dr-root" value="${esc(r ? (c.root || "/") : "/PBC Backup")}"><button class="secondary small" id="dr-browse">${T("Parcourir")}</button></span></label>
+    <label class="field-row">${T("Utilisé pour")}<select id="dr-use"><option value="backups">${T("Sauvegardes seulement")}</option><option value="both" ${!r || !r.use ? "selected" : ""}>${T("Sauvegardes et Synchro")}</option><option value="sync" ${r && r.use === "sync" ? "selected" : ""}>${T("Synchro seulement")}</option></select></label>
     <div class="actions"><button class="primary" id="dr-save">${T("Enregistrer")}</button><button class="secondary" id="dr-test">${T("Tester la connexion")}</button>${id ? `<button class="danger" id="dr-forget">${T("Oublier")}</button>` : ""}<button class="secondary" id="dr-close">${T("Fermer")}</button></div>
     <p class="hint" id="dr-status"></p></div>`;
   document.body.appendChild(box);
@@ -1925,6 +1950,7 @@ function openDriveEditor(id, provider, link, linked) {
   const busy = (on) => { $$("button", box).forEach((b) => { b.disabled = on && b.id !== "dr-close"; }); if (on) status(`${SPIN}${T("Connexion au service…")}`); };
   const body = () => ({ type: provider, id, link, name: $("#dr-name", box).value.trim(), root: $("#dr-root", box).value.trim() || "/", use: $("#dr-use", box).value });
   $("#dr-close", box).onclick = close;
+  $("#dr-browse", box).onclick = () => openBrowser({ title: DRIVE_NAME[provider], start: "/", config: body(), pick: (p) => { $("#dr-root", box).value = p; } });
   $("#dr-test", box).onclick = async () => {
     busy(true);
     try { await post("/remotes/test-config", body()); busy(false); status(`<span class="ok">${T("Connexion réussie : vous pouvez enregistrer")}</span>`); }
@@ -1966,7 +1992,7 @@ function openS3Editor(id, service) {
     ${field("user", T("Clé d'accès"), c.user && c.user !== "anonymous" ? c.user : "")}
     <label class="field-row">${T("Clé secrète")}<input class="field" id="s3-password" type="password" autocomplete="new-password" placeholder="${esc(id ? T("(inchangé)") : "")}"></label>
     ${field("root", T("Dossier"), c.root || "/")}
-    <label class="field-row">${T("Utilisé pour")}<select id="s3-use"><option value="backups">${T("Sauvegardes seulement")}</option><option value="both" ${r && !r.use ? "selected" : ""}>${T("Sauvegardes et Synchro")}</option><option value="sync" ${r && r.use === "sync" ? "selected" : ""}>${T("Synchro seulement")}</option></select></label>
+    <label class="field-row">${T("Utilisé pour")}<select id="s3-use"><option value="backups">${T("Sauvegardes seulement")}</option><option value="both" ${!r || !r.use ? "selected" : ""}>${T("Sauvegardes et Synchro")}</option><option value="sync" ${r && r.use === "sync" ? "selected" : ""}>${T("Synchro seulement")}</option></select></label>
     <p class="hint">${T("Par Internet : plus lent qu'un NAS. Le service peut facturer le stockage et les téléchargements.")}</p>
     <div class="actions"><button class="primary" id="s3-save">${T("Enregistrer")}</button><button class="secondary" id="s3-test">${T("Tester la connexion")}</button>${id ? `<button class="danger" id="s3-forget">${T("Oublier")}</button>` : ""}<button class="secondary" id="s3-close">${T("Fermer")}</button></div>
     <p class="hint" id="s3-status"></p></div>`;
@@ -2236,7 +2262,7 @@ function openEditor(id, type, preset) {
 // Pour une Switch ou Eden : la comparaison Switch ⇄ Eden (ex-« Synchro »). À venir (moteur) : /players.
 const hoursText = (sec) => sec < 3600 ? `${Math.max(1, Math.floor(sec / 60))} min` : `${Math.floor(sec / 3600)} h ${String(Math.floor(sec / 60) % 60).padStart(2, "0")}`;
 const partyStatus = () => ({ console_newer: [T("À sauvegarder"), "warn"], not_backed_up: [T("Jamais sauvegardée"), "warn"], up_to_date: [T("À jour"), "ok"],
-  backup_newer: [T("Sauvegarde plus récente"), "info"], backup_only: [T("Seulement en sauvegarde"), "muted"], system: [T("Données système"), "muted"] });
+  backup_newer: [T("Copie plus récente"), "info"], backup_only: [T("Pas sur cette PS5"), "muted"], system: [T("Données système"), "muted"] });
 const partyViews = () => [["all", T("Tout")], ["todo", T("À sauvegarder")], ["backup_newer", T("Sauvegarde plus récente")], ["not_backed_up", T("Jamais sauvegardée")]];  // mêmes vues que la télé
 const partyKey = (e) => e.account + "|" + e.title_id;
 const consoleAccounts = () => ((state.overview && state.overview.accounts) || []).filter((a) => a.on_console);
@@ -3235,14 +3261,21 @@ function trDevices() {
     kind: "ps5", icon: "ps5", free: disks.reduce((a, p) => a + p.free, 0), hasFree: false }];
   for (const p of disks) v.push({ id: p.id, name: p.type === "internal" ? T("Stockage interne") : p.label, sub: p.type === "internal" ? "PS5 · " + T("interne") : T("Disque USB") + " · " + p.mount,
     kind: p.type, icon: p.type === "usb" ? "usb" : "ps5", free: p.free, hasFree: true });
-  for (const r of state.remotes) v.push({ id: r.id, name: r.name, sub: (r.type === "switch" ? "Switch" : T("Réseau")) + " · " + ((r.config && r.config.host) || ""),
-    kind: r.type, icon: r.type === "switch" ? "switch" : "nas", free: 0, hasFree: false });
+  // Rangés par famille : NAS, nuage (logo du service), Switch.
+  const cloudy = (t) => t === "s3" || t === "gdrive" || t === "onedrive" || t === "dropbox";
+  const svcName = (r) => ({ gdrive: "Google Drive", dropbox: "Dropbox", onedrive: "OneDrive" })[r.type] || ({ b2: "Backblaze B2", aws: "Amazon S3" })[(r.config || {}).service] || "S3";
+  const fam = (r) => r.type === "switch" ? 2 : cloudy(r.type) ? 1 : 0;
+  for (const r of state.remotes.slice().sort((a, b) => fam(a) - fam(b))) {
+    const c = r.config || {};
+    v.push({ id: r.id, name: r.name, sub: r.type === "switch" ? "Switch · " + (c.host || "") : cloudy(r.type) ? T("Nuage · %s", svcName(r)) : T("NAS · %s", c.host || ""),
+      kind: r.type, icon: r.type === "switch" ? "switch" : cloudy(r.type) ? null : "nas", cloud: cloudy(r.type) ? cloudIcon(r.type, c.service) : "", free: 0, hasFree: false });
+  }
   // Autres PS5 jumelées : chacun de leurs disques est une destination (sauvegarde vérifiée, comme vers le NAS).
   for (const p of state.places.filter((x) => x.type === "peer")) v.push({ id: p.id, name: p.label, sub: T("Autre PS5 · %s libres", size(p.free)), kind: "peer", icon: "ps5", free: p.free, hasFree: true });
   return v;
 }
 // Dernière carte des rangées DEPUIS / VERS : ajouter un NAS sans quitter Transferts (il apparaît ensuite ici).
-const addNasCard = `<button class="tr-dev tr-add" data-add-nas><span class="dev-ico">${ICONS.nas}</span><span class="grow"><b>${T("Ajouter un NAS")}</b><span class="hint">${T("Synology, QNAP, FTP…")}</span></span></button>`;
+const addNasCard = `<button class="tr-dev tr-add" data-add-nas><span class="dev-ico">${ICONS.cloud}</span><span class="grow"><b>${T("+ Ajouter un service")}</b><span class="hint">${T("NAS, nuage, Switch, PS5…")}</span></span></button>`;
 function trFromTo() {
   const devs = trDevices(), tr = state.tr;
   let from = devs.find((d) => d.id === tr.from) || devs[0];
@@ -3258,7 +3291,7 @@ function trItems(from) {
   return state.items.filter((it) => it.kind === kind && (from.kind === "ps5" || it.place === from.id)).sort((a, b) => a.title.localeCompare(b.title));
 }
 const devCard = (d, { chosen = false, disabled = false, attr = "" } = {}) => `<button class="tr-dev ${chosen ? "chosen" : ""}" ${disabled ? "disabled" : ""} ${attr}>
-  <span class="dev-ico">${ICONS[d.icon]}</span><span class="grow"><b>${esc(d.name)}</b><span class="hint">${esc(d.sub)}</span>
+  <span class="dev-ico">${d.cloud || ICONS[d.icon]}</span><span class="grow"><b>${esc(d.name)}</b><span class="hint">${esc(d.sub)}</span>
   ${d.hasFree || d.free ? `<span class="hint ${chosen ? "accent" : ""}">${T("%s libres", size(d.free))}</span>` : ""}</span></button>`;
 
 function transfers() {
@@ -3352,15 +3385,46 @@ function trSync() {
   if (supported) { state.syncA = tr.syncA; state.syncB = tr.syncB; syncView(); }
 }
 
+// Bulles groupées (comme la télé) : cette PS5, chaque autre PS5, NAS, nuage, Switch ; un clic ouvre ses éléments.
+function trGroups(devs) {
+  const g = [];
+  const add = (key, name, d) => { let x = g.find((y) => y.key === key); if (!x) g.push(x = { key, name, members: [] }); x.members.push(d); };
+  for (const d of devs) {
+    if (d.kind === "ps5" || d.kind === "internal" || d.kind === "usb") add("ps5", T("Cette PS5"), d);
+    else if (d.kind === "peer") add(d.id.split(":").slice(0, 2).join(":"), d.name.split(" · ")[0], d);
+    else if (["s3", "gdrive", "onedrive", "dropbox"].includes(d.kind)) add("cloud", T("Nuage"), d);
+    else if (d.kind === "switch") add("switch", "Switch", d);
+    else add("nas", "NAS", d);
+  }
+  // Même ordre que la télé : Cette PS5, les autres PS5, les consoles (Switch), les NAS, le nuage.
+  const rank = (k) => k === "ps5" ? 0 : k === "switch" ? 3 : k === "nas" ? 4 : k === "cloud" ? 5 : 2;
+  return g.map((x, i) => [x, i]).sort((a, b) => rank(a[0].key) - rank(b[0].key) || a[1] - b[1]).map((x) => x[0]);
+}
+function trGroupRow(devs, zone, chosen, disabledId) {
+  const tr = state.tr, open = tr.open && tr.open[zone];
+  const attr = (d) => zone === "from" ? `data-from="${esc(d.id)}"` : `data-to="${esc(d.id)}"`;
+  const card = (d, label) => devCard(label ? { ...d, name: label } : d, { chosen: d.id === chosen, disabled: d.id === disabledId, attr: attr(d) });
+  const groups = trGroups(devs);
+  const row = groups.map((g) => {
+    if (g.members.length === 1) return card(g.members[0]);
+    const has = g.members.find((d) => d.id === chosen);
+    const icon = g.key === "cloud" ? ICONS.cloud : g.key === "nas" ? ICONS.nas : g.key === "switch" ? ICONS.switch : ICONS.ps5;
+    return `<button class="tr-dev tr-group ${has ? "chosen" : ""} ${open === g.key ? "open" : ""}" data-group-${zone}="${esc(g.key)}"><span class="dev-ico">${icon}</span><span class="grow"><b>${esc(g.name)}</b><span class="hint">${esc(has ? has.name : T("%d éléments", g.members.length))}</span></span><span class="tr-count">${g.members.length}</span></button>`;
+  }).join("");
+  const og = groups.find((g) => g.key === open && g.members.length > 1);
+  const sub = og ? `<div class="tr-sub">${og.members.map((d) => card(d, d.kind === "ps5" ? T("Tous ses disques") : d.kind === "peer" ? d.name.split(" · ").slice(1).join(" · ") || d.name : "")).join("")}</div>` : "";
+  return `<div class="tr-devs" data-scroll="tr-${zone}">${addNasCard}${row}</div>${sub}`;
+}
 function trMain() {
   const tr = state.tr, { devs, from, to } = trFromTo();
+  tr.open = tr.open || {};
   const running = state.tasks.filter((t) => t.state === "running").length, waiting = state.tasks.filter((t) => activeState(t.state) && t.state !== "running").length;
   $("#view").innerHTML = `<h1>${T("D'un appareil à l'autre")}</h1>
     <p class="sub">${T("Jeux, applications, ROM : copier, déplacer ou compresser, entre la PS5, ses disques, les Switch et le NAS.")}</p>
     <div class="tr-label">${T("DEPUIS")} <button class="link" id="tr-swap">⇅ ${T("Inverser")}</button></div>
-    <div class="tr-devs" data-scroll="tr-from">${devs.map((d) => devCard(d, { chosen: d.id === from.id, attr: `data-from="${esc(d.id)}"` })).join("")}${addNasCard}</div>
+    ${trGroupRow(devs, "from", from.id, "")}
     <div class="tr-label">${T("VERS")}</div>
-    <div class="tr-devs" data-scroll="tr-to">${devs.map((d) => devCard(d, { chosen: d.id === to.id, disabled: d.id === from.id, attr: `data-to="${esc(d.id)}"` })).join("")}${addNasCard}</div>
+    ${trGroupRow(devs, "to", to.id, "")}
     <div class="tr-label">${T("QUE FAIRE ?")}</div>
     <div class="tr-actions">${TR_ACTIONS.map(([n, t], i) => `<button class="tr-action ${tr.action === i ? "chosen" : ""}" data-action="${i}"><b>${n}</b><span class="hint">${t}</span></button>`).join("")}</div>
     ${tr.sel.size ? `<p class="hint">${T("%d élément(s) déjà coché(s).", tr.sel.size)}</p>` : ""}
@@ -3369,9 +3433,11 @@ function trMain() {
       <button class="tr-big" id="tr-files"><b>${T("Fichiers")}</b><span class="hint">${T("Copier ou déplacer n'importe quels fichiers ou dossiers, d'un endroit à l'autre.")}</span></button>
       <button class="tr-big" id="tr-progress"><b>${T("Transferts en cours")} ${running ? SPIN : ""}</b><span class="hint ${running ? "accent" : ""}">${T("%d en cours", running)} · ${T("%d en attente", waiting)}</span></button>
     </div>`;
-  $$("[data-add-nas]").forEach((b) => b.onclick = () => openEditor("", "ftp"));
-  $$("[data-from]").forEach((b) => b.onclick = () => { tr.from = b.dataset.from; if (tr.to === tr.from) tr.to = ""; tr.sel.clear(); trMain(); });
-  $$("[data-to]").forEach((b) => b.onclick = () => { tr.to = b.dataset.to; trMain(); });
+  $$("[data-add-nas]").forEach((b) => b.onclick = () => addService());
+  $$("[data-from]").forEach((b) => b.onclick = () => { tr.from = b.dataset.from; tr.open.from = ""; if (tr.to === tr.from) tr.to = ""; tr.sel.clear(); trMain(); });
+  $$("[data-to]").forEach((b) => b.onclick = () => { tr.to = b.dataset.to; tr.open.to = ""; trMain(); });
+  $$("[data-group-from]").forEach((b) => b.onclick = () => { tr.open.from = tr.open.from === b.dataset.groupFrom ? "" : b.dataset.groupFrom; trMain(); });
+  $$("[data-group-to]").forEach((b) => b.onclick = () => { tr.open.to = tr.open.to === b.dataset.groupTo ? "" : b.dataset.groupTo; trMain(); });
   $("#tr-swap").onclick = () => { [tr.from, tr.to] = [tr.to, tr.from]; tr.sel.clear(); trMain(); };
   $$("[data-action]").forEach((b) => b.onclick = () => {
     tr.action = +b.dataset.action;
@@ -3381,7 +3447,8 @@ function trMain() {
       openSync(sw ? "switch:" + sw.id : "");
       return;
     }
-    if (from.id === to.id) { toast(T("Choisissez une destination différente de la source.")); return; }
+    if (from.id === to.id && tr.action !== 2) { toast(T("Même disque : seulement pour Compresser (l'image est écrite à côté du jeu).")); return; }
+    if (from.id === to.id) toast(T("Compresser sur le même disque : l'image est écrite à côté du jeu, vérifiée, et le jeu d'origine reste en place."));
     if (from.kind === "peer") { toast(T("Depuis l'autre PS5 : ouvrez Backup Center sur elle et envoyez vers celle-ci.")); return; }
     if (to.kind === "peer" && tr.action === 2) { toast(T("Compresser vers l'autre PS5 : bientôt. Copiez, puis compressez là-bas.")); return; }
     if (from.kind === "ftp") {  // depuis le NAS : ses sauvegardes, remises sur la PS5
@@ -3531,7 +3598,7 @@ function trChoice() {
   const total = chosen.reduce((a, it) => a + itemBytes(it, tr.saves), 0);
   const tight = to.hasFree && total > to.free;
   const opts = [["compress", T("Compresser avant l'envoi"), T("dossiers PS5 → image .ffpfsc"), tr.compress || compress], ["saves", T("Avec les sauvegardes"), T("les sauvegardes du jeu suivent"), tr.saves],
-    ["verify", T("Vérifier à l'arrivée"), T("empreinte SHA-256 de chaque fichier"), tr.verify]];
+    ["verify", tr.verify ? T("Vérification complète") : T("Vérification rapide"), tr.verify ? T("SHA-256 de chaque fichier copié") : T("présence et taille ; original gardé si déplacement"), tr.verify]];
   const allOn = items.length && items.every((it) => tr.sel.has(it.key));
   $("#view").innerHTML = `<div class="eyebrow tr-crumb"><button class="link" id="tr-back">‹ ${T("Retour")}</button> ${T("TRANSFERTS")} · ${esc(from.name)} → ${esc(to.name)} · ${TR_ACTIONS[tr.action][0]}</div>
     <h1>${compress ? T("Quels jeux compresser") : T("Quoi transférer")}</h1>
@@ -3565,7 +3632,7 @@ async function trLaunch(to) {
     if ((to.kind === "ftp" || to.kind === "peer") && tr.action !== 2)  // vers le NAS ou une autre PS5 : une sauvegarde vérifiée, rangée comme les autres
       body = { type: "backup", item: key, parts: tr.saves ? [] : ["game", "update", "dlc", "app", "state", "config"], place: to.id };
     else if (tr.action === 2) body = { type: "compress", item: key, target: to.id };
-    else body = { type: "transfer", mode: tr.action === 1 ? "move" : "copy", item: key, to: to.id, saves: tr.saves, verify: tr.verify, compress: tr.compress };
+    else body = { type: "transfer", mode: tr.action === 1 ? "move" : "copy", item: key, to: to.id, saves: tr.saves, verify: true, verify_mode: tr.verify ? "full" : "quick", compress: tr.compress };
     try { await post("/tasks", body); ok++; } catch (e) { toast(e.message); }
   }
   if (!ok) { $("#tr-go").disabled = false; return; }
@@ -3628,7 +3695,8 @@ function taskPhase(t) {
   const p = t.progress || {};
   if (t.state !== "running" || !p.phase || !p.phase_total) return null;
   const f = Math.min(1, p.phase_done / p.phase_total), pct = Math.floor(f * 100);
-  return { f, text: p.phase === "verify" ? T("Vérification %d %%", pct) : T("Comparaison avec la copie déjà là %d %%", pct), done: p.phase_done, total: p.phase_total };
+  const eta = p.phase_eta ? " · " + T("reste") + " " + duration(p.phase_eta) : "";
+  return { f, text: (p.phase === "verify" ? T("Vérification %d %%", pct) : T("Comparaison avec la copie déjà là %d %%", pct)) + eta, done: p.phase_done, total: p.phase_total };
 }
 // Suivi : les tâches actives puis les dernières terminées (7 au plus), avec pause / reprise / annulation.
 function taskRowHtml(t) {
@@ -3636,16 +3704,28 @@ function taskRowHtml(t) {
   const eta = t.state === "running" && t.bytes_per_second > 0 && p.bytes_total ? duration((p.bytes_total - p.bytes_done) / t.bytes_per_second) : "";
   const btns = { running: ["pause", "cancel"], queued: ["pause", "cancel"], paused: ["resume", "cancel"], failed: ["resume", "details", "remove"], done: ["details", "remove"], cancelled: ["details", "remove"] }[t.state] || [];
   if ((t.type === "files_copy" || t.type === "files_move") && (t.state === "cancelled" || t.state === "failed") && !(t.report && (t.report.cleaned || t.report.cleaning))) btns.unshift("cleanup");
-  const names = { pause: T("Pause"), resume: T("Reprendre"), cancel: T("Annuler"), remove: T("Retirer de la liste"), cleanup: T("Retirer les fichiers copiés…"), details: T("Détails") };
+  if (t.state === "running" && (t.progress || {}).phase === "verify") btns.unshift("skip-verify");  // arrêter la vérification seule
+  const names = { pause: T("Pause"), resume: T("Reprendre"), cancel: T("Arrêter la tâche"), remove: T("Retirer de la liste"), cleanup: T("Retirer les fichiers copiés…"), details: T("Détails"), "skip-verify": T("Arrêter la vérification (garder la copie)") };
   const sw = t.type === "import_switch" || t.type === "export_switch";
   const title = (t.title || "").split(" · ").pop();
   const it = state.items.find((i) => i.key === t.item || (t.title_id && i.title_id === t.title_id))
     || state.items.find((i) => i.has_cover && i.title === title)
     || { key: "", title: title || TASK_KINDS[t.type] || T("Tâche"), kind: sw ? "rom" : "game_ps5", platform: sw ? "Switch" : "PS5", has_cover: false };
   const ph = taskPhase(t);
+  // D'où → vers où (logos) et qui l'a lancée, comme la télé.
+  const plc = (id) => {
+    const p = state.places.find((x) => x.id === id);
+    if (!p) return id ? `<span class="route-dev">${esc(id)}</span>` : "";
+    const cl = p.protocol === "s3" || p.protocol === "gdrive" || p.protocol === "onedrive" || p.protocol === "dropbox";
+    const ico = p.type === "ftp" ? (cl ? cloudIcon(p.protocol, p.service) : ICONS.nas) : p.type === "usb" ? ICONS.usb : ICONS.ps5;
+    return `<span class="route-dev">${ico}${esc(p.type === "internal" ? T("Interne") : p.label)}</span>`;
+  };
+  const here = `<span class="route-dev">${ICONS.ps5}${T("Cette PS5")}</span>`;
+  const route = t.type === "backup" && t.place ? `${here} → ${plc(t.place)}` : (t.type === "restore_save" || t.type === "restore") && t.from_place ? `${plc(t.from_place)} → ${here}` : "";
+  const by = (t.origin || "").startsWith("plan:") ? T("Plan « %s »", t.origin.slice(5)) : t.origin === "sync" ? T("Synchro") : "";
   const what = `${TASK_KINDS[t.type] || T("Tâche")} · ${ph ? `${esc(ph.text)} · ${T("%s sur %s", size(Math.min(ph.done, ph.total)), size(ph.total))}` : t.state === "running" && t.step ? esc(t.step) : STATES[t.state] || t.state}`;
   return `<div class="row"><div class="thumb">${coverHtml(it, true)}</div><div><div class="t">${esc(t.title || TASK_KINDS[t.type] || T("Tâche"))}<span class="state ${t.state}">${t.state === "running" ? SPIN : ""}${STATES[t.state] || t.state}</span></div>
-    <div class="d">${what}${p.bytes_total ? ` · ${pct} % · ${T("%s sur %s", size(p.bytes_done), size(p.bytes_total))}` : ""}${p.files_total ? ` · ${T("%d/%d fichiers", p.files_done, p.files_total)}` : ""}${t.state === "running" && !ph && t.bytes_per_second > 0 ? ` · ${size(t.bytes_per_second)}/s${eta ? " · " + T("reste") + " " + eta : ""}` : ""}${t.error ? ` · <span class="bad">${esc(t.error)}</span>` : ""}${t.state === "done" && t.report && t.report.mount_deferred ? ` · ${T("apparaît sur l'accueil une fois l'application fermée")}` : ""}${t.state === "done" && t.report && t.report.bytes_per_second && t.report.seconds ? ` · ${T("lecture %s/s", size(t.report.bytes_per_second))}${t.report.note ? " · " + T("jeu trop petit : mesure peu fiable") : ""}` : ""}</div></div>
+    <div class="d">${what}${p.bytes_total ? ` · ${pct} % · ${T("%s sur %s", size(p.bytes_done), size(p.bytes_total))}` : ""}${p.files_total ? ` · ${T("%d/%d fichiers", p.files_done, p.files_total)}` : ""}${t.state === "running" && !ph && t.bytes_per_second > 0 ? ` · ${size(t.bytes_per_second)}/s${eta ? " · " + T("reste") + " " + eta : ""}` : ""}${t.error ? ` · <span class="bad">${esc(t.error)}</span>` : ""}${t.state === "done" && t.report && t.report.mount_deferred ? ` · ${T("apparaît sur l'accueil une fois l'application fermée")}` : ""}${t.state === "done" && t.report && t.report.bytes_per_second && t.report.seconds ? ` · ${T("lecture %s/s", size(t.report.bytes_per_second))}${t.report.note ? " · " + T("jeu trop petit : mesure peu fiable") : ""}` : ""}</div>${route || by ? `<div class="d route">${route}${by ? `${route ? " · " : ""}${esc(by)}` : ""}</div>` : ""}</div>
     <div class="btns">${t.type === "link_send" && t.state === "done" && t.report && t.report.foreground && t.report.foreground.title_id ? `<button data-close-remote="${esc(t.id)}">${esc(T("Fermer « %s » là-bas", t.report.foreground.title || t.report.foreground.title_id))}</button>` : ""}${btns.map((a) => `<button data-id="${t.id}" data-a="${a}">${names[a]}</button>`).join("")}</div>
     ${ph ? `<div class="bar done"><span style="width:${Math.round(ph.f * 100)}%"></span></div>` : activeState(t.state) || (t.state === "done" && p.bytes_total) ? `<div class="bar ${t.state === "done" ? "done" : ""}"><span style="width:${pct}%"></span></div>` : ""}</div>`;
 }
@@ -3671,10 +3751,16 @@ function trProgress() {
   const running = act.filter((t) => t.state === "running").length;
   $("#view").innerHTML = `<div class="eyebrow tr-crumb"><button class="link" id="tr-back">‹ ${T("Retour")}</button> ${T("TRANSFERTS")}</div><h1>${T("Transferts en cours")}</h1>
     <p class="sub">${T("%d en cours", running)} · ${T("%d en attente", act.length - running)} · ${T("ils continuent même si l'app est fermée")}</p>
+    ${rest.length ? `<div class="actions"><button class="secondary" id="tr-clear-done">${T("Vider les terminés (%d)", rest.length)}</button></div>` : ""}
     <div class="list">${list.length ? list.map(taskRowHtml).join("") : `<div class="empty">${T("Aucun transfert pour l'instant.")}</div>`}</div>
     <p><button class="link" id="tr-all-tasks">${T("Tout l'historique dans Tâches ›")}</button></p>`;
   $("#tr-back").onclick = () => trBack();
   $("#tr-all-tasks").onclick = () => setTab("tasks");
+  if ($("#tr-clear-done")) $("#tr-clear-done").onclick = async () => {
+    if (!await ask(T("Vider les transferts terminés ?"), `<p class="hint">${esc(T("Seulement la liste : rien n'est retiré des disques. Les transferts en cours ne sont pas touchés."))}</p>`, T("Oui, vider la liste"))) return;
+    try { for (const st of ["done", "failed", "cancelled"]) await post("/tasks/clear", { state: st }); toast(T("Transferts terminés retirés de la liste")); refresh(true); }
+    catch (e) { toast(e.message); }
+  };
   bindTaskButtons();
 }
 

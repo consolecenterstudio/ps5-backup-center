@@ -190,7 +190,8 @@ bool Model::refresh(bool force) {
         next->places.clear();
         for (const auto& x : j.items())
             next->places.push_back({x["id"].as_string(), x["type"].as_string(), x["mount"].as_string(), ui_util::engine_label(x["label"].as_string()),
-                                    static_cast<std::uint64_t>(x["free"].as_int()), static_cast<std::uint64_t>(x["total"].as_int()), x["marked"].as_bool(), x["protocol"].as_string(), x["same_as"].as_string(), x["use"].as_string()});
+                                    static_cast<std::uint64_t>(x["free"].as_int()), static_cast<std::uint64_t>(x["total"].as_int()), x["marked"].as_bool(), x["protocol"].as_string(), x["same_as"].as_string(), x["use"].as_string(),
+                                    x["same_backups_as"].as_string(), x["service"].as_string()});
     }
     if (http(ep_, "GET", "/api/v2/tasks?brief=1", "", body) == 200 && Json::parse(body, j)) {
         next->tasks.clear();
@@ -201,7 +202,9 @@ bool Model::refresh(bool force) {
                                    static_cast<unsigned>(p["files_done"].as_int()), static_cast<unsigned>(p["files_total"].as_int()),
                                    x["bytes_per_second"].as_number(), x["report"], x["item"].as_string().empty() ? x["title_id"].as_string() : x["item"].as_string(), x["step"].as_string(),
                                    p["phase"].as_string(), static_cast<std::uint64_t>(p["phase_done"].as_int()), static_cast<std::uint64_t>(p["phase_total"].as_int()),
-                                   x["started"].as_int(), x["finished"].as_int()});
+                                   x["started"].as_int(), x["finished"].as_int(),
+                                   x["place"].as_string(), x["from_place"].as_string(), x["origin"].as_string(),
+                                   static_cast<std::uint64_t>(p["phase_eta"].as_int())});
         }
     }
     if (http(ep_, "GET", "/api/v2/emulators", "", body) == 200 && Json::parse(body, j)) {

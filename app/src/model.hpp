@@ -35,7 +35,7 @@ struct Item {
     std::string location;   // dossier du jeu sur la console (premier fichier sauvegardé), pour « Parcourir »
     bool ignored = false;   // ignoré : plus sauvegardé ni proposé (Paramètres › Éléments ignorés)
 };
-struct Place { std::string id, type, mount, label; std::uint64_t free = 0, total = 0; bool marked = false; std::string protocol, same_as, use; };  // same_as : synchro du même dossier du même NAS par un autre appareil ; use : « both », « backups » ou « sync »
+struct Place { std::string id, type, mount, label; std::uint64_t free = 0, total = 0; bool marked = false; std::string protocol, same_as, use, same_backups_as, service; };  // same_as : synchro du même dossier du même NAS par un autre appareil ; use : « both », « backups » ou « sync »
 struct Task {
     std::string id, type, state, title, error;
     std::uint64_t done = 0, total = 0;
@@ -47,6 +47,8 @@ struct Task {
     std::string phase;  // « Fichiers » : "verify" (relecture de la copie) ou "compare", avec sa propre avancée
     std::uint64_t phase_done = 0, phase_total = 0;
     std::int64_t started = 0, finished = 0;  // heures (Unix) de début et de fin
+    std::string to_place, from_place, origin;
+    std::uint64_t phase_eta = 0;  // secondes restantes de l'étape (vérification)  // où elle va / d'où elle vient (lieux), qui l'a lancée (« plan:<nom> », « sync »)
     // Texte et fraction de l'étape à part (vide / -1 s'il n'y en a pas).
     std::string phase_text() const;
     double phase_fraction() const { return phase.empty() || !phase_total ? -1.0 : std::min(1.0, static_cast<double>(phase_done) / static_cast<double>(phase_total)); }

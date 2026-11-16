@@ -37,6 +37,77 @@ function mgChosen(g, place = "") {
   return out;
 }
 
+// Même partie à plusieurs endroits (comme la télé) : des copies voulues, triées seulement si on le demande.
+const spotName = (c) => { if (c.on_peer) return c.peer_name; const l = c.place_label || "", p = l.indexOf(" ("); return p > 0 && l.slice(0, p).includes(l.slice(p + 2, -1)) ? l.slice(0, p) : l; };
+function spreadOf(g) {
+  const by = new Map(), add = (L, n) => { if (!L) return; const v = by.get(L) || []; if (!v.includes(n)) v.push(n); by.set(L, v); };
+  add(g.console && g.console.group, T("Cette PS5"));
+  for (const c of g.copies) if (!c.other_account) add(c.group, spotName(c));
+  return by;
+}
+function mainSpread(g) {
+  const by = spreadOf(g), cg = g.console && g.console.group;
+  if (cg && by.has(cg)) return by.get(cg);
+  let best = [];
+  for (const v of by.values()) if (v.length > best.length) best = v;
+  return best;
+}
+const spreadCopy = (c, by) => !c.other_account && !c.on_peer && c.complete !== false && (by.get(c.group) || []).length >= 2;
+const spreadLine = (g) => { const sp = g.full ? [] : mainSpread(g); return sp.length >= 2 ? T("Même partie à %d endroits : %s", sp.length, sp.join(" · ")) : ""; };
+function mgTidyUndo() { for (const k of mg.tidyGames || []) mg.csel.delete(k); mg.tidyGames = []; }
+// Un jeu (g) : chaque copie dont la partie existe ailleurs, cochée = gardée. Sans g : chaque endroit, pour tous les jeux de la vue.
+function mgTidy(g, list) {
+  const rows = [];
+  if (g) {
+    const by = spreadOf(g);
+    for (const c of g.copies) if (spreadCopy(c, by) && !mg.prot.has(mgCk(c))) rows.push({ key: mgCk(c), label: spotName(c), letter: c.group, sub: T("copiée le %s", mgDate(c.created_unix, false)) + " · " + T("même partie à %d endroits", by.get(c.group).length), keep: true });
+  } else {
+    const at = new Map();
+    for (const x of list) { const by = spreadOf(x); for (const c of x.copies) if (spreadCopy(c, by) && !mg.prot.has(mgCk(c))) { const r = at.get(c.place) || { key: c.place, label: spotName(c), n: 0, keep: true }; r.n++; at.set(c.place, r); } }
+    for (const r of at.values()) { r.sub = T("%d copie(s) d'une partie rangée aussi ailleurs", r.n); rows.push(r); }
+  }
+  if (!rows.length) { toast(T("Rien à trier ici")); return; }
+  const locked = (r) => {
+    if (!g || !r.keep) return false;
+    const others = (g.console && g.console.group === r.letter ? 1 : 0) + g.copies.filter((c) => c.on_peer && c.group === r.letter).length + rows.filter((o) => o !== r && o.keep && o.letter === r.letter).length;
+    return others === 0;
+  };
+  const box = document.createElement("div");
+  box.className = "modal";
+  const shut = () => box.parentNode && box.parentNode.removeChild(box);
+  const draw = () => {
+    box.innerHTML = `<div class="dialog wide"><h2>${esc(g ? T("Faire le tri : %s", g.title) : T("Garder seulement sur…"))}</h2>
+      <p class="hint">${esc(g ? T("Cochée = gardée. Ce sont des copies de la même partie ; la dernière copie d'une partie ne peut pas être décochée.") : T("Décochez un endroit : les copies d'une partie rangée aussi ailleurs y seront retirées. La dernière copie d'une partie reste toujours."))}</p>
+      <div class="list">${rows.map((r, i) => { const lk = locked(r); return `<label class="row"><input type="checkbox" data-ti="${i}" ${r.keep ? "checked" : ""} ${lk ? "disabled" : ""}>
+        <div class="grow"><div class="t">${esc(r.label)}</div><div class="d">${esc(r.sub)}</div></div><span class="tag ${r.keep ? "ok" : ""}">${esc(lk ? T("dernière copie") : r.keep ? T("gardée") : T("à la corbeille"))}</span></label>`; }).join("")}</div>
+      <div class="actions"><button id="ti-go">${T("Appliquer (aperçu avant)")}</button><button class="secondary" id="ti-cancel">${T("Annuler")}</button></div></div>`;
+    $$("[data-ti]", box).forEach((b) => b.onchange = () => { rows[+b.dataset.ti].keep = b.checked; draw(); });
+    $("#ti-cancel", box).onclick = () => { shut(); toast(T("Rien n'a été modifié")); };
+    $("#ti-go", box).onclick = () => {
+      const touched = [];
+      if (g) {
+        const drop = new Set(rows.filter((r) => !r.keep).map((r) => r.key));
+        if (drop.size) { mg.csel.set(mgGk(g), drop); touched.push(g); }
+      } else {
+        const off = new Set(rows.filter((r) => !r.keep).map((r) => r.key));
+        for (const x of list) {
+          const by = spreadOf(x), stays = new Set([x.console && x.console.group]);
+          for (const c of x.copies) if (!c.other_account && (c.on_peer || !off.has(c.place) || mg.prot.has(mgCk(c)))) stays.add(c.group);
+          const drop = new Set(x.copies.filter((c) => spreadCopy(c, by) && off.has(c.place) && !mg.prot.has(mgCk(c)) && stays.has(c.group)).map(mgCk));
+          if (drop.size) { mg.csel.set(mgGk(x), drop); touched.push(x); }
+        }
+      }
+      shut();
+      if (!touched.length) { toast(T("Tout est gardé : rien n'a changé")); return; }
+      mg.tidyGames = touched.map(mgGk);
+      mgPreview(touched);
+    };
+  };
+  draw();
+  box.onclick = (e) => { if (e.target === box) { shut(); toast(T("Rien n'a été modifié")); } };
+  document.body.appendChild(box);
+}
+
 // Phrase simple tirée des nombres (mêmes textes que la télé).
 function mgSummary(g) {
   if (g.full) {  // backup complet (jeu, appli, homebrew, ROM) : « 3 copies complètes (jeu + données) · 1,2 Go »
@@ -85,7 +156,7 @@ function mgProgress(g) {
 
 function mgPlaces(g) {
   const seen = g.console ? [T("Console")] : [];
-  for (const c of g.copies) { const l = c.on_peer ? c.peer_name : c.place_label; if (!seen.includes(l)) seen.push(l); }  // l'autre PS5, une seule fois
+  for (const c of g.copies) { const l = spotName(c); if (!seen.includes(l)) seen.push(l); }  // l'autre PS5 une seule fois, sans redite du service
   return seen.join(" · ");
 }
 
@@ -108,6 +179,7 @@ function mgLoad() {
       for (const g of mg.sum.games || []) for (const c of g.copies || []) if (c.protected) mg.prot.add(mgCk(c));  // protégées connues du moteur
     } catch (e) { mg.error = e.message; }
     mg.loading = false; mg.loadP = null;
+    if (mg.sum && mg.sum.updating) setTimeout(() => mgLoad(), 3000);  // le moteur recompte encore : redemander bientôt
     if (mg.again) { mg.again = false; return mgLoad(); }
     mgRedraw();
   })();
@@ -139,6 +211,7 @@ async function openVersions(ref) {
 
 // Endroits : Partout, chaque disque USB, chaque NAS (et l'interne s'il garde des copies), Corbeille.
 const TRASH_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="trash-ico" aria-hidden="true"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/></svg>`;
+const COMPARE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="10" height="14" rx="2"/><rect x="11" y="7" width="10" height="14" rx="2"/><path d="M14 14l2 2 3-4"/></svg>`;
 function mgPlaceList() {
   const count = new Map();
   let total = 0;
@@ -148,21 +221,32 @@ function mgPlaceList() {
     if (c.on_peer) { const k = mgPeerKey(c); const x = peers.get(k) || { name: c.peer_name, n: 0 }; x.n++; peers.set(k, x); continue; }
     count.set(c.place, (count.get(c.place) || 0) + 1);
   }
-  const out = [{ id: "", name: T("Partout"), sub: T("%d copie(s)", total), icon: ICONS.consoles }];
+  const out = [{ id: "", name: T("Partout"), sub: T("%d jeu(x)", mg.sum.games.length), icon: ICONS.consoles }];
   for (const p of state.places) {
     const n = count.get(p.id) || 0;
-    if (!(p.type === "usb" || p.type === "ftp" || n) || p.use === "sync") continue;  // NAS « Synchro seulement » : pas ici
+    if (!(p.type === "usb" || p.type === "ftp" || n) || p.use === "sync" || p.same_backups_as) continue;  // NAS « Synchro seulement » : pas ici ; même NAS en FTP et WebDAV : une fois
     if (p.type === "switch" && !n) continue;
     const free = p.type === "usb" || p.type === "internal" ? " · " + T("%s libres", size(p.free)) : "";
-    out.push({ id: p.id, name: p.label, sub: (n ? T("%d copie(s)", n) : T("vide")) + free, icon: ICONS[p.type === "usb" ? "usb" : p.type === "internal" ? "ps5" : p.type === "switch" ? "switch" : "nas"] });
+    out.push({ id: p.id, name: p.label, sub: (n ? T("%d copie(s)", n) : T("vide")) + free, icon: p.type === "ftp" && ["s3", "gdrive", "onedrive", "dropbox"].includes(p.protocol) ? cloudIcon(p.protocol, p.service) : ICONS[p.type === "usb" ? "usb" : p.type === "internal" ? "ps5" : p.type === "switch" ? "switch" : "nas"] });  // nuage : logo du service
   }
   for (const [id, n] of count) if (!out.some((p) => p.id === id)) {  // disque absent : ses copies restent visibles
     const g = mg.sum.games.find((x) => x.copies.some((c) => c.place === id)), c = g && g.copies.find((x) => x.place === id);
     out.push({ id, name: c ? c.place_label : id, sub: T("%d copie(s)", n) + " · " + T("Disque absent"), icon: ICONS.usb });
   }
-  for (const [id, x] of peers) out.push({ id, name: x.name, sub: T("autre PS5 · %d copie(s)", x.n), icon: ICONS.ps5 });
-  out.push({ id: "trash", name: T("Corbeille"), sub: T("30 jours"), icon: TRASH_ICON });
-  return out;
+  for (const [id, x] of peers) out.push({ id, name: x.name, sub: T("%d copie(s)", x.n), icon: ICONS.ps5, peer: true });
+  // Même ordre que la télé : Partout, cette PS5 (interne, USB), les autres PS5, le NAS, le nuage, puis la Corbeille.
+  const placeOf = (id) => state.places.find((p) => p.id === id);
+  const rank = (o) => {
+    if (o.id === "") return 0;
+    if (o.peer) return 2;
+    const p = placeOf(o.id);
+    if (!p || p.type === "usb" || p.type === "internal") return 1;
+    return p.type === "ftp" && ["s3", "gdrive", "onedrive", "dropbox"].includes(p.protocol) ? 4 : 3;
+  };
+  const sorted = out.map((o, i) => [o, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map((x) => x[0]);
+  sorted.push({ id: "compare", name: T("Comparer et trier"), sub: T("par contenu"), icon: COMPARE_ICON });
+  sorted.push({ id: "trash", name: T("Corbeille"), sub: T("gardée 30 jours"), icon: TRASH_ICON });
+  return sorted;
 }
 
 // Compteurs de l'endroit choisi : doublons sûrs (et la place libérée), jeux pas encore comparés, copies à vérifier.
@@ -209,8 +293,9 @@ function backupsTab() {
   if (!places.some((p) => p.id === mg.place)) mg.place = "";
   view.innerHTML = `<h1>${T("Sauvegardes")}<small>${mg.sum ? esc(T("%d jeu(x) · %d copie(s)", mg.sum.games.length, mg.sum.copies || 0)) : ""}${mg.loading ? " " + SPIN : ""}</small></h1><p class="hint tab-help">${esc(T("Des COPIES de vos parties : sur les disques de cette console, le NAS et les autres PS5 — pas la partie active."))}</p>
     <div class="tr-label">${T("ENDROITS")}</div>
-    <div class="places" data-scroll="bk-places">${places.map((p) => `<button class="tr-dev place-card ${p.id === "trash" ? "trash-card" : ""} ${mg.place === p.id ? "chosen" : ""}" data-place="${esc(p.id)}">
+    <div class="places-wrap"><div class="places" data-scroll="bk-places">${places.filter((p) => p.id !== "compare" && p.id !== "trash").map((p) => `<button class="tr-dev place-card ${mg.place === p.id ? "chosen" : ""}" data-place="${esc(p.id)}">
       <span class="dev-ico">${p.icon}</span><span class="grow"><b>${esc(p.name)}</b><span class="hint">${esc(p.sub)}</span></span></button>`).join("")}</div>
+      <div class="place-tools">${places.filter((p) => p.id === "compare" || p.id === "trash").map((p) => `<button class="tr-dev place-card ${p.id === "trash" ? "trash-card" : ""} ${mg.place === p.id ? "chosen" : ""}" data-place="${esc(p.id)}"><b>${esc(p.name)}</b></button>`).join("")}</div></div>
     <div id="bk-main"></div>`;
   $$("[data-place]", view).forEach((b) => b.onclick = () => { mg.place = b.dataset.place; mg.gsel.clear(); mg.csel.clear(); if (mg.place === "trash") mg.trash = {}; backupsTab(); });
   const main = $("#bk-main");
@@ -224,6 +309,7 @@ function backupsTab() {
     return;
   }
   if (mg.place === "trash") { selBar(0); main.innerHTML = `<div id="mg-trash"></div>`; return mgTrashView($("#mg-trash")); }
+  if (mg.place === "compare") { selBar(0); return mgCompareView(main); }
   mgOverview(main);
   if (mg.place.startsWith("peer:")) {  // une autre PS5 : synchroniser les copies avec elle
     const inst = mg.place.slice(5, -1), card = places.find((p) => p.id === mg.place);
@@ -319,9 +405,18 @@ function mgOverview(main) {
         : rm ? [g.freed_bytes > 0 ? T("Libère %s", size(g.freed_bytes)) : T("%d doublon(s)", rm), "ok"] : !g.compared ? [T("À comparer"), "warn"]
         : bad ? [T("%d copie(s) à vérifier", bad), "warn"] : [T("Rien à faire"), "muted"];
       const pl = mgProgress(g);
+      // Un endroit choisi : combien de copies ici, la dernière, et combien d'autres endroits gardent ce jeu.
+      const hereC = place ? g.copies.filter((c) => mgIn(c, place)) : [];
+      const nPlaces = new Set([...(g.console ? ["console"] : []), ...g.copies.map((c) => (c.on_peer ? "peer:" + c.peer_name : c.place))]).size;
+      let line = mgSummary(g), tag = [badge, tone];
+      if (hereC.length) {
+        const last = Math.max(...hereC.map((c) => c.created_unix || 0));
+        line = T("%d copie(s) sur %s · la dernière le %s", hereC.length, spotName(hereC[0]), mgDate(last, false)) + (nPlaces > 1 ? " · " + T("aussi à %d autre(s) endroit(s)", nPlaces - 1) : "");
+        if (!on && !g.full && !hereC[0].on_peer && !(bad && mg.view === 3)) tag = ch.size ? [T("%d doublon(s) ici", ch.size), "ok"] : !g.compared ? [T("À comparer"), "warn"] : [T("Rien à faire ici"), "muted"];
+      }
       return `<div class="row mg-game ${on ? "on" : ""}" data-g="${esc(k)}">${ckHtml(`data-c="${esc(k)}"`, on)}${mgCover(g)}
-        <div class="grow"><div class="t">${esc(g.title)} <span class="hint">${esc(mgPlaces(g))}</span></div><div>${esc(mgSummary(g))}</div>${pl ? `<div class="d progress-text">${esc(pl)}</div>` : ""}</div>
-        <span class="tag ${tone}">${esc(badge)}</span>${moreBtn(`data-m="${esc(k)}"`)}</div>`;
+        <div class="grow"><div class="t">${esc(g.title)} <span class="hint">${esc(mgPlaces(g))}</span></div><div>${esc(line)}</div>${pl ? `<div class="d progress-text">${esc(pl)}</div>` : ""}</div>
+        <span class="tag ${tag[1]}">${esc(tag[0])}</span>${moreBtn(`data-m="${esc(k)}"`)}</div>`;
     }).join("") : `<div class="empty">${mg.view === 1 ? T("Aucun doublon sûr pour l'instant.") : mg.view === 2 ? T("Tout est comparé.") : mg.view === 3 ? T("Aucune copie à vérifier.") : T("Aucune sauvegarde trouvée.")}</div>`}</div>
     ${place && place !== "trash" && state.places.some((p) => p.id === place && (p.type === "usb" || p.type === "ftp")) ? `<div id="bk-extra"></div>` : ""}`;
   $$("[data-v]", main).forEach((b) => b.onclick = () => { mg.view = +b.dataset.v; backupsTab(); });
@@ -411,7 +506,7 @@ function mgGameView(main) {
   const canRestore = (c) => !c.on_peer && c.complete !== false && (g.full || (g.account || "").startsWith("ps5:"));
   const copyRow = ([c, i]) => {
     const ck = mgCk(c), prot = mg.prot.has(ck), other = !!c.other_account || !!c.on_peer;
-    const [tag, t] = other ? [T("Autre compte"), "muted"] : c.needs_resign ? [T("Autre identifiant"), "info"] : c.complete === false ? [T("Incomplète"), "bad"] : c.content_bytes === 0 ? [T("Vide"), "bad"] : g.full ? ["", ""] : !c.group ? [T("À comparer"), "warn"]
+    const [tag, t] = c.on_peer ? [T("Sur %s", c.peer_name), "muted"] : other ? [T("Autre compte"), "muted"] : c.needs_resign ? [T("Autre identifiant"), "info"] : c.complete === false ? [T("Incomplète"), "bad"] : c.content_bytes === 0 ? [T("Vide"), "bad"] : g.full ? ["", ""] : !c.group || c.same_bytes ? [T("À comparer"), "warn"]
       : (g.keep || []).includes(i) ? [T("Gardée"), "ok"] : (g.remove || []).includes(i) ? [T("Doublon"), "warn"] : ["", ""];
     const bits = [];
     if (g.full) bits.push((c.parts || []).map((p) => PARTS[p] || p).join(", "));
@@ -427,7 +522,7 @@ function mgGameView(main) {
     if (c.progress_auto && bits.length) bits.push(T("détecté automatiquement"));
     if (c.needs_resign) bits.push(T("identifiant %s, absent de cette console", c.owner_name || String(c.owner || "").slice(0, 6).toUpperCase() + "…"));  // à qui elle est
     let l2 = bits.filter(Boolean).join(" · ");
-    if (!l2) l2 = T("contenu non comparé");
+    if (!l2) l2 = c.on_peer && !c.group ? T("pas encore lue par %s", c.peer_name) : c.same_bytes ? T("identique octet pour octet à une autre copie ; avancée pas encore lue") : c.group ? T("contenu lu, le jeu n'écrit pas son avancée") : T("contenu non comparé");
     const letter = c.group ? (c.group === cg ? T("contenu %s (= console)", cg) : T("contenu %s", c.group)) : "";
     return `<div class="row mg-copy ${ch.has(ck) ? "on" : ""}">${ckHtml(`data-k="${esc(ck)}" ${other || prot ? "disabled" : ""}`, ch.has(ck))}
       <div class="grow"><div class="t">${esc(c.place_label)} · ${esc(mgDate(c.created_unix))}</div><div class="d ${prot ? "warn" : ""}">${esc(l2)}</div></div>
@@ -436,7 +531,7 @@ function mgGameView(main) {
   };
   const con = g.console;
   main.innerHTML = `<div class="eyebrow tr-crumb"><button class="link" id="mg-back">‹ ${T("Retour")}</button> ${T("SAUVEGARDES")} · ${T("TOUTES LES VERSIONS")}</div>
-    <div class="acc-head mg-title">${mgCover(g)}<div><h2>${esc(g.title)}</h2><span class="hint">${esc(mgPlaces(g))}</span></div></div>
+    <div class="acc-head mg-title">${mgCover(g)}<div><h2>${esc(g.title)}</h2>${spreadLine(g) ? `<span class="hint ok">${esc(spreadLine(g))}</span>` : `<span class="hint">${esc(mgPlaces(g))}</span>`}</div></div>
     <div class="mg-banner ${tone}">${banner}</div>
     <div class="actions"><button class="secondary" id="mg-cmp" ${comparing || g.full ? "disabled" : ""}>${T("Comparer le contenu")}</button>
       <button class="secondary" id="mg-ign1">${g.full ? T("Ne plus sauvegarder…") : T("Ignorer ce jeu…")}</button></div>
@@ -519,7 +614,7 @@ async function mgRestore(g, c) {
 async function mgCompare(g) {
   if (!g.title_id) { toast(T("Jeu sans identifiant : comparaison impossible")); return; }
   if (!g.account.includes(":")) { toast(T("Aucun compte PS5 sur cette console")); return; }
-  const sources = (g.console ? [{ kind: "console" }] : []).concat(g.copies.filter((c) => c.complete !== false).map((c) => ({ place: c.place, bundle: c.bundle })));
+  const sources = (g.console ? [{ kind: "console" }] : []).concat(g.copies.filter((c) => c.complete !== false && !c.on_peer).map((c) => ({ place: c.place, bundle: c.bundle })));  // l'autre PS5 compare ses copies elle-même
   try {
     const r = await post("/tasks", { type: "inspect_save", title_id: g.title_id, user_id: g.account.split(":")[1], sources });
     mg.task = r.id; mg.taskGame = mgGk(g);
@@ -527,6 +622,67 @@ async function mgCompare(g) {
     refresh(true);
   } catch (e) { toast(e.message || T("Comparaison refusée")); }
   backupsTab();
+}
+
+// Comparer et trier (comme la télé) : toutes les copies d'un jeu côte à côte, jugées par leur contenu, jamais par la date.
+// Traduits à l'affichage (manage.js est chargé avant app.js, où N_ est défini).
+const cmpFilters = () => [T("Tout"), T("Sauvegardes"), T("Jeux et images"), T("Doublons"), T("Pas encore comparé"), T("Différents"), T("À vérifier"), T("Plusieurs endroits")];
+function cmpGroups(g) { const s = new Set(); if (g.console && g.console.group) s.add(g.console.group); for (const c of g.copies) if (c.group) s.add(c.group); return s.size; }
+function cmpPlaces(g) { const s = new Set(); if (g.console) s.add("console"); for (const c of g.copies) s.add(c.on_peer ? "peer:" + c.peer_name : c.place); return s.size; }
+function cmpDay(t) { if (!t) return ""; const d = new Date(t * 1000); return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0"); }
+function mgCompareView(main) {
+  const games = mg.sum.games, f = mg.cfilter || 0;
+  let multi = 0, dups = 0, newer = 0;
+  for (const g of games) { multi += cmpPlaces(g) > 1; dups += g.remove.length; newer += g.status === "backup_newer"; }
+  const rows = games.filter((g) => {
+    const full = !!g.full;
+    const ok = f === 1 ? !full : f === 2 ? full : f === 3 ? g.remove.length > 0 : f === 4 ? !full && !g.compared : f === 5 ? !full && g.compared && cmpGroups(g) > 1 : f === 6 ? g.copies.some(mgSuspect)
+      : f === 7 ? !full && (() => { const by = spreadOf(g); return g.copies.some((c) => spreadCopy(c, by) && !mg.prot.has(mgCk(c))); })() : true;
+    return ok && (cmpPlaces(g) > 1 || f !== 0);
+  });
+  const card = (g) => {
+    const full = !!g.full, groups = cmpGroups(g);
+    const [verdict, cls] = full ? [T("%d copie(s) complète(s)", g.copies.length), ""] : !g.compared ? [T("À comparer"), "warn"] : g.status === "backup_newer" ? [T("Une copie plus récente"), "warn"]
+      : groups <= 1 ? [T("Même contenu partout"), "ok"] : g.remove.length ? [T("%d doublon(s)", g.remove.length), "ok"] : [T("Différentes"), "bad"];
+    const cg = (g.console && g.console.group) || "", cm = (g.console && g.console.mtime) || 0;
+    const cplayed = (g.console && g.console.progress && g.console.progress.mtime) || cm;
+    const removing = new Set(g.remove), adv = g.most_advanced ? g.most_advanced.index : -1;
+    const tiles = [];
+    if (g.console) tiles.push({ tag: T("Partie active"), tone: "ok", same: true, where: T("Console"), line: T("partie du %s", cmpDay(cplayed)) + (cg ? T(" · contenu %s", cg) : "") });
+    g.copies.forEach((c, i) => {
+      const grp = c.group || "", saved = c.game_saved_at || 0;
+      const t = { where: c.on_peer ? c.peer_name + " · " + c.place_label : c.place_label,
+        line: (saved ? T("partie du %s", cmpDay(saved)) : T("copiée le %s", cmpDay(c.created_unix))) + (grp ? T(" · contenu %s", grp) : "") };
+      if (c.on_peer && (!grp || full)) Object.assign(t, { tag: T("Sur %s", c.peer_name), tone: "", where: c.place_label });
+      else if (full) Object.assign(t, { tag: T("Copie complète"), tone: "" });
+      else if (mgSuspect(c)) Object.assign(t, { tag: T("À vérifier"), tone: "bad" });
+      else if (c.restored_copy && !grp) Object.assign(t, { tag: T("Partie restaurée"), tone: "ok" });
+      else if (!grp || c.same_bytes) Object.assign(t, { tag: T("Pas comparée"), tone: "warn" });
+      else if (removing.has(i)) Object.assign(t, { tag: T("Doublon"), tone: "ok" });
+      else if (cg && grp === cg) Object.assign(t, { tag: T("Identique"), tone: "ok", same: true });
+      else if (adv === i) Object.assign(t, { tag: T("Plus avancée"), tone: "accent" });
+      else if (cm && saved > cm + 60) Object.assign(t, { tag: T("Plus récente"), tone: "warn" });
+      else Object.assign(t, { tag: T("Plus ancienne"), tone: "" });
+      tiles.push(t);
+    });
+    const note = spreadLine(g) || (full ? T("Copie complète") : T("Sauvegarde")) + (g.console ? " · " + T("partie active sur cette console") : "");
+    return `<div class="cmp-game"><div class="cmp-head">${mgCover(g)}<div class="grow"><b>${esc(g.title)}</b><div class="hint">${esc(note)}</div></div><span class="cmp-verdict ${cls}">${esc(verdict)}</span></div>
+      <div class="cmp-copies">${tiles.map((t) => `<div class="cmp-copy ${t.same ? "same" : ""}"><span class="cmp-tag ${t.tone}">${esc(t.tag)}</span><b>${esc(t.where)}</b><small>${esc(t.line)}</small></div>`).join("")}</div>
+      <div class="actions">${f === 7 ? `<button data-cmp-tidy="${esc(mgGk(g))}">${T("Faire le tri")}</button>` : ""}<button class="secondary" data-cmp-open="${esc(mgGk(g))}">${T("Toutes les versions")}</button>${full ? "" : `<button class="secondary" data-cmp-run="${esc(mgGk(g))}">${T("Comparer ce jeu")}</button>`}</div></div>`;
+  };
+  main.innerHTML = `<div class="cmp-sum">
+      <div class="mg-stat"><b>${multi}</b><span class="hint">${T("jeux avec des copies à plusieurs endroits")}</span></div>
+      <div class="mg-stat"><b>${dups}</b><span class="hint">${T("copies identiques (doublons)")}</span></div>
+      <div class="mg-stat"><b class="${newer ? "warn" : ""}">${newer}</b><span class="hint">${T("copie(s) plus récente(s) ailleurs")}</span></div>
+      <div class="mg-stat"><b>${esc(size(Math.max(0, mg.sum.freed_bytes || 0)))}</b><span class="hint">${T("récupérables en gardant une copie par contenu")}</span></div></div>
+    <div class="cmp-filters">${cmpFilters().map((x, i) => `<button class="${i === f ? "on" : ""}" data-cf="${i}">${esc(x)}</button>`).join("")}</div>
+    ${f === 7 && rows.length ? `<div class="actions"><button class="secondary" id="cmp-keep">${T("Garder seulement sur…")}</button></div>` : ""}
+    ${rows.length ? rows.map(card).join("") : `<div class="empty"><p class="hint">${f === 0 ? T("Aucun jeu n'a de copies à plusieurs endroits.") : T("Rien dans cette vue.")}</p></div>`}`;
+  $$("[data-cf]", main).forEach((b) => b.onclick = () => { mg.cfilter = +b.dataset.cf; backupsTab(); });
+  $$("[data-cmp-open]", main).forEach((b) => b.onclick = () => { mg.back = ""; mg.game = b.dataset.cmpOpen; window.scrollTo(0, 0); backupsTab(); });
+  $$("[data-cmp-run]", main).forEach((b) => b.onclick = () => { const g = games.find((x) => mgGk(x) === b.dataset.cmpRun); if (g) mgCompare(g); });
+  $$("[data-cmp-tidy]", main).forEach((b) => b.onclick = () => { const g = games.find((x) => mgGk(x) === b.dataset.cmpTidy); if (g) mgTidy(g); });
+  if ($("#cmp-keep", main)) $("#cmp-keep", main).onclick = () => mgTidy(null, rows);
 }
 
 // Aperçu avant la corbeille, puis une copie après l'autre (le NAS répond en FTP). « place » : seulement cet endroit.
@@ -561,8 +717,8 @@ function mgPreview(list, place = "") {
   document.body.appendChild(box);
   let busy = false;
   const close = () => { if (!busy) box.remove(); };
-  $("#mg-cancel", box).onclick = () => { close(); toast(T("Rien n'a été supprimé")); };
-  box.onclick = (e) => { if (e.target === box && !busy) { close(); toast(T("Rien n'a été supprimé")); } };
+  $("#mg-cancel", box).onclick = () => { close(); mgTidyUndo(); toast(T("Rien n'a été supprimé")); };
+  box.onclick = (e) => { if (e.target === box && !busy) { close(); mgTidyUndo(); toast(T("Rien n'a été supprimé")); } };
   $("#mg-go", box).onclick = async () => {
     // Dernière étape : bouton maintenu 5 s (comme la télé et la sauvegarde de la console).
     const nas = copies.some((c) => (c.place || "").startsWith("remote:"));
@@ -640,10 +796,12 @@ async function mgDiskExtras(root, placeId, again = false) {
 
 // Corbeille de chaque disque USB et du NAS, par jour ; « Remettre » remet la copie à sa place.
 async function mgTrashView(root) {
-  const places = (state.places || []).filter((p) => (p.type === "usb" || p.type === "ftp") && p.use !== "sync");
+  const places = (state.places || []).filter((p) => (p.type === "usb" || p.type === "ftp") && p.use !== "sync" && !p.same_backups_as);
   const draw = () => {
     if (!root.isConnected) return;
-    root.innerHTML = places.length ? places.map((p) => {
+    const withAny = places.filter((p) => Array.isArray(mg.trash[p.id]) && mg.trash[p.id].length);
+    const overview = withAny.length > 1 ? `<p class="hint">${esc(T("Dans la corbeille : %s", withAny.map((p) => p.label + " " + mg.trash[p.id].length).join(" · ")))}</p>` : "";
+    root.innerHTML = places.length ? overview + places.map((p) => {
       const list = mg.trash[p.id];
       if (list === undefined) return `<h3>${esc(p.label)}</h3>${loading(T("lecture…"))}`;
       if (list.error) return `<h3>${esc(p.label)}</h3><p class="bad">${esc(list.error)}</p>`;
@@ -652,7 +810,8 @@ async function mgTrashView(root) {
       return `<h3>${esc(p.label)} <span class="hint">· ${esc(T("%d copie(s)", list.length))}</span></h3>` + days.map((d) => {
         const [y, m, dd] = d.split("-");
         return `<p class="hint">${esc(T("Mise à la corbeille le %s", dd && m ? `${dd}/${m}/${y}` : d))}</p><div class="list">${list.filter((t) => t.day === d).map((t) => {
-          const g = (mg.sum.games || []).find((x) => (x.title_id && t.bundle.includes(x.title_id)) || t.bundle.includes(x.title));
+          const plain = (s) => (s || "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, ""), pb = plain(t.bundle);
+          const g = (mg.sum.games || []).find((x) => (x.title_id && t.bundle.includes(x.title_id)) || (plain(x.title) && pb.includes(plain(x.title))));
           return `<div class="row"><div><div class="t">${esc(g ? g.title : t.bundle.split("/").pop())}</div><div class="d">${esc(t.bundle)}</div></div>
             <div class="btns"><button data-place="${esc(p.id)}" data-path="${esc(t.path)}">${T("Remettre")}</button></div></div>`;
         }).join("")}</div>`;

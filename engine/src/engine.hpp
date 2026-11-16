@@ -127,12 +127,17 @@ public:
     Json browse_remote(const std::string& id, const std::string& path, std::string& error);
     // Parcourir avec des réglages pas encore enregistrés (choisir le dossier avant d'enregistrer).
     Json browse_config(const Json& body, std::string& error);
+    struct OriginScope { explicit OriginScope(std::string o); ~OriginScope(); std::string prev; };  // « lancée par »
+    static std::string task_origin();
+    Json mkdir_remote(const std::string& id, const std::string& path, std::string& error);  // explorateur : « Nouveau dossier… »
+    bool mkdir_in(pbc::store::Store& st, const std::string& path, std::string& error);
     bool test_config(const Json& body, std::string& error);  // tester avant d'enregistrer
     // Gestion des backups : action « protect » {on}, « measure », « delete » {confirm:true} sur {place, bundle}.
     // Une tâche de sauvegarde terminée : où est la version qu'elle a faite ({place, bundle} au format de version_action).
     Json task_backup(const std::string& task_id, std::string& error);
     Json version_action(const std::string& action, const Json& body, std::string& error);
-    Json backups_summary(const std::string& account, bool with_peers = true);  // with_peers : copies rangées sur les PS5 jumelées                 // résumé par jeu + proposition
+    Json backups_summary(const std::string& account, bool with_peers = true, bool exact = false);  // exact : attend le calcul en cours (partagé) plutôt que la dernière liste connue  // with_peers : copies rangées sur les PS5 jumelées                 // résumé par jeu + proposition
+    void peer_changed() { peer_backups_at_ = 0; }  // l'autre PS5 a changé ses copies : relue au prochain tour
     Json compare_all(const std::string& account, std::string& error);  // une comparaison par jeu pas encore lu
     Json players();                                                     // joueurs : identifiants regroupés + suggestions
     Json player_action(const std::string& action, const Json& body, std::string& error);  // link / name
@@ -404,7 +409,8 @@ private:
     std::unique_ptr<covers::Fetcher> fetcher_;
     std::unique_ptr<store::Remotes> remotes_;
     struct CloudLink { std::string provider, device_code, user_code, url, state = "pending", refresh, account, error, verifier, authorize; int interval = 5;
-                       std::int64_t expires = 0, next = 0; std::uint64_t free = 0, total = 0; };
+                       std::int64_t expires = 0, next = 0; std::uint64_t free = 0, total = 0;
+                       bool checking = false; };  // une seule question au service à la fois (un code ne sert qu'une fois)
     std::mutex links_mu_;
     std::map<std::string, CloudLink> links_;
     bool take_link(const Json& body, store::Remote& r, std::string& error);  // jeton d'une connexion par code
@@ -423,6 +429,10 @@ private:
     std::atomic<bool> parties_running_{false};
     std::int64_t peer_backups_at_ = 0;
     void refresh_peer_backups();
+    // Après une sauvegarde, une restauration ou une comparaison : l'autre PS5 relit nos copies tout de suite
+    // (avant : jusqu'à 10 min). Un seul appel en attente à la fois.
+    void notify_peers_later();
+    std::atomic<bool> notify_pending_{false};
     Json peer_places_ = Json::array();  // disques des PS5 jumelées (destinations « peer:… »), relus toutes les 30 s
     std::int64_t peer_places_at_ = 0;
     std::string peer_online_sig_;  // PS5 jumelées en ligne au dernier rafraîchissement de leurs disques
@@ -444,6 +454,28 @@ private:
     std::set<std::string> remote_fetching_;      // appareils en cours de lecture
     std::condition_variable remote_index_cv_;
     Json remote_index(const std::string& id, bool fresh = false);
+    Json remote_index_cached(const std::string& id);  // sans attendre : dernière liste connue, relue en arrière-plan
+    // Résumé des sauvegardes : un seul calcul à la fois par vue, en arrière-plan ; les demandes simultanées (télé,
+    // page web, autre PS5) partagent ce calcul. Tant que rien n'a changé (même révision), le dernier résultat est
+    // redonné tout de suite ; sinon on attend le nouveau quelques secondes au plus, puis on rend le dernier connu
+    // marqué « updating » (l'écran redemande peu après). Gardé sur disque : juste après un démarrage, pas d'écran vide.
+    struct SummaryMemo { std::uint64_t rev = 0; Json value; bool busy = false; };
+    void summary_memo_load();
+    // Parties restaurées : « compte|jeu » → heure de la restauration. Tant que la partie de la console n'a pas changé
+    // depuis, elle EST la copie restaurée : ni « à sauvegarder » ni « plus récente » (l'heure du fichier = la restauration).
+    // Chaque restauration : quand, et depuis quelle copie (lieu + dossier ; vides si inconnus). Une copie faite d'une
+    // partie restaurée sans la rejouer porte l'heure de la restauration : elle prend l'heure de la partie d'origine.
+    struct Restored { std::int64_t at = 0; std::string place, bundle; };
+    std::map<std::string, std::vector<Restored>> restored_;
+    std::mutex restored_mu_;
+    void restored_load();
+    void restored_note(const std::string& key, const Restored& r);
+    Json restores_json();  // pour l'autre PS5 : restaurations faites ici (compte PSN, jeu, heure)
+    void summary_memo_save();
+    std::map<std::string, SummaryMemo> summary_memo_;
+    std::mutex summary_mu_;
+    std::condition_variable summary_cv_;
+    Json backups_summary_compute(const std::string& account, bool with_peers);
     std::thread scan_thread_;
     std::atomic<bool> quit_{false};
     std::atomic<bool> scan_requested_{true};

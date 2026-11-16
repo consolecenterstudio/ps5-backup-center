@@ -164,4 +164,6 @@ void close(Session* s) {
     delete s;
 }
 
+void abort(Session* s) { delete s; }  // la socket est fermée juste après par l'appelant
+
 }  // namespace pbc::tls

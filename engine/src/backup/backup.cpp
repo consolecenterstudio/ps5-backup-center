@@ -11,6 +11,7 @@
 
 #include "core/fs.hpp"
 #include "core/perms.hpp"
+#include "saves/inspect.hpp"
 #include "core/util.hpp"
 
 namespace pbc::backup {
@@ -271,7 +272,7 @@ bool rebuild_index(store::Store& st, const std::string& folder) {
     std::vector<fs::Entry> entries;
     Json idx = Json::object();
     idx.set("format", "pbck-index");
-    idx.set("version", 3);
+    idx.set("version", 4);  // v4 : empreinte du contenu de chaque compte (« raw »), lue dans le manifeste
     idx.set("updated", iso_time(now_unix()));
     Json list = Json::array();
     if (st.list(folder, entries)) {
@@ -301,6 +302,10 @@ bool rebuild_index(store::Store& st, const std::string& folder) {
                 a.set("account_name", meta["account_name"]);
                 a.set("save_mtime", meta["mtime"]);  // heure de la sauvegarde du jeu (pas de la copie)
                 if (meta["progress"].is_object()) a.set("progress", meta["progress"]);  // avancée au moment de la copie
+                // Empreinte du contenu (SHA-256 des fichiers notés au manifeste) : deux copies identiques se
+                // reconnaissent sans rien lire ni télécharger.
+                const std::string raw = saves::manifest_raw_signature(m, m["item"]["title_id"].as_string(), meta["user_id"].as_string());
+                if (!raw.empty()) a.set("raw", raw);
                 accounts.push(a);
             }
             entry.set("accounts", accounts);
@@ -323,7 +328,7 @@ Json read_index(store::Store& st, const std::string& folder, bool rebuild_if_nee
     std::string text;
     Json idx;
     // Index d'une version plus ancienne : reconstruit depuis les manifestes (rien n'est perdu).
-    if (st.read_small(fs::join(folder, "index.json"), text) && Json::parse(text, idx) && idx["backups"].is_array() && idx["version"].as_int() >= 3) return idx;  // v3 : heure des sauvegardes de jeu
+    if (st.read_small(fs::join(folder, "index.json"), text) && Json::parse(text, idx) && idx["backups"].is_array() && idx["version"].as_int() >= 4) return idx;  // v4 : empreintes du contenu
     if (rebuild_if_needed && rebuild_index(st, folder) && st.read_small(fs::join(folder, "index.json"), text) && Json::parse(text, idx)) return idx;
     return Json::object();
 }

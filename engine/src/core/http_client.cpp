@@ -115,7 +115,8 @@ struct Stream {
     tls::Session* tls = nullptr;
     ssize_t recv(char* p, std::size_t n) { return tls ? tls::read(tls, p, n) : ::recv(fd, p, n, 0); }
     bool send(const char* p, std::size_t n) { return tls ? tls::write_all(tls, p, n) : send_all(fd, p, n); }
-    void close() { if (tls) tls::close(tls); tls = nullptr; if (fd >= 0) ::close(fd); fd = -1; }
+    // Fin d'une connexion HTTP : pas d'attente de l'au revoir TLS (Microsoft Graph ne le renvoie pas : 2 min perdues à chaque changement de serveur).
+    void close() { if (tls) tls::abort(tls); tls = nullptr; if (fd >= 0) ::close(fd); fd = -1; }
 };
 
 struct Head { bool chunked = false; std::string location; };

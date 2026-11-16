@@ -6,6 +6,7 @@
 // Le résumé vient du moteur (GET /api/v2/backups/summary) : gardé en mémoire, relu à la demande et après
 // chaque action ; tout passe par le chemin lent asynchrone (jamais d'attente dans le dessin).
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <ctime>
 
@@ -156,11 +157,18 @@ std::string progress_line(const Json& g) {
     return t;
 }
 
+std::string spot_name(const Json& c);  // plus bas
+int place_count_of(const Json& g) {  // endroits différents qui gardent ce jeu (console comprise ; l'autre PS5 compte une fois)
+    std::set<std::string> ps;
+    if (g["console"].is_object()) ps.insert("console");
+    for (const auto& c : g["copies"].items()) ps.insert(c["on_peer"].as_bool() ? "peer:" + c["peer_name"].as_string() : c["place"].as_string());
+    return static_cast<int>(ps.size());
+}
 std::string places_text(const Json& g) {
     std::vector<std::string> seen;
     if (g["console"].is_object()) seen.push_back(tr("Console"));
     for (const auto& c : g["copies"].items()) {
-        const std::string l = c["on_peer"].as_bool() ? c["peer_name"].as_string() : c["place_label"].as_string();  // l'autre PS5, une seule fois
+        const std::string l = spot_name(c);  // l'autre PS5 une seule fois, sans redite du service
         if (std::find(seen.begin(), seen.end(), l) == seen.end()) seen.push_back(l);
     }
     std::string out;
@@ -175,6 +183,46 @@ void checkbox(Surface& s, int x, int cy, bool on, bool dim) {
     for (int d = 0; d < 11; ++d) s.rect(x + 11 + d, cy + 2 - d, 4, 4, color::text, 2);
 }
 
+// Nom court d'un endroit : « Google Drive (Google Drive) » → « Google Drive » ; l'autre PS5 par son nom.
+std::string spot_name(const Json& c) {
+    if (c["on_peer"].as_bool()) return c["peer_name"].as_string();
+    std::string l = c["place_label"].as_string();
+    const auto p = l.find(" (");
+    if (p != std::string::npos && l.size() > p + 3 && l.substr(0, p).find(l.substr(p + 2, l.size() - p - 3)) != std::string::npos) l = l.substr(0, p);  // « Backblaze B2 (B2) »
+    return l;
+}
+// Où se trouve chaque partie (lettre du contenu → endroits, une fois chacun ; la console compte comme un endroit).
+std::map<std::string, std::vector<std::string>> spread_of(const Json& g) {
+    std::map<std::string, std::vector<std::string>> by;
+    auto add = [&](const std::string& L, const std::string& name) {
+        if (L.empty()) return;
+        auto& v = by[L];
+        if (std::find(v.begin(), v.end(), name) == v.end()) v.push_back(name);
+    };
+    add(g["console"]["group"].as_string(), tr("Cette PS5"));
+    for (const auto& c : g["copies"].items()) if (!c["other_account"].is_string()) add(c["group"].as_string(), spot_name(c));
+    return by;
+}
+// La partie à mettre en avant : celle de la console, sinon la plus répandue.
+std::pair<std::string, std::vector<std::string>> main_spread(const Json& g) {
+    const auto by = spread_of(g);
+    const std::string cg = g["console"]["group"].as_string();
+    if (!cg.empty() && by.count(cg)) return {cg, by.at(cg)};
+    std::pair<std::string, std::vector<std::string>> best;
+    for (const auto& [L, v] : by) if (v.size() > best.second.size()) best = {L, v};
+    return best;
+}
+std::string join_dot(const std::vector<std::string>& v) {
+    std::string out;
+    for (const auto& x : v) out += (out.empty() ? "" : " · ") + x;
+    return out;
+}
+// Une copie d'ici (ni d'un autre compte, ni sur l'autre PS5) dont la partie existe aussi à un autre endroit.
+bool spread_copy(const Json& c, const std::map<std::string, std::vector<std::string>>& by) {
+    if (c["other_account"].is_string() || c["on_peer"].as_bool() || !c["complete"].as_bool(true)) return false;
+    const auto it = by.find(c["group"].as_string());
+    return it != by.end() && it->second.size() >= 2;
+}
 }  // namespace
 
 // Lignes d'un paragraphe coupé aux mots.
@@ -241,6 +289,7 @@ void Ui::mg_compare_game(const Json& g) {
     if (g["console"].is_object()) { Json c = Json::object(); c.set("kind", "console"); src.push(c); }
     for (const auto& c : g["copies"].items()) {
         if (!c["complete"].as_bool(true)) continue;
+        if (c["on_peer"].as_bool()) continue;  // rangée sur l'autre PS5 : elle la compare elle-même (ici, illisible : toute la comparaison était refusée)
         Json s2 = Json::object();
         s2.set("place", c["place"]);
         s2.set("bundle", c["bundle"]);
@@ -309,6 +358,7 @@ void Ui::mg_delete_next(std::size_t i) {
 
 void Ui::mg_finish_delete() {
     mg_deleting_ = false;
+    mg_tidy_games_.clear();
     mg_preview_ = false;
     mg_del_finished_ = false;
     std::string msg = trf("%d copie(s) mise(s) à la corbeille (30 jours)", mg_del_done_.load());
@@ -331,7 +381,7 @@ void Ui::draw_manage(Surface& s, int x, int w) {
     }
     const std::string acc = mg_account();
     if (acc != mg_sum_account_ || !mg_sum_at_) { if (acc != mg_sum_account_) mg_sum_ = Json(); mg_sum_account_ = acc; mg_load_summary(); }
-    else if (now_ - mg_sum_at_ > 120000) mg_load_summary();  // relu en silence toutes les 2 minutes (l'ancien reste affiché)
+    else if (now_ - mg_sum_at_ > (mg_sum_["updating"].as_bool() ? 3000 : 120000)) mg_load_summary();  // relu en silence toutes les 2 min ; 3 s si le moteur recompte encore
     if (mg_sum_dirty_ && !mg_sum_inflight_) { mg_sum_dirty_ = false; mg_load_summary(); }
     // Comparaisons en cours (Tout comparer) : le résumé est relu à chaque jeu terminé.
     int comparing = 0;
@@ -352,6 +402,7 @@ void Ui::draw_manage(Surface& s, int x, int w) {
         return;
     }
     if (mg_screen_ == 1) draw_mg_game(s, x, w);
+    else if (mg_compare_) draw_mg_compare(s, x, w);
     else draw_mg_overview(s, x, w);
 }
 
@@ -391,6 +442,10 @@ void Ui::draw_mg_overview(Surface& s, int x, int w) {
     if (n > 5) { const std::string pos = std::to_string(mg_row_ + 1) + " / " + std::to_string(n); s.text(font_, x + w - Surface::measure(pos, small), 392, pos, small, color::muted); }
     const int per_page = 5, first = std::max(0, mg_row_ - per_page + 1), rh = 92;
     int yy = 438;
+    // Bulle d'une autre PS5 : chaque ligne parle de SES copies (pas de tout le jeu) ; on les gère depuis elle.
+    const std::string vplace = mg_place_id();
+    const bool peer_view = vplace.rfind("peer:", 0) == 0;
+    auto on_view = [&](const Json& c) { const std::string p = c["place"].as_string(); return p == vplace || (vplace.back() == ':' && p.rfind(vplace, 0) == 0); };
     for (int r = first; r < n && r < first + per_page; ++r) {
         const Json& g = games[rows[static_cast<std::size_t>(r)]];
         const std::string gk = gkey(g);
@@ -407,7 +462,26 @@ void Ui::draw_mg_overview(Surface& s, int x, int w) {
         // Pastille à droite : Libère X / À comparer / Rien à faire.
         std::string badge;
         std::uint32_t tone, fill;
-        if (on) {
+        std::string peer_name;
+        int peer_n = 0;
+        std::int64_t peer_last = 0;
+        // Copies de l'endroit choisi (vide sur Partout) : leur nombre, la dernière, les doublons proposés ici.
+        int here_n = 0, here_dup = 0;
+        std::int64_t here_last = 0;
+        std::string here_name;
+        if (!vplace.empty() && !peer_view) {
+            const auto ch = chosen(g, mg_csel_, mg_protected_);
+            for (const auto& c : g["copies"].items())
+                if (on_view(c)) { ++here_n; here_last = std::max(here_last, c["created_unix"].as_int()); if (here_name.empty()) here_name = spot_name(c); if (ch.count(ckey(c))) ++here_dup; }
+        }
+        if (peer_view) for (const auto& c : g["copies"].items()) if (on_view(c)) { ++peer_n; peer_last = std::max(peer_last, c["created_unix"].as_int()); if (peer_name.empty()) peer_name = c["peer_name"].as_string(); }
+        if (peer_view) { badge = trf("Sur %s", peer_name.c_str()); tone = color::muted; fill = rgb(255, 255, 255, 16); }
+        else if (!vplace.empty() && !on && !g["full"].as_bool()) {  // un endroit : ce qu'il y a à faire ICI
+            if (here_dup) { badge = trf("%d doublon(s) ici", here_dup); tone = color::ok; fill = rgb(95, 211, 154, 36); }
+            else if (!g["compared"].as_bool()) { badge = tr("À comparer"); tone = color::warn; fill = rgb(240, 184, 103, 36); }
+            else { badge = tr("Rien à faire ici"); tone = color::muted; fill = rgb(255, 255, 255, 16); }
+        }
+        else if (on) {
             badge = trf("Sélectionné · %d copie(s)", static_cast<int>(chosen(g, mg_csel_, mg_protected_).size()));
             tone = color::accent; fill = rgb(61, 139, 255, 50);
         } else if (g["full"].as_bool()) {
@@ -425,7 +499,14 @@ void Ui::draw_mg_overview(Surface& s, int x, int w) {
         s.text(font_, x + w - 20 - bwid + 15, yy + 17, badge, small, tone);
         const int tw = s.text(font_, tx, yy + 6, g["title"].as_string(), body, color::text, w - (tx - x) - bwid - 260);
         s.text(font_, tx + tw + 16, yy + 13, places_text(g), small, color::muted, std::max(0, w - (tx - x) - tw - bwid - 56));
-        s.text(font_, tx, yy + 40, summary_text(g), small, color::text, w - (tx - x) - 24);
+        if (peer_view) s.text(font_, tx, yy + 40, trf("%d copie(s) sur %s · la dernière le %s · gérées depuis cette console-là", peer_n, peer_name.c_str(), date_text(peer_last, false).c_str()), small, color::text, w - (tx - x) - 24);
+        else if (!vplace.empty() && here_n) {
+            std::string line = trf("%d copie(s) sur %s · la dernière le %s", here_n, here_name.c_str(), date_text(here_last, false).c_str());
+            const int elsewhere = place_count_of(g) - 1;
+            if (elsewhere > 0) line += " · " + trf("aussi à %d autre(s) endroit(s)", elsewhere);
+            s.text(font_, tx, yy + 40, line, small, color::text, w - (tx - x) - 24);
+        }
+        else s.text(font_, tx, yy + 40, summary_text(g), small, color::text, w - (tx - x) - 24);
         const std::string pl = progress_line(g);
         if (!pl.empty()) s.text(font_, tx, yy + 64, pl, small, color::accent, w - (tx - x) - 24);
         yy += rh + 8;
@@ -448,7 +529,7 @@ void Ui::draw_mg_overview(Surface& s, int x, int w) {
         }
     }
     const std::string sq = mg_gsel_.empty() ? next : trf("Supprimer… (%d)", static_cast<int>(mg_gsel_.size()));
-    draw_footer(s, {{0, tr("Ouvrir")}, {-1, tr("L2 : cocher")}, {-1, tr("R2 : doublons…")}, {-1, tr("Options : actions")}, {2, sq.c_str()}, {3, tr("Tout comparer")}});
+    draw_footer(s, {{0, tr("Ouvrir")}, {-1, tr("L2 : cocher")}, {-1, tr("R2 : doublons à la corbeille…")}, {-1, tr("Options : actions")}, {2, sq.c_str()}, {3, tr("Tout comparer")}});
 }
 
 // Corbeille de chaque disque USB et du NAS, par jour ; Croix remet la copie à sa place.
@@ -457,7 +538,7 @@ void Ui::draw_mg_trash(Surface& s, int x, int w, int y0) {
     std::vector<Row> rows;
     bool loading = false;
     for (const auto& p : snap_->places) {
-        if ((p.type != "usb" && p.type != "ftp") || p.use == "sync") continue;  // NAS « Synchro seulement » : pas de corbeille ici
+        if ((p.type != "usb" && p.type != "ftp") || p.use == "sync" || !p.same_backups_as.empty()) continue;  // un même NAS par deux chemins : une fois  // NAS « Synchro seulement » : pas de corbeille ici
         const auto it = mg_trash_.find(p.id);
         if (it == mg_trash_.end()) { mg_load_trash(p.id); loading = true; rows.push_back({0, p.label + "  ·  " + tr("lecture…"), p.id, nullptr}); continue; }
         const Json& list = it->second;
@@ -478,6 +559,18 @@ void Ui::draw_mg_trash(Surface& s, int x, int w, int y0) {
         }
     }
     if (loading) spinner(s, x + w - 20, 402, 14);
+    {   // Tous les endroits d'un coup d'œil, avant le détail (un disque peut en avoir des centaines)
+        std::string all;
+        int places_with = 0;
+        for (const auto& p : snap_->places) {
+            if ((p.type != "usb" && p.type != "ftp") || p.use == "sync" || !p.same_backups_as.empty()) continue;  // un même NAS par deux chemins : une fois
+            const auto it = mg_trash_.find(p.id);
+            if (it == mg_trash_.end() || !it->second.is_array() || it->second.size() == 0) continue;
+            ++places_with;
+            all += (all.empty() ? "" : " · ") + p.label + " " + std::to_string(it->second.size());
+        }
+        if (places_with > 1) rows.insert(rows.begin(), Row{1, trf("Dans la corbeille : %s", all.c_str()), "", nullptr});
+    }
     std::vector<int> items;
     for (int i = 0; i < static_cast<int>(rows.size()); ++i) if (rows[static_cast<std::size_t>(i)].kind == 2) items.push_back(i);
     mg_trow_ = std::min(mg_trow_, std::max(0, static_cast<int>(items.size()) - 1));
@@ -500,10 +593,14 @@ void Ui::draw_mg_trash(Surface& s, int x, int w, int y0) {
             if (f) s.outline(x - 4, yy - 4, w + 8, 78, color::accent, 18, 3);
             const std::string bundle = (*r.item)["bundle"].as_string();
             // Nom du jeu retrouvé par son identifiant (ou son titre) dans le nom de la copie.
+            // (lettres et chiffres seulement : « Clair Obscur: Expedition 33 » s'écrit « Clair Obscur_ … » dans un nom de fichier)
+            auto plain = [](const std::string& t) { std::string o; for (unsigned char ch : t) if (std::isalnum(ch) || ch >= 0x80) o += static_cast<char>(std::tolower(ch)); return o; };
+            const std::string pb = plain(bundle);
             std::string name;
             for (const auto& g : mg_sum_["games"].items()) {
                 const std::string& tid = g["title_id"].as_string();
-                if ((!tid.empty() && bundle.find(tid) != std::string::npos) || bundle.find(g["title"].as_string()) != std::string::npos) { name = g["title"].as_string(); break; }
+                const std::string pt = plain(g["title"].as_string());
+                if ((!tid.empty() && bundle.find(tid) != std::string::npos) || (!pt.empty() && pb.find(pt) != std::string::npos)) { name = g["title"].as_string(); break; }
             }
             const std::string file = bundle.substr(bundle.rfind('/') == std::string::npos ? 0 : bundle.rfind('/') + 1);
             s.text(font_, x + 24, yy + 8, name.empty() ? file : name, body, color::text, w - 300);
@@ -515,7 +612,8 @@ void Ui::draw_mg_trash(Surface& s, int x, int w, int y0) {
     }
     if (rows.empty()) s.text(font_, x, y0 + 20, tr("Aucun disque USB ni NAS."), large, color::muted);
     s.text(font_, x, 946, tr("Les copies restent 30 jours dans « PBC Backup/Corbeille » de leur disque ou NAS."), small, color::muted, w);
-    draw_footer(s, {{0, tr("Remettre")}, {3, tr("Actualiser")}, {-1, tr("Gauche / droite : endroits")}, {1, tr("Retour")}});
+    if (mg_zone_ == 0) draw_footer(s, {{0, tr("Ouvrir la liste")}, {3, tr("Actualiser")}, {-1, tr("Gauche / droite : endroits")}});  // ← → seulement sur les bulles
+    else draw_footer(s, {{0, tr("Remettre")}, {3, tr("Actualiser")}, {1, tr("Retour")}});
 }
 
 void Ui::draw_mg_game(Surface& s, int x, int w) {
@@ -531,12 +629,16 @@ void Ui::draw_mg_game(Surface& s, int x, int w) {
         cover(s, *found, x, 196, 72, false);
     }
     s.text(font_, x + 92, 194, g["title"].as_string(), large, color::text, w - 92);
-    s.text(font_, x + 92, 242, places_text(g), small, color::muted, w - 300);
+    {
+        const auto sp = g["full"].as_bool() ? std::pair<std::string, std::vector<std::string>>() : main_spread(g);
+        if (sp.second.size() >= 2) s.text(font_, x + 92, 242, trf("Même partie à %d endroits : %s", static_cast<int>(sp.second.size()), join_dot(sp.second).c_str()), small, color::ok, w - 300);
+        else s.text(font_, x + 92, 242, places_text(g), small, color::muted, w - 300);
+    }
     // Bandeau : la proposition (selon les cases cochées).
     int mine = 0;
     std::uint64_t bytes = 0;
     for (const auto& c : copies.items()) {
-        if (c["other_account"].is_string()) continue;
+        if (c["other_account"].is_string() || c["on_peer"].as_bool()) continue;  // comme la liste : les copies d'ici
         ++mine;
         if (ch.count(ckey(c))) bytes += copy_bytes(c);
     }
@@ -605,11 +707,13 @@ void Ui::draw_mg_game(Surface& s, int x, int w) {
             // Étiquette : Autre compte / Incomplète / À comparer / Gardée / Doublon.
             const char* tag = nullptr;
             std::uint32_t tone2 = color::muted, fill = rgb(255, 255, 255, 16);
-            if (other) tag = tr("Autre compte");
+            const std::string peer_tag = c["on_peer"].as_bool() ? trf("Sur %s", c["peer_name"].as_string().c_str()) : std::string();
+            if (!peer_tag.empty()) tag = peer_tag.c_str();  // rangée sur l'autre PS5 : elle la compare elle-même, rien à faire d'ici
+            else if (other) tag = tr("Autre compte");
             else if (c["needs_resign"].as_bool()) { tag = tr("Autre identifiant"); tone2 = color::accent; fill = rgb(124, 196, 255, 36); }
             else if (!c["complete"].as_bool(true)) { tag = tr("Incomplète"); tone2 = color::bad; fill = rgb(255, 123, 123, 36); }
             else if (g["full"].as_bool()) tag = nullptr;
-            else if (!c["group"].is_string()) { tag = tr("À comparer"); tone2 = color::warn; fill = rgb(240, 184, 103, 36); }
+            else if (!c["group"].is_string() || c["same_bytes"].as_bool()) { tag = tr("À comparer"); tone2 = color::warn; fill = rgb(240, 184, 103, 36); }
             else if (has_index(g["keep"], r.idx)) { tag = tr("Gardée"); tone2 = color::ok; fill = rgb(95, 211, 154, 36); }
             else if (has_index(g["remove"], r.idx)) { tag = tr("Doublon"); tone2 = color::warn; fill = rgb(240, 184, 103, 36); }
             int right = x + w - 20;
@@ -644,7 +748,14 @@ void Ui::draw_mg_game(Surface& s, int x, int w) {
                 l2 += (l2.empty() ? "" : " · ") + trf("identifiant %s, absent de cette console", who.c_str());
             }
             if (c["legacy"].as_bool()) l2 += (l2.empty() ? "" : " · ") + std::string(tr("ancienne (script)"));
-            if (l2.empty()) l2 = c["save_mtime"].as_int() > 0 ? trf("partie enregistrée le %s", date_text(c["save_mtime"].as_int()).c_str()) : std::string(tr("contenu non comparé"));
+            if (c["on_peer"].as_bool()) l2 = trf("rangée sur %s : Croix pour la récupérer ici", c["peer_name"].as_string().c_str()) + (l2.empty() ? "" : " · " + l2);
+            if (l2.empty()) {
+                const std::int64_t saved = c["game_saved_at"].as_int() ? c["game_saved_at"].as_int() : c["save_mtime"].as_int();
+                l2 = saved > 0 ? trf("partie enregistrée le %s", date_text(saved).c_str())
+                   : c["on_peer"].as_bool() && !c["group"].is_string() ? trf("pas encore lue par %s", c["peer_name"].as_string().c_str())
+                   : c["same_bytes"].as_bool() ? std::string(tr("identique octet pour octet à une autre copie ; avancée pas encore lue"))
+                   : c["group"].is_string() ? std::string(tr("contenu lu, le jeu n'écrit pas son avancée")) : std::string(tr("contenu non comparé"));
+            }
             s.text(font_, x + 62, yy + 40, l2, small, prot ? color::warn : color::muted, right - x - 62);
         }
         yy += height(i);
@@ -656,7 +767,10 @@ void Ui::draw_mg_game(Surface& s, int x, int w) {
     {   // version focalisée : sauvegarde (restaurable sur le compte) ou backup complet
         if (!ch.empty()) draw_checked(s, static_cast<int>(ch.size()));
     }
-    draw_footer(s, {{0, tr("Restaurer")}, {2, tr("Supprimer…")}, {-1, tr("L2 : cocher")}, {-1, tr("Options : actions")}, {1, tr("Retour")}});
+    const bool focus_peer = focus >= 0 && copies[rows[static_cast<std::size_t>(focus)].idx]["on_peer"].as_bool();  // copie rangée sur l'autre PS5
+    if (focus_peer) draw_footer(s, {{0, tr("Récupérer ici…")}, {3, tr("Comparer ce jeu")}, {1, tr("Retour")}});
+    else if (!ch.empty()) draw_footer(s, {{0, tr("Restaurer")}, {2, tr("Supprimer…")}, {-1, tr("L2 : cocher")}, {3, tr("Comparer ce jeu")}, {-1, tr("R2 : cochées à la corbeille…")}, {-1, tr("Options : actions")}, {1, tr("Retour")}});
+    else draw_footer(s, {{0, tr("Restaurer")}, {2, tr("Supprimer…")}, {-1, tr("L2 : cocher")}, {3, tr("Comparer ce jeu")}, {-1, tr("Options : actions")}, {1, tr("Retour")}});  // △ et R2 marchaient sans être annoncés
 }
 
 void Ui::draw_mg_preview(Surface& s) {
@@ -732,7 +846,13 @@ void Ui::input_manage(std::uint32_t k) {
     if (mg_preview_) {
         if (mg_deleting_) return;
         if (k & (key::left | key::right)) mg_pv_btn_ = 1 - mg_pv_btn_;
-        if ((k & key::circle) || ((k & key::cross) && mg_pv_btn_ == 1)) { mg_preview_ = false; toast(tr("Rien n'a été supprimé")); return; }
+        if ((k & key::circle) || ((k & key::cross) && mg_pv_btn_ == 1)) {
+            mg_preview_ = false;
+            for (const auto& gk : mg_tidy_games_) mg_csel_.erase(gk);  // le tri annulé ne laisse rien de coché
+            mg_tidy_games_.clear();
+            toast(tr("Rien n'a été supprimé"));
+            return;
+        }
         if (k & key::cross) {
             // Dernière étape : maintenir Carré 5 s (comme pour la sauvegarde de la console). Les copies vont à la corbeille
             // de leur disque ou du NAS (30 jours) ; on le rappelle.
@@ -823,7 +943,7 @@ void Ui::input_manage(std::uint32_t k) {
         if (k & key::triangle) { mg_trash_.clear(); return; }
         std::vector<std::pair<std::string, const Json*>> items;  // même ordre que l'écran
         for (const auto& p : snap_->places) {
-            if ((p.type != "usb" && p.type != "ftp") || p.use == "sync") continue;  // NAS « Synchro seulement » : pas de corbeille ici
+            if ((p.type != "usb" && p.type != "ftp") || p.use == "sync" || !p.same_backups_as.empty()) continue;  // un même NAS par deux chemins : une fois  // NAS « Synchro seulement » : pas de corbeille ici
             const auto it = mg_trash_.find(p.id);
             if (it == mg_trash_.end() || !it->second.is_array()) continue;
             std::vector<const Json*> v;
@@ -992,7 +1112,7 @@ std::vector<const Place*> Ui::mg_places() const {
         return false;
     };
     for (const auto& p : snap_->places)
-        if (p.type == "usb" || (p.type == "ftp" && p.use != "sync") || (p.type == "internal" && has_copies(p.id))) out.push_back(&p);  // NAS « Synchro seulement » : pas ici
+        if (p.type == "usb" || (p.type == "ftp" && p.use != "sync" && p.same_backups_as.empty()) || (p.type == "internal" && has_copies(p.id))) out.push_back(&p);  // NAS « Synchro seulement » : pas ici ; même NAS par deux chemins (FTP et WebDAV) : une seule carte
     // Une carte par autre PS5 qui range des copies (ses disques et son NAS ensemble). Refaite seulement si elle change :
     // les pointeurs rendus restent valables pendant le dessin.
     std::vector<Place> chips;
@@ -1281,6 +1401,36 @@ void Ui::open_versions(const std::string& account, const std::string& title_id, 
     mg_zone_ = 1;
 }
 
+std::string Ui::mg_fam(int old) const {
+    const auto pl = mg_places();
+    const int n = static_cast<int>(pl.size()) + 2;
+    if (old <= 0) return "all";
+    if (old >= n - 1) return "trash";
+    const Place& p = *pl[static_cast<std::size_t>(old - 1)];
+    if (p.type == "internal" || p.type == "usb") return "ps5";
+    if (p.type == "peerconsole") return "peer:" + p.id;
+    const bool cloud = p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox";
+    return cloud ? "cloud" : "nas";
+}
+
+std::vector<Ui::MgChip> Ui::mg_chips() const {
+    const int n = static_cast<int>(mg_places().size()) + 2;
+    std::map<std::string, int> size;
+    for (int i = 0; i < n; ++i) ++size[mg_fam(i)];
+    std::vector<MgChip> out;
+    std::set<std::string> shown;
+    for (int i = 0; i < n; ++i) {
+        const std::string f = mg_fam(i);
+        if (size[f] > 1 && f != mg_open_) { if (shown.insert(f).second) out.push_back({i, f, true, size[f]}); continue; }
+        out.push_back({i, f, false, size[f]});
+    }
+    out.push_back({-1, "compare", false, 0});  // Comparer et trier
+    // Ordre : Partout, Cette PS5, les autres PS5, le NAS, le nuage, Comparer et trier ; la Corbeille reste la dernière (à droite).
+    auto rank = [](const std::string& f) { return f == "all" ? 0 : f == "ps5" ? 1 : f.rfind("peer:", 0) == 0 ? 2 : f == "nas" ? 3 : f == "cloud" ? 4 : f == "compare" ? 8 : f == "trash" ? 9 : 5; };
+    std::stable_sort(out.begin(), out.end(), [&](const MgChip& a, const MgChip& b) { return rank(a.fam) < rank(b.fam); });
+    return out;
+}
+
 void Ui::draw_backups_tab(Surface& s) {
     if (!overview_loaded_ || now_ - overview_loaded_ > 15000) load_overview();
     const int x = margin, w = 1920 - 2 * margin;
@@ -1293,45 +1443,135 @@ void Ui::draw_backups_tab(Surface& s) {
     const auto pl = mg_places();
     const int n = static_cast<int>(pl.size()) + 2;
     mg_place_ = std::clamp(mg_place_, 0, n - 1);
-    // La Corbeille reste toujours visible, à droite ; les endroits défilent à sa gauche (› s'il y en a d'autres).
+    // Bulles groupées : une par famille ; la Corbeille reste toujours visible, à droite ; les autres défilent à sa gauche.
+    const auto chips = mg_chips();
+    const int nc = static_cast<int>(chips.size());
+    mg_chip_ = std::clamp(mg_chip_, 0, std::max(0, nc - 1));
+    if (mg_zone_ != 0) for (int c = 0; c < nc; ++c) {
+        const MgChip& cc = chips[static_cast<std::size_t>(c)];
+        if (mg_compare_ ? cc.fam == "compare" : (!cc.group && cc.fam != "compare" && cc.old == mg_place_)) mg_chip_ = c;
+    }
     const int cw = 300, ch = 112, gap = 18, cy = 196;
-    const int places = n - 1, per = std::max(1, (w - cw) / (cw + gap));  // cartes d'endroit qui tiennent à gauche de la Corbeille
-    const int sel_place = std::min(mg_place_, places - 1);
+    // Comparer et trier et la Corbeille : deux demi-cartes empilées, toujours visibles à droite (les endroits défilent à gauche).
+    const bool has_cmp = nc >= 2 && chips[static_cast<std::size_t>(nc - 2)].fam == "compare";
+    const int places = nc - (has_cmp ? 2 : 1), slots = std::max(1, (w - cw) / (cw + gap));  // bulles qui tiennent à gauche
+    // Trop de bulles : la dernière place montre ce qui est caché (« + 3 de plus · NAS · Nuage… »), pour inviter à aller voir.
+    const bool overflow = places > slots;
+    const int per = overflow ? std::max(1, slots - 1) : slots;
+    const int sel_place = std::min(mg_chip_, places - 1);
     const int first = std::clamp(sel_place - per + 1, 0, std::max(0, places - per));
     std::vector<int> shown;
-    for (int i = first; i < places && i < first + per; ++i) shown.push_back(i);
-    shown.push_back(n - 1);  // Corbeille
+    for (int c = first; c < places && c < first + per; ++c) shown.push_back(c);
+    if (has_cmp) shown.push_back(nc - 2);  // Comparer et trier (en haut à droite)
+    shown.push_back(nc - 1);  // Corbeille (en bas à droite, ou pleine hauteur sans Comparer)
+    auto chip_name = [&](const MgChip& c) -> std::string {
+        if (c.group) return c.fam == "ps5" ? std::string(tr("Cette PS5")) : c.fam == "cloud" ? std::string(tr("Nuage")) : std::string("NAS");
+        if (c.fam == "compare") return tr("Comparer");
+        if (c.old <= 0) return tr("Partout");
+        if (c.old >= n - 1) return tr("Corbeille");
+        const Place& p = *pl[static_cast<std::size_t>(c.old - 1)];
+        return p.type == "internal" ? std::string(tr("Interne")) : p.label;
+    };
+    auto chip_dev = [&](const MgChip& c) -> int {
+        if (c.group) return c.fam == "ps5" ? dev_internal : c.fam == "cloud" ? dev_cloud : dev_nas;
+        if (c.fam == "compare" || c.old <= 0 || c.old >= n - 1) return -1;
+        const Place& p = *pl[static_cast<std::size_t>(c.old - 1)];
+        return p.type == "ftp" ? (p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox" ? cloud_dev(p.protocol, p.service) : dev_nas) : p.type == "usb" ? dev_usb : dev_internal;
+    };
+    if (overflow) {  // carte d'aperçu : combien, lesquels (noms et petites images)
+        // Ce qui reste à droite d'abord ; arrivé au bout, ce qui est passé à gauche (« ‹ 2 avant »).
+        std::vector<int> hidden;
+        for (int c = first + per; c < places; ++c) hidden.push_back(c);
+        const bool ahead = !hidden.empty();
+        if (!ahead) for (int c = 0; c < first; ++c) hidden.push_back(c);
+        const int px = x + per * (cw + gap);
+        const int pw = std::min(cw, x + w - cw - gap - px);
+        s.rect(px, cy, pw, ch, rgb(255, 255, 255, 8), 20);
+        s.outline(px, cy, pw, ch, color::line, 20, 2);
+        std::string names;
+        for (int c : hidden) {  // mots courts : « NAS », « Nuage », le nom d'un disque ou d'une PS5
+            const MgChip& hc = chips[static_cast<std::size_t>(c)];
+            std::string nm = chip_name(hc);
+            if (!hc.group && hc.fam == "nas") nm = "NAS";
+            else if (!hc.group && hc.fam == "cloud") nm = tr("Nuage");
+            if (names.find(nm) == std::string::npos) names += (names.empty() ? "" : " · ") + nm;
+        }
+        s.text(font_, px + 18, cy + 12, ahead ? trf("+ %d de plus ›", static_cast<int>(hidden.size())) : trf("‹ %d avant", static_cast<int>(hidden.size())), body, color::text, pw - 36);
+        s.text(font_, px + 18, cy + 46, names, small, color::muted, pw - 36);
+        int ix = px + 18;
+        for (int c : hidden) {
+            const int d = chip_dev(chips[static_cast<std::size_t>(c)]);
+            if (d < 0 || !devices_[d].valid()) continue;
+            if (ix + 40 > px + pw - 12) break;
+            s.image(devices_[d], ix, cy + 72, 36, 36);
+            ix += 42;
+        }
+    }
     for (std::size_t si = 0; si < shown.size(); ++si) {
-        const int i = shown[si];
-        const int cx = i == n - 1 ? x + w - cw : x + static_cast<int>(si) * (cw + gap);
-        const bool sel = i == mg_place_, focus = sel && mg_zone_ == 0;
-        if (focus) for (int g = 3; g >= 1; --g) s.rect(cx - g * 5, cy - g * 5, cw + g * 10, ch + g * 10, rgb(80, 150, 255, 20), 22 + g * 5);
-        s.rect(cx, cy, cw, ch, sel ? color::panel2 : color::panel, 20);
-        s.outline(cx, cy, cw, ch, focus ? color::accent : sel ? color::accent2 : color::line, 20, focus ? 4 : 2);
+        const MgChip& chip = chips[static_cast<std::size_t>(shown[si])];
+        const int i = chip.old;
+        const bool tool = shown[si] >= places;  // Comparer ou Corbeille : à droite
+        const bool half = tool && has_cmp;
+        const int cx = tool ? x + w - cw : x + static_cast<int>(si) * (cw + gap);
+        const int hh = (ch - 8) / 2;
+        const int ccy = !half ? cy : shown[si] == nc - 2 ? cy : cy + hh + 8, cch = half ? hh : ch;
+        bool sel = !chip.group && chip.fam != "compare" && i == mg_place_ && !mg_compare_;
+        if (chip.fam == "compare") sel = mg_compare_;
+        if (chip.group) for (int j = 0; j < n; ++j) if (j == mg_place_ && mg_fam(j) == chip.fam) sel = true;  // l'endroit choisi est dans cette famille
+        const bool focus = shown[si] == mg_chip_ && mg_zone_ == 0;
+        if (focus) for (int g = 3; g >= 1; --g) s.rect(cx - g * 5, ccy - g * 5, cw + g * 10, cch + g * 10, rgb(80, 150, 255, 20), 22 + g * 5);
+        s.rect(cx, ccy, cw, cch, sel ? color::panel2 : color::panel, 20);
+        s.outline(cx, ccy, cw, cch, focus ? color::accent : sel ? color::accent2 : color::line, 20, focus ? 4 : 2);
         std::string name, sub;
         int dev = -1;
-        if (i == 0) { name = tr("Partout"); sub = tr("tous les disques et le NAS"); dev = dev_consoles; }
-        else if (i == n - 1) { name = tr("Corbeille"); sub = tr("30 jours pour changer d'avis"); }
+        if (chip.group) {  // bulle fermée d'une famille : Croix l'ouvre
+            name = chip.fam == "ps5" ? tr("Cette PS5") : chip.fam == "cloud" ? tr("Nuage") : std::string("NAS");
+            sub = trf("%d ›", chip.count);
+            dev = chip.fam == "ps5" ? dev_internal : chip.fam == "cloud" ? dev_cloud : dev_nas;
+        }
+        else if (chip.fam == "compare") { name = tr("Comparer et trier"); sub = tr("par contenu"); }
+        else if (i == 0) { name = tr("Partout"); sub = trf("%d jeu(x)", static_cast<int>(mg_sum_["games"].size())); dev = dev_consoles; }
+        else if (i == n - 1) { name = tr("Corbeille"); sub = tr("gardée 30 jours"); }
         else {
             const Place& p = *pl[static_cast<std::size_t>(i - 1)];
             name = p.type == "internal" ? std::string(tr("Interne")) : p.label;
-            dev = p.type == "ftp" ? (p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox" ? dev_cloud : dev_nas) : p.type == "peerconsole" || p.type == "internal" ? dev_internal : dev_usb;  // PS5 : image de la PS5
-            sub = p.type == "ftp" ? std::string(tr("réseau")) : p.type == "peerconsole" ? trf("autre PS5 · %d copie(s)", static_cast<int>(p.total))
+            dev = p.type == "ftp" ? (p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox" ? cloud_dev(p.protocol, p.service) : dev_nas) : p.type == "peerconsole" || p.type == "internal" ? dev_internal : dev_usb;  // PS5 : image de la PS5
+            sub = p.type == "ftp" ? std::string((p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox") ? tr("nuage") : tr("réseau")) : p.type == "peerconsole" ? trf("%d copie(s)", static_cast<int>(p.total))
                                                                                          : trf("%s libres", size_text(p.free).c_str());
         }
+        if (half) {  // demi-carte : le nom seul, jamais coupé (plus petit, sinon le nom court « Comparer »)
+            std::string nm = name;
+            FontSize f = body;
+            if (Surface::measure(nm, body) > cw - 48) f = small;
+            if (Surface::measure(nm, small) > cw - 48 && chip.fam == "compare") { nm = tr("Comparer"); f = Surface::measure(nm, body) <= cw - 48 ? body : small; }
+            s.text(font_, cx + 24, ccy + cch / 2 - (f == body ? 21 : 16), nm, f, color::text, cw - 48);
+            continue;
+        }
         int tx = cx + 20;
-        if (dev >= 0 && devices_[dev].valid()) { s.image(devices_[dev], cx + 12, cy + 12, 88, 88); tx = cx + 112; }
-        else if (i == n - 1) {  // corbeille dessinée : un seau et son couvercle
-            s.rect(cx + 34, cy + 30, 52, 8, color::muted, 4);
-            s.rect(cx + 50, cy + 24, 20, 8, color::muted, 4);
-            s.rect(cx + 38, cy + 42, 44, 48, color::muted, 8);
-            for (int k2 = 0; k2 < 3; ++k2) s.rect(cx + 48 + k2 * 10, cy + 50, 4, 32, color::panel, 2);
+        if (dev >= 0 && devices_[dev].valid()) { s.image(devices_[dev], cx + 12, ccy + 12, 88, 88); tx = cx + 112; }
+        else if (chip.fam == "compare") {  // deux copies côte à côte, l'une cochée
+            s.rect(cx + 26, ccy + 30, 40, 54, color::muted, 8);
+            s.rect(cx + 54, ccy + 40, 40, 54, color::accent, 8);
+            s.rect(cx + 64, ccy + 64, 20, 6, color::panel, 3);
             tx = cx + 112;
         }
-        s.text(font_, tx, cy + 24, name, body, color::text, cx + cw - tx - 14);
-        s.text(font_, tx, cy + 62, sub, small, color::muted, cx + cw - tx - 14);
+        else if (i == n - 1) {  // corbeille dessinée : un seau et son couvercle
+            s.rect(cx + 34, ccy + 30, 52, 8, color::muted, 4);
+            s.rect(cx + 50, ccy + 24, 20, 8, color::muted, 4);
+            s.rect(cx + 38, ccy + 42, 44, 48, color::muted, 8);
+            for (int k2 = 0; k2 < 3; ++k2) s.rect(cx + 48 + k2 * 10, ccy + 50, 4, 32, color::panel, 2);
+            tx = cx + 112;
+        }
+        const int room = cx + cw - tx - 14;
+        if (Surface::measure(name, body) <= room) s.text(font_, tx, ccy + 24, name, body, color::text, room);
+        else {  // trop long pour une ligne : plus petit, sur deux lignes au besoin (jamais « … » sur le nom)
+            const auto lines = wrap(name, small, room);
+            if (lines.size() == 1) s.text(font_, tx, ccy + 28, lines[0], small, color::text, room);
+            else { s.text(font_, tx, ccy + 12, lines[0], small, color::text, room); s.text(font_, tx, ccy + 42, lines[1], small, color::text, room); }
+        }
+        s.text(font_, tx, ccy + 70, sub, small, color::muted, room);
     }
-    if (first + per < places) s.text(font_, x + per * (cw + gap) - gap + 10, cy + ch / 2 - 18, "›", large, color::muted);  // d'autres endroits : juste après la dernière carte d'endroit
+    // (d'autres endroits : la carte d'aperçu ci-dessus les montre)
     if (mg_in_trash()) {
         draw_mg_trash(s, x, w, 334);
         return;
@@ -1339,12 +1579,251 @@ void Ui::draw_backups_tab(Surface& s) {
     draw_manage(s, x, w);
 }
 
+
+namespace {
+const char* const cmp_filters[8] = {N_("Tout"), N_("Sauvegardes"), N_("Jeux et images"), N_("Doublons"), N_("Pas encore comparé"), N_("Différents"), N_("À vérifier"), N_("Plusieurs endroits")};
+std::string day_month(std::int64_t t) {
+    if (t <= 0) return "";
+    char b[16];
+    const std::time_t tt = static_cast<std::time_t>(t);
+    std::strftime(b, sizeof b, "%d/%m", std::localtime(&tt));
+    return b;
+}
+int distinct_groups(const Json& g) {
+    std::set<std::string> gs;
+    if (g["console"]["group"].is_string()) gs.insert(g["console"]["group"].as_string());
+    for (const auto& c : g["copies"].items()) if (c["group"].is_string() && !c["group"].as_string().empty()) gs.insert(c["group"].as_string());
+    return static_cast<int>(gs.size());
+}
+int place_count(const Json& g) {
+    std::set<std::string> ps;
+    if (g["console"].is_object()) ps.insert("console");
+    for (const auto& c : g["copies"].items()) ps.insert(c["on_peer"].as_bool() ? "peer:" + c["peer_name"].as_string() : c["place"].as_string());
+    return static_cast<int>(ps.size());
+}
+}  // namespace
+
+std::vector<std::size_t> Ui::mg_cmp_rows() const {
+    std::vector<std::size_t> rows;
+    const Json& games = mg_sum_["games"];
+    for (std::size_t i = 0; i < games.size(); ++i) {
+        const Json& g = games[i];
+        const bool full = g["full"].as_bool();
+        bool ok = true;
+        switch (mg_cfilter_) {
+            case 1: ok = !full; break;
+            case 2: ok = full; break;
+            case 3: ok = g["remove"].size() > 0; break;
+            case 4: ok = !full && !g["compared"].as_bool(); break;
+            case 5: ok = !full && g["compared"].as_bool() && distinct_groups(g) > 1; break;
+            case 6: ok = false; for (const auto& c : g["copies"].items()) ok = ok || suspect(c); break;  // copie vide ou incomplète
+            case 7: {  // même partie à plusieurs endroits, avec au moins une copie d'ici qu'on pourrait retirer
+                ok = false;
+                if (full) break;
+                const auto by = spread_of(g);
+                for (const auto& c : g["copies"].items()) ok = ok || (spread_copy(c, by) && !mg_protected_.count(ckey(c)));
+                break;
+            }
+            default: break;
+        }
+        if (ok && (place_count(g) > 1 || mg_cfilter_ != 0)) rows.push_back(i);  // « Tout » : les jeux qui ont des copies à plusieurs endroits
+    }
+    return rows;
+}
+
+void Ui::draw_mg_compare(Surface& s, int x, int w) {
+    const Json& games = mg_sum_["games"];
+    // Chiffres en tête : à plusieurs endroits, doublons, plus récentes ailleurs, place récupérable.
+    int multi = 0, dups = 0, newer = 0;
+    for (const auto& g : games.items()) {
+        multi += place_count(g) > 1;
+        dups += static_cast<int>(g["remove"].size());
+        newer += g["status"].as_string() == "backup_newer";
+    }
+    const std::string v1 = std::to_string(multi), v2 = std::to_string(dups), v3 = std::to_string(newer),
+                      v4 = size_text(static_cast<std::uint64_t>(std::max<std::int64_t>(0, mg_sum_["freed_bytes"].as_int())));
+    const std::pair<const std::string*, const char*> tiles[4] = {{&v1, "jeux avec des copies à plusieurs endroits"}, {&v2, "copies identiques (doublons)"},
+                                                                 {&v3, "copie(s) plus récente(s) ailleurs"}, {&v4, "récupérables en gardant une copie par contenu"}};
+    const int tw = (w - 3 * 14) / 4;
+    for (int i = 0; i < 4; ++i) {
+        const int tx = x + i * (tw + 14);
+        s.rect(tx, 326, tw, 84, color::panel, 16);
+        s.text(font_, tx + 18, 332, *tiles[i].first, large, i == 2 && newer ? color::warn : color::text, tw - 36);
+        s.text(font_, tx + 18, 374, tr(tiles[i].second), small, color::muted, tw - 36);
+    }
+    if (mg_sum_inflight_ || mg_comparing_) spinner(s, x + w - 20, 304, 10);
+    // Filtres (Carré).
+    int px = x;
+    for (int i = 0; i < 8; ++i) {
+        const int pw = Surface::measure(tr(cmp_filters[i]), small) + 32;
+        if (i == mg_cfilter_) s.rect(px, 424, pw, 38, color::text, 19);
+        else s.outline(px, 424, pw, 38, color::line, 19, 2);
+        s.text(font_, px + 16, 430, tr(cmp_filters[i]), small, i == mg_cfilter_ ? color::bg : color::muted);
+        px += pw + 8;
+    }
+    const auto rows = mg_cmp_rows();
+    const int n = static_cast<int>(rows.size());
+    mg_cmp_row_ = std::clamp(mg_cmp_row_, 0, std::max(0, n - 1));
+    if (n > 3) { const std::string pos = std::to_string(mg_cmp_row_ + 1) + " / " + std::to_string(n); s.text(font_, x + w - Surface::measure(pos, small), 432, pos, small, color::muted); }
+    const int ch = 152, per = 3, first = std::max(0, mg_cmp_row_ - per + 1);
+    int yy = 478;
+    const bool focus_list = mg_zone_ == 1;
+    for (int r = first; r < n && r < first + per; ++r) {
+        const Json& g = games[rows[static_cast<std::size_t>(r)]];
+        const bool focus = focus_list && r == mg_cmp_row_;
+        s.rect(x, yy, w, ch, focus ? color::panel2 : color::panel, 18);
+        if (focus) s.outline(x - 4, yy - 4, w + 8, ch + 8, color::accent, 22, 3);
+        {
+            Item stand_in;
+            const Item* found = find_or_stand_in(g["item"].as_string(), g["title"].as_string(), g["title_id"].as_string(), stand_in, g["kind"].as_string());
+            cover(s, *found, x + 16, yy + 14, 64, false);
+        }
+        // Verdict, d'après le contenu (jamais d'après la date de la copie).
+        const bool full = g["full"].as_bool();
+        const int groups = distinct_groups(g);
+        std::string verdict;
+        std::uint32_t tone, fill;
+        if (full) { verdict = trf("%d copie(s) complète(s)", static_cast<int>(g["copies"].size())); tone = color::text; fill = rgb(255, 255, 255, 20); }
+        else if (!g["compared"].as_bool()) { verdict = tr("À comparer"); tone = color::warn; fill = rgb(240, 184, 103, 36); }
+        else if (g["status"].as_string() == "backup_newer") { verdict = tr("Une copie plus récente"); tone = color::warn; fill = rgb(240, 184, 103, 36); }
+        else if (groups <= 1) { verdict = tr("Même contenu partout"); tone = color::ok; fill = rgb(95, 211, 154, 36); }
+        else if (g["remove"].size()) { verdict = trf("%d doublon(s)", static_cast<int>(g["remove"].size())); tone = color::ok; fill = rgb(95, 211, 154, 36); }
+        else { verdict = tr("Différentes"); tone = color::bad; fill = rgb(255, 123, 123, 36); }
+        const int vw = Surface::measure(verdict, small) + 30;
+        s.rect(x + w - 20 - vw, yy + 14, vw, 34, fill, 17);
+        s.text(font_, x + w - 20 - vw + 15, yy + 19, verdict, small, tone);
+        const int tx = x + 96;
+        s.text(font_, tx, yy + 10, g["title"].as_string(), body, color::text, w - (tx - x) - vw - 40);
+        std::string note = full ? std::string(kind_tag(g["kind"].as_string())) : std::string(tr("Sauvegarde"));
+        if (g["console"].is_object()) note += " · " + std::string(tr("partie active sur cette console"));
+        if (!full) {  // la même partie rangée à plusieurs endroits : des copies voulues, pas un problème
+            const auto sp = main_spread(g);
+            if (sp.second.size() >= 2) note = trf("Même partie à %d endroits : %s", static_cast<int>(sp.second.size()), join_dot(sp.second).c_str());
+        }
+        s.text(font_, tx, yy + 46, note, small, color::muted, w - (tx - x) - vw - 40);
+        // Copies côte à côte : la partie active d'abord, puis chaque copie avec son étiquette.
+        struct Tile { std::string tag, where, line; std::uint32_t tone; };
+        std::vector<Tile> tiles2;
+        const std::string cg = g["console"]["group"].as_string();
+        const std::int64_t cm = g["console"]["mtime"].as_int();
+        const std::int64_t cplayed = g["console"]["progress"]["mtime"].as_int() ? g["console"]["progress"]["mtime"].as_int() : cm;  // heure écrite par le jeu
+        if (g["console"].is_object())
+            tiles2.push_back({tr("Partie active"), tr("Console"), trf("partie du %s", day_month(cplayed).c_str()) + (cg.empty() ? std::string() : trf(" · contenu %s", cg.c_str())), color::ok});
+        std::set<std::int64_t> removing;
+        for (const auto& i : g["remove"].items()) removing.insert(i.as_int());
+        const std::int64_t adv = g["most_advanced"]["index"].as_int(-1);
+        const Json& copies = g["copies"];
+        for (std::size_t i = 0; i < copies.size(); ++i) {
+            const Json& c = copies[i];
+            const std::string grp = c["group"].as_string();
+            const std::int64_t saved = c["game_saved_at"].as_int();
+            Tile t;
+            t.where = c["on_peer"].as_bool() ? c["peer_name"].as_string() + " · " + c["place_label"].as_string() : c["place_label"].as_string();
+            t.line = (saved ? trf("partie du %s", day_month(saved).c_str()) : trf("copiée le %s", day_month(c["created_unix"].as_int()).c_str())) +
+                     (grp.empty() ? std::string() : trf(" · contenu %s", grp.c_str()));
+            if (c["on_peer"].as_bool() && (grp.empty() || full)) { t.tag = trf("Sur %s", c["peer_name"].as_string().c_str()); t.tone = color::muted; t.where = c["place_label"].as_string(); }
+            else if (full) { t.tag = tr("Copie complète"); t.tone = color::text; }
+            else if (suspect(c)) { t.tag = tr("À vérifier"); t.tone = color::bad; }
+            else if (c["restored_copy"].as_bool() && grp.empty()) { t.tag = tr("Partie restaurée"); t.tone = color::ok; }
+            else if (grp.empty() || c["same_bytes"].as_bool()) { t.tag = tr("Pas comparée"); t.tone = color::warn; }  // même contenu qu'une autre, avancée pas lue
+            else if (removing.count(static_cast<std::int64_t>(i))) { t.tag = tr("Doublon"); t.tone = color::ok; }
+            else if (!cg.empty() && grp == cg) { t.tag = tr("Identique"); t.tone = color::ok; }
+            else if (adv == static_cast<std::int64_t>(i)) { t.tag = tr("Plus avancée"); t.tone = color::accent; }
+            else if (cm && saved > cm + 60) { t.tag = tr("Plus récente"); t.tone = color::warn; }
+            else { t.tag = tr("Plus ancienne"); t.tone = color::muted; }
+            tiles2.push_back(t);
+        }
+        const int tlw = 262, tlh = 60, ty = yy + 80;
+        const int fit = std::max(1, (w - 32) / (tlw + 10));
+        for (int i = 0; i < static_cast<int>(tiles2.size()) && i < fit; ++i) {
+            const Tile& t = tiles2[static_cast<std::size_t>(i)];
+            const int bx = x + 16 + i * (tlw + 10);
+            if (i == fit - 1 && static_cast<int>(tiles2.size()) > fit) {  // la place manque : combien d'autres
+                s.rect(bx, ty, tlw, tlh, rgb(255, 255, 255, 10), 12);
+                s.text(font_, bx + 16, ty + 20, trf("+ %d autre(s)", static_cast<int>(tiles2.size()) - fit + 1), body, color::muted, tlw - 32);
+                break;
+            }
+            s.rect(bx, ty, tlw, tlh, color::bg, 12);
+            if (t.tone == color::ok && (t.tag == tr("Identique") || t.tag == tr("Partie active"))) s.outline(bx, ty, tlw, tlh, color::ok, 12, 2);
+            const int tgw = s.text(font_, bx + 12, ty + 4, t.tag, small, t.tone, tlw - 24);  // étiquette · endroit, puis la date et le contenu
+            s.text(font_, bx + 12 + tgw, ty + 4, " · " + t.where, small, color::text, std::max(0, tlw - 24 - tgw));
+            s.text(font_, bx + 12, ty + 30, t.line, small, color::muted, tlw - 24);
+        }
+        yy += ch + 12;
+    }
+    if (!n) s.text(font_, x, 500, mg_cfilter_ == 0 ? tr("Aucun jeu n'a de copies à plusieurs endroits.") : tr("Rien dans cette vue."), large, color::muted, w);
+    if (focus_list && mg_cfilter_ == 7) draw_footer(s, {{0, tr("Faire le tri")}, {-1, tr("Options : garder seulement sur…")}, {2, trf("Voir : %s", tr(cmp_filters[(mg_cfilter_ + 1) % 8])).c_str()}, {1, tr("Retour")}});
+    else if (focus_list) draw_footer(s, {{0, tr("Ouvrir")}, {3, tr("Comparer ce jeu")}, {-1, tr("Options : actions")}, {2, trf("Voir : %s", tr(cmp_filters[(mg_cfilter_ + 1) % 8])).c_str()}, {1, tr("Retour")}});
+    else draw_footer(s, {{0, tr("Choisir un jeu")}, {2, trf("Voir : %s", tr(cmp_filters[(mg_cfilter_ + 1) % 8])).c_str()}, {-1, tr("Gauche / droite : endroits")}});
+}
+
+void Ui::input_mg_compare(std::uint32_t k) {
+    const auto rows = mg_cmp_rows();
+    const int n = static_cast<int>(rows.size());
+    if (k & key::square) { mg_cfilter_ = (mg_cfilter_ + 1) % 8; mg_cmp_row_ = 0; return; }
+    if ((k & key::circle) || ((k & key::up) && mg_cmp_row_ == 0)) { mg_zone_ = 0; return; }
+    if (k & key::up) { mg_cmp_row_ = std::max(0, mg_cmp_row_ - 1); return; }
+    if (k & key::down) { mg_cmp_row_ = std::min(std::max(0, n - 1), mg_cmp_row_ + 1); return; }
+    if (mg_cmp_row_ >= n || !mg_sum_.is_object()) return;
+    const Json& g = mg_sum_["games"][rows[static_cast<std::size_t>(mg_cmp_row_)]];
+    if (mg_cfilter_ == 7 && (k & key::cross)) { mg_tidy_start(&g); return; }   // faire le tri pour ce jeu
+    if (mg_cfilter_ == 7 && (k & key::options)) { mg_tidy_start(nullptr); return; }  // garder seulement sur… (tous les jeux)
+    if (k & key::cross) { mg_game_ = gkey(g); mg_screen_ = 1; mg_crow_ = 0; return; }  // toutes ses copies, avec leurs actions
+    if (k & key::triangle) { if (g["full"].as_bool()) toast(tr("Pas de comparaison pour une sauvegarde complète")); else mg_compare_game(g); return; }
+    if (k & key::options) { mg_actions(&g); return; }
+}
+
+void Ui::open_compare(const std::string& title_id, const std::string& item) {
+    tab_ = backups;
+    mg_compare_ = true;
+    mg_cfilter_ = 0;
+    mg_place_ = 0;
+    mg_zone_ = 1;
+    mg_screen_ = 0;
+    const auto chips = mg_chips();
+    for (int c = 0; c < static_cast<int>(chips.size()); ++c) if (chips[static_cast<std::size_t>(c)].fam == "compare") mg_chip_ = c;
+    mg_cmp_row_ = 0;
+    if (mg_sum_.is_object()) {
+        const auto rows = mg_cmp_rows();
+        bool found = false;
+        for (std::size_t r = 0; r < rows.size(); ++r) {
+            const Json& g = mg_sum_["games"][rows[r]];
+            if ((!title_id.empty() && g["title_id"].as_string() == title_id) || (!item.empty() && g["item"].as_string() == item)) { mg_cmp_row_ = static_cast<int>(r); found = true; break; }
+        }
+        if (!found) toast(tr("Ce jeu n'a pas de copies à plusieurs endroits."));
+    }
+}
+
 void Ui::input_backups_tab(std::uint32_t k) {
+    if (mg_compare_ && mg_screen_ == 0 && mg_zone_ == 1 && !mg_preview_ && !mg_ign_open_) { input_mg_compare(k); return; }
     if (mg_screen_ == 1 || mg_zone_ == 1) { input_manage(k); return; }
-    const int n = static_cast<int>(mg_places().size()) + 2;
-    if (k & key::left) { mg_place_ = std::max(0, mg_place_ - 1); mg_row_ = mg_trow_ = 0; }
-    if (k & key::right) { mg_place_ = std::min(n - 1, mg_place_ + 1); mg_row_ = mg_trow_ = 0; }
-    if ((k & key::left) || (k & key::right)) { if (mg_in_trash()) mg_trash_.clear(); return; }
+    const auto chips = mg_chips();
+    const int nc = static_cast<int>(chips.size());
+    mg_chip_ = std::clamp(mg_chip_, 0, std::max(0, nc - 1));
+    if ((k & key::left) || (k & key::right)) {
+        mg_chip_ = (k & key::left) ? std::max(0, mg_chip_ - 1) : std::min(nc - 1, mg_chip_ + 1);
+        const MgChip& c = chips[static_cast<std::size_t>(mg_chip_)];
+        mg_compare_ = c.fam == "compare";
+        if (mg_compare_) { mg_place_ = 0; mg_cmp_row_ = 0; }  // toutes les copies, partout
+        else if (!c.group) { mg_place_ = c.old; mg_row_ = mg_trow_ = 0; }  // une bulle de famille ne change rien tant qu'on ne l'ouvre pas
+        if (mg_in_trash()) mg_trash_.clear();
+        return;
+    }
+    if ((k & key::circle) && !mg_open_.empty()) { mg_open_.clear(); mg_chip_ = 0; mg_place_ = 0; return; }  // refermer la famille
+    if (mg_chip_ < nc && chips[static_cast<std::size_t>(mg_chip_)].group) {
+        if (k & (key::cross | key::down)) {  // ouvrir la famille : le curseur va sur son premier endroit
+            mg_open_ = chips[static_cast<std::size_t>(mg_chip_)].fam;
+            const auto after = mg_chips();
+            for (int c = 0; c < static_cast<int>(after.size()); ++c)
+                if (after[static_cast<std::size_t>(c)].fam == mg_open_) { mg_chip_ = c; mg_place_ = after[static_cast<std::size_t>(c)].old; mg_row_ = mg_trow_ = 0; break; }
+        }
+        return;
+    }
+    if (mg_compare_) {
+        if (k & (key::down | key::cross)) { mg_zone_ = 1; return; }
+        if (k & key::square) { mg_cfilter_ = (mg_cfilter_ + 1) % 8; mg_cmp_row_ = 0; }
+        return;
+    }
     if (k & (key::down | key::cross)) { mg_zone_ = 1; return; }
     if (mg_in_trash()) { if (k & key::triangle) mg_trash_.clear(); return; }
     if (k & key::square) { mg_view_ = (mg_view_ + 1) % 4; mg_row_ = 0; return; }
@@ -1416,8 +1895,7 @@ void Ui::sync_followed_dialog(const std::string& peer, const std::string& name) 
                 }});
             acts.push_back({tr("Choisir les jeux suivis…"), [this, peer, name] {
                 tab_ = synchro;
-                const auto devs = sy_devices();
-                for (std::size_t i = 0; i < devs.size(); ++i) if (devs[i].id == peer) sn_card_ = static_cast<int>(i);
+                sy_select(peer);
                 sy_open_pick(peer, name);
             }});
             acts.push_back({tr("Annuler"), [] {}});
@@ -1430,5 +1908,147 @@ void Ui::sync_followed_dialog(const std::string& peer, const std::string& name) 
 }
 
 void draw_checkbox(Surface& s, int x, int cy, bool on, bool dim) { checkbox(s, x, cy, on, dim); }
+
+
+// ---- Même partie à plusieurs endroits : tri à la demande ----
+// Un jeu : chaque copie d'ici dont la partie existe ailleurs, cochée = gardée. Tous les jeux : chaque endroit.
+// Jamais la dernière copie d'une partie (la console et l'autre PS5 comptent), jamais une partie différente.
+void Ui::mg_tidy_start(const Json* g) {
+    mg_tidy_rows_.clear();
+    mg_tidy_row_ = 0;
+    mg_tidy_all_ = g == nullptr;
+    if (g) {
+        const auto by = spread_of(*g);
+        mg_tidy_title_ = (*g)["title"].as_string();
+        for (const auto& c : (*g)["copies"].items()) {
+            if (!spread_copy(c, by) || mg_protected_.count(ckey(c))) continue;
+            MgTidyRow r;
+            r.gk = gkey(*g);
+            r.key = ckey(c);
+            r.label = spot_name(c);
+            r.letter = c["group"].as_string();
+            r.sub = trf("copiée le %s", date_text(c["created_unix"].as_int(), false).c_str()) + " · " + trf("même partie à %d endroits", static_cast<int>(by.at(r.letter).size()));
+            mg_tidy_rows_.push_back(r);
+        }
+    } else {
+        mg_tidy_title_.clear();
+        std::map<std::string, std::size_t> at;
+        for (auto i : mg_cmp_rows()) {
+            const Json& gg = mg_sum_["games"][i];
+            const auto by = spread_of(gg);
+            for (const auto& c : gg["copies"].items()) {
+                if (!spread_copy(c, by) || mg_protected_.count(ckey(c))) continue;
+                const std::string place = c["place"].as_string();
+                auto it = at.find(place);
+                if (it == at.end()) { it = at.emplace(place, mg_tidy_rows_.size()).first; MgTidyRow r; r.key = place; r.label = spot_name(c); mg_tidy_rows_.push_back(r); }
+                ++mg_tidy_rows_[it->second].n;
+            }
+        }
+        for (auto& r : mg_tidy_rows_) r.sub = trf("%d copie(s) d'une partie rangée aussi ailleurs", r.n);
+    }
+    if (mg_tidy_rows_.empty()) { toast(tr("Rien à trier ici")); return; }
+    mg_tidy_locks();
+    mg_tidy_open_ = true;
+}
+
+// Un jeu : une copie ne se décoche pas si c'est la dernière gardée de sa partie (console et autre PS5 comprises).
+void Ui::mg_tidy_locks() {
+    if (mg_tidy_all_) return;
+    const Json* g = nullptr;
+    for (const auto& x : mg_sum_["games"].items()) if (!mg_tidy_rows_.empty() && gkey(x) == mg_tidy_rows_[0].gk) { g = &x; break; }
+    for (auto& r : mg_tidy_rows_) {
+        int holders = 0;
+        if (g && (*g)["console"]["group"].as_string() == r.letter) ++holders;
+        if (g) for (const auto& c : (*g)["copies"].items()) if (c["on_peer"].as_bool() && c["group"].as_string() == r.letter) ++holders;
+        for (const auto& o : mg_tidy_rows_) if (&o != &r && o.keep && o.letter == r.letter) ++holders;
+        r.lock = r.keep && holders == 0;
+    }
+}
+
+// Applique le choix : les copies décochées passent par l'aperçu habituel (rien ne part sans Carré maintenu).
+void Ui::mg_tidy_apply() {
+    std::set<std::string> games;
+    if (!mg_tidy_all_) {
+        std::set<std::string> drop;
+        for (const auto& r : mg_tidy_rows_) if (!r.keep) drop.insert(r.key);
+        if (drop.empty()) { toast(tr("Tout est gardé : rien n'a changé")); mg_tidy_open_ = false; return; }
+        mg_csel_[mg_tidy_rows_[0].gk] = drop;
+        games.insert(mg_tidy_rows_[0].gk);
+    } else {
+        std::set<std::string> off;
+        for (const auto& r : mg_tidy_rows_) if (!r.keep) off.insert(r.key);
+        if (off.empty()) { toast(tr("Tout est gardé : rien n'a changé")); mg_tidy_open_ = false; return; }
+        for (auto i : mg_cmp_rows()) {
+            const Json& g = mg_sum_["games"][i];
+            const auto by = spread_of(g);
+            // Ce qui reste de chaque partie : la console, l'autre PS5, et les copies sur les endroits gardés.
+            std::set<std::string> stays;
+            stays.insert(g["console"]["group"].as_string());
+            for (const auto& c : g["copies"].items()) {
+                if (c["other_account"].is_string()) continue;
+                if (c["on_peer"].as_bool() || !off.count(c["place"].as_string()) || mg_protected_.count(ckey(c))) stays.insert(c["group"].as_string());
+            }
+            std::set<std::string> drop;
+            for (const auto& c : g["copies"].items())
+                if (spread_copy(c, by) && off.count(c["place"].as_string()) && !mg_protected_.count(ckey(c)) && stays.count(c["group"].as_string())) drop.insert(ckey(c));
+            if (drop.empty()) continue;
+            mg_csel_[gkey(g)] = drop;
+            games.insert(gkey(g));
+        }
+        if (games.empty()) { toast(tr("Rien à retirer : ces parties n'existent pas ailleurs")); mg_tidy_open_ = false; return; }
+    }
+    mg_tidy_open_ = false;
+    mg_pv_delete_ = false;
+    mg_tidy_games_ = games;
+    mg_open_preview(games);
+}
+
+void Ui::draw_mg_tidy(Surface& s) {
+    s.rect(0, 0, 1920, 1080, color::shadow);
+    const int w = 1200, x = (1920 - w) / 2, per = 8;
+    const int n = static_cast<int>(mg_tidy_rows_.size());
+    const int shown = std::min(n, per), first = std::clamp(mg_tidy_row_ - per + 1, 0, std::max(0, n - per));
+    const auto help = wrap(mg_tidy_all_ ? tr("Décochez un endroit : les copies d'une partie rangée aussi ailleurs y seront retirées. La dernière copie d'une partie reste toujours.")
+                                        : tr("Cochée = gardée. Ce sont des copies de la même partie ; la dernière copie d'une partie ne peut pas être décochée."), small, w - 96);
+    const int top = 92 + static_cast<int>(help.size()) * 34 + 18;
+    const int h = top + shown * 78 + 24;
+    const int y = std::max(40, (990 - h) / 2);
+    s.rect(x, y, w, h, color::panel, 28);
+    s.outline(x, y, w, h, color::line, 28, 2);
+    s.text(font_, x + 48, y + 30, mg_tidy_all_ ? std::string(tr("Garder seulement sur…")) : trf("Faire le tri : %s", mg_tidy_title_.c_str()), large, color::text, w - 96);
+    for (std::size_t i = 0; i < help.size(); ++i) s.text(font_, x + 48, y + 92 + static_cast<int>(i) * 34, help[i], small, color::muted);
+    int yy = y + top;
+    for (int i = first; i < n && i < first + per; ++i) {
+        const MgTidyRow& r = mg_tidy_rows_[static_cast<std::size_t>(i)];
+        const bool f = i == mg_tidy_row_;
+        s.rect(x + 32, yy, w - 64, 68, f ? color::panel2 : rgb(255, 255, 255, 8), 14);
+        if (f) s.outline(x + 28, yy - 4, w - 56, 76, color::accent, 18, 3);
+        checkbox(s, x + 56, yy + 34, r.keep, r.lock);
+        s.text(font_, x + 96, yy + 6, r.label, body, color::text, w - 420);
+        s.text(font_, x + 96, yy + 38, r.sub, small, color::muted, w - 420);
+        const std::string tag = r.lock ? std::string(tr("dernière copie")) : r.keep ? std::string(tr("gardée")) : std::string(tr("à la corbeille"));
+        const int tw = Surface::measure(tag, small) + 30;
+        s.rect(x + w - 56 - tw, yy + 17, tw, 34, r.keep ? rgb(95, 211, 154, 36) : rgb(255, 255, 255, 18), 17);
+        s.text(font_, x + w - 56 - tw + 15, yy + 22, tag, small, r.keep ? color::ok : color::muted);
+        yy += 78;
+    }
+    s.rect(0, 990, 1920, 90, color::bg);
+    draw_footer(s, {{0, tr("Cocher / décocher")}, {2, tr("Appliquer (aperçu avant)")}, {1, tr("Annuler")}});
+}
+
+void Ui::input_mg_tidy(std::uint32_t k) {
+    const int n = static_cast<int>(mg_tidy_rows_.size());
+    if (k & key::circle) { mg_tidy_open_ = false; toast(tr("Rien n'a été modifié")); return; }
+    if (k & key::up) { mg_tidy_row_ = std::max(0, mg_tidy_row_ - 1); return; }
+    if (k & key::down) { mg_tidy_row_ = std::min(n - 1, mg_tidy_row_ + 1); return; }
+    if ((k & key::cross) && mg_tidy_row_ < n) {
+        MgTidyRow& r = mg_tidy_rows_[static_cast<std::size_t>(mg_tidy_row_)];
+        if (r.lock) { toast(tr("La dernière copie de cette partie reste gardée")); return; }
+        r.keep = !r.keep;
+        mg_tidy_locks();
+        return;
+    }
+    if (k & key::square) mg_tidy_apply();
+}
 
 }  // namespace app

@@ -330,7 +330,7 @@ Json Engine::parties_start(const Json& body, std::string& error) {
                 if (j["here_at"].as_int()) {  // 1. version gardée ici
                     set("step", "version");
                     std::string bid;
-                    ok = backup(j["here_item"].as_string(), {Part::save}, "", bid, err, j["here_account"].as_string()) && wait_local(bid, err);
+                    { OriginScope by("sync"); ok = backup(j["here_item"].as_string(), {Part::save}, "", bid, err, j["here_account"].as_string()) && wait_local(bid, err); }
                     if (!ok) err = "sauvegarde de la partie remplacée impossible, rien n'a été modifié : " + err;
                 }
                 if (ok) {  // 2. l'autre PS5 envoie sa partie ici (copie vérifiée sur un disque d'ici) et la fait restaurer ici
@@ -662,7 +662,7 @@ Json Engine::nas_parties_plan(const std::string& nas) {
     // faits hors de l'app : le résumé lit leur propriétaire et l'heure écrite par le jeu).
     struct Copy { std::int64_t at = 0, play = -1; std::string bundle; };
     std::map<std::string, Copy> nas_best;  // numéro PSN|jeu
-    const Json sum = backups_summary("", false);
+    const Json sum = backups_summary("", false, true);  // réponse exacte, calcul partagé (un plan par NAS : sinon un calcul complet par appareil)
     for (const auto& g : sum["games"].items())
         for (const auto& c : g["copies"].items()) {
             if (c["place"].as_string() != nas || !c["complete"].as_bool(true)) continue;
@@ -776,12 +776,12 @@ Json Engine::nas_parties_start(const Json& body, std::string& error) {
             std::int64_t here_now = j["here_at"].as_int(), there_now = j["there_at"].as_int();
             if (up) {  // une nouvelle copie sur le NAS (les précédentes restent : les sauvegardes gardent leurs versions)
                 set("step", "copy");
-                ok = backup(j["here_item"].as_string(), {Part::save}, nas, bid, err, j["here_account"].as_string()) && wait_task(*queue_, bid, err);
+                { OriginScope by("sync"); ok = backup(j["here_item"].as_string(), {Part::save}, nas, bid, err, j["here_account"].as_string()) && wait_task(*queue_, bid, err); }
                 if (ok) there_now = here_now;  // la copie porte l'heure écrite par le jeu
             } else {
                 if (j["here_at"].as_int()) {  // 1. la partie d'ici est d'abord gardée (sur un disque de la console)
                     set("step", "version");
-                    ok = backup(j["here_item"].as_string(), {Part::save}, "", bid, err, j["here_account"].as_string()) && wait_task(*queue_, bid, err);
+                    { OriginScope by("sync"); ok = backup(j["here_item"].as_string(), {Part::save}, "", bid, err, j["here_account"].as_string()) && wait_task(*queue_, bid, err); }
                     if (!ok) err = "sauvegarde de la partie remplacée impossible, rien n'a été modifié : " + err;
                 }
                 if (ok) {  // 2. la copie du NAS est restaurée sur le compte d'ici (vérifiée, re-signée si besoin)
@@ -937,7 +937,7 @@ Json Engine::nas_apps_start(const Json& body, std::string& error) {
                 set("step", "copy");
                 std::string bid;
                 const std::int64_t t0 = now_unix();
-                ok = backup(j["here_key"].as_string(), {Part::app}, nas, bid, err) && wait_task(*queue_, bid, err);
+                { OriginScope by("sync"); ok = backup(j["here_key"].as_string(), {Part::app}, nas, bid, err) && wait_task(*queue_, bid, err); }
                 std::string bundle;
                 if (ok) {
                     { std::lock_guard<std::mutex> l(remote_index_mu_); remote_index_.erase(nas); }

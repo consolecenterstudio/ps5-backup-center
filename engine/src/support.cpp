@@ -129,14 +129,18 @@ Json Engine::cloud_link_start(const std::string& provider, std::string& error) {
 
 Json Engine::cloud_link_status(const std::string& id) {
     CloudLink l;
+    bool mine = false;  // c'est cette demande qui interroge le service (les autres rendent l'état connu)
     {
         std::lock_guard<std::mutex> g(links_mu_);
         const auto it = links_.find(id);
         if (it == links_.end()) { Json j = Json::object(); j.set("state", "expired"); return j; }
+        if (it->second.state == "pending" && now_unix() >= it->second.next && !it->second.checking) { it->second.checking = true; mine = true; }
         l = it->second;
     }
     // Un essai auprès du service quand c'est l'heure (la télé et la page demandent toutes les deux ou trois secondes).
-    if (l.state == "pending" && now_unix() >= l.next) {
+    // Une seule demande à la fois : le code ne sert qu'une fois ; une deuxième question en même temps se ferait refuser
+    // (« déjà utilisé ») et effacerait la connexion réussie.
+    if (mine) {
         if (now_unix() > l.expires) l.state = "expired";
         else {
             std::string refresh;
@@ -156,8 +160,9 @@ Json Engine::cloud_link_status(const std::string& id) {
             else if (s != "pending") { l.state = "error"; l.error = s; }
             l.next = now_unix() + l.interval;
         }
+        l.checking = false;
         std::lock_guard<std::mutex> g(links_mu_);
-        if (links_.count(id)) links_[id] = l;
+        if (links_.count(id) && links_[id].state != "ok") links_[id] = l;  // une connexion réussie n'est jamais écrasée
     }
     Json j = Json::object();
     j.set("state", l.state);

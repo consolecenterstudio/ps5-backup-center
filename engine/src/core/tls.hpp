@@ -19,5 +19,6 @@ std::string fingerprint(const Session* s);  // SHA-256 du certificat du serveur 
 ssize_t read(Session* s, char* buf, std::size_t n);                    // 0 : fin, < 0 : erreur
 bool write_all(Session* s, const char* buf, std::size_t n);
 void close(Session* s);                                                // ne ferme pas la socket
+void abort(Session* s);  // sans attendre l'au revoir du serveur (HTTP : certains, comme Microsoft Graph, ne le renvoient jamais)
 
 }  // namespace pbc::tls

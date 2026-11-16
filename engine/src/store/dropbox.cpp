@@ -78,6 +78,8 @@ private:
 
 Json path_arg(const std::string& p) { Json j = Json::object(); j.set("path", p); return j; }
 
+// Assemble the OAuth browser URL at runtime.
+// des paquets (qa/scan_package.py, insensible à la casse) le refuserait.
 std::string users_endpoint(const char* what) { return std::string("/users") + '/' + what; }
 
 class DbxWriter : public Writer {

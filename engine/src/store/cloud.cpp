@@ -55,8 +55,8 @@ Provider& google() {
     return p;
 }
 Provider& microsoft() {
-    static Provider p{"onedrive", "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode",
-                      "https://login.microsoftonline.com/common/oauth2/v2.0/token", "https://graph.microsoft.com/v1.0", "",
+    static Provider p{"onedrive", "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode",
+                      "https://login.microsoftonline.com/consumers/oauth2/v2.0/token", "https://graph.microsoft.com/v1.0", "",
                       kMicrosoftClientId, "", "Files.ReadWrite.AppFolder User.Read offline_access", ""};
     return p;
 }
@@ -179,6 +179,7 @@ std::string poll(const std::string& name, const std::string& device_code, std::s
     if (e == "slow_down") return "slow_down";
     if (e == "access_denied" || e == "authorization_declined") return "denied";
     if (e == "expired_token" || e == "bad_verification_code") return "expired";
+    log("cloud %s connexion refusée : %d %s %s", name.c_str(), r.status, e.c_str(), j["error_description"].as_string().substr(0, 300).c_str());
     return why(r, j);
 }
 
@@ -197,7 +198,11 @@ bool access_token(const std::string& name, const std::string& refresh, std::stri
     const http::Reply r = post_form(p->token_url, form);
     Json j;
     Json::parse(r.body, j);
-    if (!r.ok() || j["access_token"].as_string().empty()) { err = why(r, j); return false; }
+    if (!r.ok() || j["access_token"].as_string().empty()) {
+        err = why(r, j);
+        log("cloud %s renouvellement refusé : %d %s %s", name.c_str(), r.status, j["error"].as_string().c_str(), j["error_description"].as_string().substr(0, 300).c_str());
+        return false;
+    }
     access = j["access_token"].as_string();
     const std::string fresh = j["refresh_token"].as_string();
     std::function<void(const std::string&, const std::string&)> hook;

@@ -532,6 +532,16 @@ void Updater::run_check() {
         return;
     }
     if (quiet_skip) { set_state("up_to_date"); return; }  // version quittée par « Revenir » : pas reproposée seule
+    // Jamais en arrière tout seul : une version plus récente que celle de la source (reçue d'une autre PS5, ou installée
+    // à la main) reste en place. Seul « Revenir à la version d'avant » ou « Versions disponibles » redescend.
+    {
+        const std::string have = installed_version(), offered = manifest_["version"].as_string();
+        if (!have.empty() && !offered.empty() && compare_versions(offered, have) < 0) {
+            log("update: %s proposée par la source, %s installée (plus récente) : rien à faire", offered.c_str(), have.c_str());
+            set_state("up_to_date");
+            return;
+        }
+    }
     set_state(only_meta ? "up_to_date" : "available");
     if (!only_meta) {
         std::string v;

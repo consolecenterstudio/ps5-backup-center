@@ -150,12 +150,20 @@ public:
         if (stat(dir, e)) { if (e.dir) g_.remember_dir(p); return e.dir; }
         const std::string parent = parent_of(p);
         if (!parent.empty() && !mkdirs("/" + parent)) return false;
+        // Le dossier parent par son identifiant : Microsoft refuse de créer un dossier par le raccourci « special/approot »
+        // (400 invalidRequest). La lecture crée aussi le dossier de l'appli la première fois.
+        const http::Reply pr = g_.send("GET", g_.url(parent) + "?$select=id");
+        Json pj;
+        if (!pr.ok() || !Json::parse(pr.body, pj) || pj["id"].as_string().empty()) {
+            log("onedrive dossier « %s » illisible : %d %s %s", parent.c_str(), pr.status, pr.error.c_str(), pr.body.substr(0, 300).c_str());
+            return false;
+        }
         Json body = Json::object();
         body.set("name", std::string(fs::basename(p)));
         body.set("folder", Json::object());
         body.set("@microsoft.graph.conflictBehavior", "fail");
-        const http::Reply r = g_.send_json("POST", g_.url(parent, "/children"), body);
-        if (!r.ok() && r.status != 409) return false;  // 409 : déjà là
+        const http::Reply r = g_.send_json("POST", cloud::provider("onedrive")->api_base + "/me/drive/items/" + cloud::url_encode(pj["id"].as_string()) + "/children", body);
+        if (!r.ok() && r.status != 409) { log("onedrive création de « %s » refusée : %d %s %s", p.c_str(), r.status, r.error.c_str(), r.body.substr(0, 300).c_str()); return false; }  // 409 : déjà là
         g_.remember_dir(p);
         return true;
     }

@@ -17,7 +17,9 @@ std::string Task::phase_text() const {
     const double f = phase_fraction();
     if (f < 0) return "";
     const int pct = static_cast<int>(f * 100);
-    return phase == "verify" ? trf("Vérification %d %%", pct) : trf("Comparaison avec la copie déjà là %d %%", pct);
+    std::string t = phase == "verify" ? trf("Vérification %d %%", pct) : trf("Comparaison avec la copie déjà là %d %%", pct);
+    if (phase_eta) t += " · " + std::string(tr("reste")) + " " + duration_text(static_cast<double>(phase_eta));
+    return t;
 }
 
 namespace {
@@ -104,20 +106,57 @@ std::vector<Ui::TrDevice> Ui::tr_devices() const {
                      p.type == "internal" ? std::string(tr("PS5 · interne")) : trf("Disque USB · %s", p.mount.c_str()), p.type,
                      p.type == "usb" ? dev_usb : dev_internal, p.free, true});
     }
-    for (const auto& r : remotes_all_.items()) {
-        const std::string t = r["type"].as_string();
-        const std::string host = r["config"]["host"].as_string();
-        v.push_back({r["id"].as_string(), r["name"].as_string(), (t == "switch" ? "Switch · " + host : trf("Réseau · %s", host.c_str())), t,
-                     t == "switch" ? dev_switch : dev_nas, 0, false});
-    }
+    // Rangés par famille : NAS, puis nuage (avec le logo de son service), puis Switch.
+    auto cloudy = [](const std::string& t) { return t == "s3" || t == "gdrive" || t == "onedrive" || t == "dropbox"; };
+    for (int fam = 0; fam < 3; ++fam)
+        for (const auto& r : remotes_all_.items()) {
+            const std::string t = r["type"].as_string();
+            if ((fam == 0 && t != "switch" && !cloudy(t)) || (fam == 1 && cloudy(t)) || (fam == 2 && t == "switch")) {
+                const std::string host = r["config"]["host"].as_string(), service = r["config"]["service"].as_string();
+                std::string sub;
+                if (t == "switch") sub = "Switch · " + host;
+                else if (cloudy(t)) {
+                    const char* svc = t == "gdrive" ? "Google Drive" : t == "dropbox" ? "Dropbox" : t == "onedrive" ? "OneDrive" : service == "b2" ? "Backblaze B2" : service == "aws" ? "Amazon S3" : "S3";
+                    sub = trf("Nuage · %s", svc);
+                } else sub = trf("NAS · %s", host.c_str());
+                v.push_back({r["id"].as_string(), r["name"].as_string(), sub, t,
+                             t == "switch" ? dev_switch : cloudy(t) ? cloud_dev(t, service) : dev_nas, 0, false});
+            }
+        }
     // Autres PS5 jumelées : chacun de leurs disques est une destination (sauvegarde vérifiée, comme vers le NAS).
     for (const auto& p : snap_->places) {
         if (p.type != "peer") continue;
         v.push_back({p.id, p.label, trf("Autre PS5 · %s libres", size_text(p.free).c_str()), "peer", dev_internal, p.free, true});
     }
-    // Dernière carte : ajouter un NAS (ou un serveur FTP) sans quitter Transferts. Il apparaît ensuite ici.
-    v.push_back({"add", tr("Ajouter un NAS"), tr("Synology, QNAP, FTP…"), "add", dev_nas, 0, false});
+    // Dernière carte : « + Ajouter un service » (NAS, nuage, Switch, PS5) sans quitter Transferts ; il apparaît ensuite ici.
+    v.push_back({"add", tr("+ Ajouter un service"), tr("NAS, nuage, Switch, PS5…"), "add", dev_cloud, 0, false});
     return v;
+}
+
+std::vector<Ui::TrGroup> Ui::tr_groups(const std::vector<TrDevice>& devs) const {
+    std::vector<TrGroup> g;
+    auto add = [&](const std::string& key, const std::string& name, int image, int i) {
+        for (auto& x : g) if (x.key == key) { x.members.push_back(i); return; }
+        g.push_back({key, name, image, {i}});
+    };
+    for (int i = 0; i < static_cast<int>(devs.size()); ++i) {
+        const TrDevice& d = devs[static_cast<std::size_t>(i)];
+        const std::string& k = d.kind;
+        if (k == "ps5" || k == "internal" || k == "usb") add("ps5", tr("Cette PS5"), dev_internal, i);
+        else if (k == "peer") {  // Show the paired console label without the storage suffix.
+            const auto dot = d.name.find(" · ");
+            const std::string inst = d.id.substr(0, d.id.find(':', 5));
+            add(inst, dot == std::string::npos ? d.name : d.name.substr(0, dot), dev_internal, i);
+        } else if (k == "s3" || k == "gdrive" || k == "onedrive" || k == "dropbox") add("cloud", tr("Nuage"), dev_cloud, i);
+        else if (k == "switch") add("switch", "Switch", dev_switch, i);
+        else if (k == "add") add("add", d.name, dev_nas, i);
+        else add("nas", "NAS", dev_nas, i);
+    }
+    for (auto& x : g) if (x.members.size() == 1) x.image = devs[static_cast<std::size_t>(x.members[0])].image;  // seule : son image (logo du service)
+    // Ordre : Cette PS5, « + Ajouter un service », les autres PS5, les consoles (Switch), les NAS, le nuage.
+    auto rank = [](const std::string& k) { return k == "ps5" ? 0 : k == "add" ? 1 : k == "switch" ? 3 : k == "nas" ? 4 : k == "cloud" ? 5 : 2; };
+    std::stable_sort(g.begin(), g.end(), [&](const TrGroup& a, const TrGroup& b) { return rank(a.key) < rank(b.key); });
+    return g;
 }
 
 std::vector<const Item*> Ui::tr_items() const {
@@ -308,15 +347,91 @@ void Ui::draw_tr_main(Surface& s) {
     const int n = static_cast<int>(devs.size());
     tr_from_ = std::min(tr_from_, std::max(0, n - 1));
     tr_to_ = std::min(tr_to_, std::max(0, n - 1));
-    // Rangées DEPUIS / VERS : tous les appareils visibles (à la ligne, 5 par ligne), comme sur le web.
-    const int gap = 20, per = 5, cw = (1920 - 2 * margin - (per - 1) * gap) / per, ch = 84, lgap = 10;
-    const int lines = std::max(1, (n + per - 1) / per), rows_h = lines * ch + (lines - 1) * lgap;
+    // Rangées DEPUIS / VERS : une seule ligne chacune, qui défile à gauche / droite (comme les rangées de l'Accueil) :
+    // « Que faire ? » et les boutons du bas restent toujours à l'écran, quel que soit le nombre d'appareils.
+    const int gap = 20, per = 5, cw = (1920 - 2 * margin - (per - 1) * gap) / per, ch = 84;
+    const int lines = 1, rows_h = ch;
+    const auto groups = tr_groups(devs);
+    const int gn = static_cast<int>(groups.size());
+    // Une bulle par appareil ou famille ; ouverte (Croix), la rangée montre ses éléments à la place, Rond la referme.
     auto row = [&](const char* label, int y, int zone, int chosen) {
         s.text(font_, margin, y, label, small, color::accent);
-        for (int i = 0; i < n; ++i) {
-            const int x = margin + (i % per) * (cw + gap), cy = y + 30 + (i / per) * (ch + lgap);
-            const bool other = zone == 1 && i == tr_from_;  // la source ne peut pas être la destination
-            tr_device_card(s, devs[static_cast<std::size_t>(i)], x, cy, cw, ch, tr_zone_ == zone && i == chosen, i == chosen);
+        const bool open = tr_open_[zone] >= 0 && tr_open_[zone] < gn;
+        std::vector<TrDevice> cards;
+        std::vector<int> idx;  // index de l'appareil (ouvert) ou du groupe (fermé)
+        int focus_i = 0;
+        if (open) {
+            const TrGroup& g = groups[static_cast<std::size_t>(tr_open_[zone])];
+            s.text(font_, margin + Surface::measure(label, small) + 20, y, "› " + g.name, small, color::text);
+            for (int m : g.members) {
+                TrDevice d = devs[static_cast<std::size_t>(m)];
+                const auto dot = d.name.find(" · ");
+                if (g.key.rfind("peer:", 0) == 0 && dot != std::string::npos) d.name = d.name.substr(dot + 3);
+                if (d.kind == "ps5") d.name = tr("Tous ses disques");
+                cards.push_back(d); idx.push_back(m);
+            }
+            tr_msel_[zone] = std::min(tr_msel_[zone], std::max(0, static_cast<int>(cards.size()) - 1));
+            focus_i = tr_msel_[zone];
+        } else {
+            for (int gi = 0; gi < gn; ++gi) {
+                const TrGroup& g = groups[static_cast<std::size_t>(gi)];
+                if (g.members.size() == 1) { cards.push_back(devs[static_cast<std::size_t>(g.members[0])]); idx.push_back(gi); continue; }
+                TrDevice d;
+                d.name = g.name; d.kind = "group"; d.image = g.image;
+                std::string chosen_name;
+                std::uint64_t free = 0;
+                for (int m : g.members) { if (m == chosen) chosen_name = devs[static_cast<std::size_t>(m)].name; free += devs[static_cast<std::size_t>(m)].has_free && devs[static_cast<std::size_t>(m)].kind != "ps5" ? devs[static_cast<std::size_t>(m)].free : 0; }
+                d.sub = !chosen_name.empty() ? chosen_name : trf("%d éléments · Croix pour ouvrir", static_cast<int>(g.members.size()));
+                (void)free;
+                cards.push_back(d); idx.push_back(gi);
+            }
+            if (tr_zone_ != zone)  // rangée sans le curseur : il revient sur la bulle de l'appareil choisi
+                for (int gi = 0; gi < gn; ++gi)
+                    for (int m : groups[static_cast<std::size_t>(gi)].members) if (m == chosen) tr_gsel_[zone] = gi;
+            tr_gsel_[zone] = std::min(tr_gsel_[zone], std::max(0, gn - 1));
+            focus_i = tr_gsel_[zone];
+        }
+        const int cn = static_cast<int>(cards.size());
+        // Trop de cartes : la dernière place montre ce qui est caché (« + 2 de plus › NAS · Nuage »), toujours à la même taille.
+        const int vis = cn > per ? per - 1 : per;
+        int& first = tr_first_[zone];
+        if (focus_i < first) first = focus_i;
+        if (focus_i >= first + vis) first = focus_i - vis + 1;
+        first = std::max(0, std::min(first, std::max(0, cn - vis)));
+        if (first > 0) s.text(font_, margin - 34, y + 30 + ch / 2 - 22, "‹", large, color::accent);
+        if (cn > per) {
+            // Ce qui reste à droite d'abord ; arrivé au bout, ce qui est passé à gauche (« ‹ 2 avant »).
+            std::string names;
+            int right = 0, left = 0;
+            for (int i = first + vis; i < cn; ++i) ++right;
+            for (int i = 0; i < first; ++i) ++left;
+            const bool ahead = right > 0;
+            for (int i = 0; i < cn; ++i) {
+                if (ahead ? i < first + vis : i >= first) continue;
+                const std::string nm = cards[static_cast<std::size_t>(i)].name;
+                if (names.find(nm) == std::string::npos) names += (names.empty() ? "" : " · ") + nm;
+            }
+            const int px = margin + vis * (cw + gap), py = y + 30;
+            s.rect(px, py, cw, ch, rgb(255, 255, 255, 8), 16);
+            s.outline(px, py, cw, ch, color::line, 16, 2);
+            s.text(font_, px + 18, py + 8, ahead ? trf("+ %d de plus ›", right) : trf("‹ %d avant", left), body, color::accent, cw - 36);
+            s.text(font_, px + 18, py + 46, names, small, color::muted, cw - 36);
+        }
+        for (int i = first; i < cn && i < first + vis; ++i) {
+            const int x = margin + (i - first) * (cw + gap), cy = y + 30;
+            bool is_chosen, other;
+            if (open) { is_chosen = idx[static_cast<std::size_t>(i)] == chosen; other = zone == 1 && idx[static_cast<std::size_t>(i)] == tr_from_; }
+            else {
+                const TrGroup& g = groups[static_cast<std::size_t>(idx[static_cast<std::size_t>(i)])];
+                is_chosen = std::find(g.members.begin(), g.members.end(), chosen) != g.members.end();
+                other = zone == 1 && g.members.size() == 1 && g.members[0] == tr_from_;
+            }
+            tr_device_card(s, cards[static_cast<std::size_t>(i)], x, cy, cw, ch, tr_zone_ == zone && i == focus_i, is_chosen);
+            if (!open && cards[static_cast<std::size_t>(i)].kind == "group") {  // nombre d'éléments de la bulle
+                const std::string c = std::to_string(groups[static_cast<std::size_t>(idx[static_cast<std::size_t>(i)])].members.size());
+                s.rect(x + cw - 40, cy + 8, 30, 26, color::accent2, 13);
+                s.text(font_, x + cw - 25 - Surface::measure(c, small) / 2, cy + 8, c, small, color::text);
+            }
             if (other) s.rect(x, cy, cw, ch, rgb(6, 16, 29, 150), 20);
         }
     };
@@ -359,8 +474,9 @@ void Ui::draw_tr_main(Surface& s) {
             if (running) spinner(s, x + bw - 60, by + bh / 2, 20);
         }
     }
-    if (tr_zone_ == 0) draw_footer(s, {{0, tr("Choisir la source")}, {3, tr("Inverser")}, {-1, tr("Bas : destination")}, {-1, tr("L1 / R1  onglets")}});
-    else if (tr_zone_ == 1) draw_footer(s, {{0, tr("Choisir la destination")}, {3, tr("Inverser")}, {1, tr("Retour")}});
+    if (tr_zone_ == 0 && tr_open_[0] >= 0) draw_footer(s, {{0, tr("Choisir la source")}, {2, tr("Ajouter un service")}, {3, tr("Inverser")}, {1, tr("Refermer")}});
+    else if (tr_zone_ == 0) draw_footer(s, {{0, tr("Ouvrir / choisir")}, {2, tr("Ajouter un service")}, {3, tr("Inverser")}, {-1, tr("Bas : destination")}});
+    else if (tr_zone_ == 1) draw_footer(s, {{0, tr_open_[1] >= 0 ? tr("Choisir la destination") : tr("Ouvrir / choisir")}, {2, tr("Ajouter un service")}, {3, tr("Inverser")}, {1, tr_open_[1] >= 0 ? tr("Refermer") : tr("Retour")}});
     else if (tr_zone_ == 2) draw_footer(s, {{0, tr_action_ == 3 ? tr("Ouvrir la synchronisation") : tr("Choisir les éléments")}, {3, tr("Inverser")}, {1, tr("Retour")}});
     else draw_footer(s, {{0, tr("Ouvrir")}, {1, tr("Retour")}});
 }
@@ -454,7 +570,7 @@ void Ui::draw_tr_choice(Surface& s) {
     struct Opt { const char* name; const char* text; bool on; };
     const Opt opts[] = {{tr("Compresser avant l'envoi"), tr("dossiers PS5 → image .ffpfsc"), tr_compress_ || tr_action_ == 2},
                         {tr("Avec les sauvegardes"), tr("les sauvegardes du jeu suivent"), tr_saves_},
-                        {tr("Vérifier à l'arrivée"), tr("empreinte SHA-256 de chaque fichier"), tr_verify_}};
+                        {tr_verify_ ? tr("Vérification complète") : tr("Vérification rapide"), tr_verify_ ? tr("SHA-256 de chaque fichier copié") : tr("présence et taille ; original gardé si déplacement"), tr_verify_}};
     for (int i = 0; i < 3; ++i) {
         const int y = ly + i * 112;
         const bool focus = tr_zone_ == 2 && tr_opt_ == i;
@@ -485,7 +601,7 @@ void Ui::draw_tr_choice(Surface& s) {
     s.rect(gx, sy + 2, gw, 52, count && !tight ? color::accent2 : rgb(34, 52, 77), 26);
     if (focus) s.outline(gx - 4, sy - 2, gw + 8, 60, color::accent, 30, 3);
     s.text(font_, gx + 40, sy + 13, go, body, color::text);
-    if (tr_zone_ == 1) draw_footer(s, {{0, tr("Cocher")}, {-1, tr("Droite : options")}, {-1, tr("Bas : lancer")}, {1, tr("Retour")}});
+    if (tr_zone_ == 1) draw_footer(s, {{0, tr("Cocher")}, {-1, tr("Droite : options")}, {-1, tr("Bas : bouton Lancer")}, {1, tr("Retour")}});
     else draw_footer(s, {{0, tr_zone_ == 3 ? tr("Lancer") : tr("Choisir")}, {1, tr("Retour")}});
 }
 
@@ -539,7 +655,15 @@ void Ui::draw_tr_progress(Surface& s) {
         }
         if (t.state == "running") spinner(s, margin + w - 60, y + h / 2, 18);
     }
-    draw_footer(s, {{2, tr("Pause / reprendre")}, {3, tr("Annuler")}, {1, tr("Retour")}});
+    {   // Triangle : « Annuler » sur un transfert en cours, « Retirer de la liste » sur un terminé ; Options : vider les terminés.
+        const bool fin = tr_task_ < static_cast<int>(list.size()) && !active(list[static_cast<std::size_t>(tr_task_)]->state);
+        int finished = 0;
+        for (const auto& t : snap_->tasks) if (!active(t.state)) ++finished;
+        const std::string clear = trf("Options : vider les terminés (%d)", finished);
+        if (fin) draw_footer(s, {{3, tr("Retirer de la liste")}, {-1, clear.c_str()}, {1, tr("Retour")}});
+        else if (finished) draw_footer(s, {{2, tr("Pause / reprendre")}, {3, tr("Arrêter la tâche")}, {-1, clear.c_str()}, {1, tr("Retour")}});
+        else draw_footer(s, {{2, tr("Pause / reprendre")}, {3, tr("Arrêter la tâche")}, {1, tr("Retour")}});
+    }
 }
 
 void Ui::draw_tr_full(Surface& s) {
@@ -613,7 +737,7 @@ void Ui::draw_tr_full(Surface& s) {
     s.rect(gx, by + 29, gw, 52, color::accent2, 26);
     if (tr_zone_ == 2 && tr_opt_ == 1) s.outline(gx - 4, by + 25, gw + 8, 60, color::accent, 30, 3);
     s.text(font_, gx + 40, by + 41, go, body, color::text);
-    if (tr_zone_ == 1) draw_footer(s, {{0, tr("Cocher / décocher")}, {-1, tr("Bas : lancer")}, {1, tr("Retour")}});
+    if (tr_zone_ == 1) draw_footer(s, {{0, tr("Cocher / décocher")}, {-1, tr("Bas : bouton Lancer")}, {1, tr("Retour")}});
     else draw_footer(s, {{0, tr("Choisir")}, {-1, tr("Gauche / droite")}, {1, tr("Retour")}});
 }
 
@@ -685,7 +809,7 @@ void Ui::draw_tr_restore(Surface& s, const TrDevice& from, const TrDevice& to) {
     s.rect(gx, sy + 2, gw, 52, count ? color::accent2 : rgb(34, 52, 77), 26);
     if (tr_zone_ == 3) s.outline(gx - 4, sy - 2, gw + 8, 60, color::accent, 30, 3);
     s.text(font_, gx + 40, sy + 13, go, body, color::text);
-    draw_footer(s, {{0, tr_zone_ == 3 ? tr("Restaurer") : tr("Cocher")}, {-1, tr("Bas : lancer")}, {1, tr("Retour")}});
+    draw_footer(s, {{0, tr_zone_ == 3 ? tr("Restaurer") : tr("Cocher")}, {-1, tr("Bas : bouton Lancer")}, {1, tr("Retour")}});
 }
 
 void Ui::input_tr_restore(std::uint32_t k) {
@@ -760,7 +884,7 @@ void Ui::tr_launch() {
             body = "{\"type\":\"compress\",\"item\":" + json_str(key) + ",\"target\":" + json_str(to.id) + "}";
         else
             body = "{\"type\":\"transfer\",\"mode\":\"" + std::string(modes[tr_action_ == 1]) + "\",\"item\":" + json_str(key) + ",\"to\":" + json_str(to.id) +
-                   ",\"saves\":" + (tr_saves_ ? "true" : "false") + ",\"verify\":" + (tr_verify_ ? "true" : "false") + ",\"compress\":" + (tr_compress_ ? "true" : "false") + "}";
+                   ",\"saves\":" + (tr_saves_ ? "true" : "false") + ",\"verify\":true,\"verify_mode\":" + std::string(tr_verify_ ? "\"full\"" : "\"quick\"") + ",\"compress\":" + (tr_compress_ ? "true" : "false") + "}";
         model_.command("POST", "/api/v2/tasks", body, [this](const std::string& e, const std::string&) { if (!e.empty()) post_toast(e); });
     }
     tr_sel_.clear();
@@ -778,20 +902,43 @@ void Ui::input_transfers(std::uint32_t k) {
     if (tr_screen_ == 5) { input_tr_files(k); return; }
     if (tr_screen_ == 0) {
         if (k & key::triangle) { std::swap(tr_from_, tr_to_); return; }
+        if ((k & key::square) && tr_zone_ <= 1) { open_add_service(); return; }  // Carré : ajouter un service
         if (tr_zone_ <= 1) {
-            int& v = tr_zone_ == 0 ? tr_from_ : tr_to_;
-            if (k & key::left) v = std::max(0, v - 1);
-            if (k & key::right) v = std::min(std::max(0, n - 1), v + 1);
-            if (tr_zone_ == 1 && tr_to_ == tr_from_ && (k & (key::left | key::right)) && n > 1) {  // on saute la source
-                if (k & key::right && tr_to_ + 1 < n) ++tr_to_; else if (tr_to_ > 0) --tr_to_; else ++tr_to_;
+            const int z = tr_zone_;
+            int& v = z == 0 ? tr_from_ : tr_to_;
+            const auto groups = tr_groups(devs);
+            const int gn = static_cast<int>(groups.size());
+            auto pick = [&](int dev) {  // un appareil choisi : on passe à la rangée suivante
+                if (devs[static_cast<std::size_t>(dev)].kind == "add") { open_add_service(); return; }
+                // Même disque que la source : permis (Compresser écrit l'image à côté du jeu) ; refusé plus loin pour Copier / Déplacer.
+                v = dev;
+                tr_open_[z] = -1;
+                tr_zone_ += 1;
+                if (tr_zone_ == 1 && tr_to_ == tr_from_) tr_to_ = tr_from_ == 0 ? 1 : 0;
+            };
+            if (tr_open_[z] >= 0 && tr_open_[z] < gn) {  // bulle ouverte : ses éléments
+                const auto& m = groups[static_cast<std::size_t>(tr_open_[z])].members;
+                const int mn = static_cast<int>(m.size());
+                if ((k & key::left) && tr_msel_[z] == 0) { tr_open_[z] = -1; tr_first_[z] = 0; return; }  // Gauche au début : on ressort de la bulle
+                if (k & key::left) tr_msel_[z] = std::max(0, tr_msel_[z] - 1);
+                if (k & key::right) tr_msel_[z] = std::min(mn - 1, tr_msel_[z] + 1);
+                if (k & key::circle) { tr_open_[z] = -1; tr_first_[z] = 0; return; }
+                if (k & key::cross) pick(m[static_cast<std::size_t>(std::min(tr_msel_[z], mn - 1))]);
+                return;
             }
-            // Plusieurs lignes d'appareils : Haut / Bas passent d'abord d'une ligne à l'autre.
-            if ((k & key::down) && v + 5 < n) { v += 5; if (tr_zone_ == 1 && tr_to_ == tr_from_) tr_to_ = std::min(n - 1, tr_to_ + 1); return; }
-            if ((k & key::up) && v - 5 >= 0) { v -= 5; return; }
-            if ((k & key::cross) && devs[static_cast<std::size_t>(tr_zone_ == 0 ? tr_from_ : tr_to_)].kind == "add") { open_editor("", "ftp"); return; }
-            if ((k & key::down) && devs[static_cast<std::size_t>(tr_zone_ == 0 ? tr_from_ : tr_to_)].kind == "add") { toast(tr("Croix pour ajouter un NAS, ou choisissez un autre appareil.")); return; }
-            if (k & (key::down | key::cross)) { tr_zone_ += 1; if (tr_zone_ == 1 && tr_to_ == tr_from_) tr_to_ = tr_from_ == 0 ? 1 : 0; }
-            if ((k & (key::up | key::circle)) && tr_zone_ == 1) tr_zone_ = 0;
+            if (k & key::left) tr_gsel_[z] = std::max(0, tr_gsel_[z] - 1);
+            if (k & key::right) tr_gsel_[z] = std::min(std::max(0, gn - 1), tr_gsel_[z] + 1);
+            if (k & key::cross && tr_gsel_[z] < gn) {
+                const TrGroup& g = groups[static_cast<std::size_t>(tr_gsel_[z])];
+                if (g.members.size() == 1) { pick(g.members[0]); return; }
+                tr_open_[z] = tr_gsel_[z];
+                tr_msel_[z] = 0;
+                for (int i = 0; i < static_cast<int>(g.members.size()); ++i) if (g.members[static_cast<std::size_t>(i)] == v) tr_msel_[z] = i;
+                tr_first_[z] = 0;
+                return;
+            }
+            if (k & key::down) { tr_zone_ += 1; if (tr_zone_ == 1 && tr_to_ == tr_from_) tr_to_ = tr_from_ == 0 ? 1 : 0; }
+            if ((k & (key::up | key::circle)) && z == 1) tr_zone_ = 0;
             return;
         }
         if (tr_zone_ == 2) {
@@ -800,10 +947,11 @@ void Ui::input_transfers(std::uint32_t k) {
             if (k & (key::up | key::circle)) tr_zone_ = 1;
             if (k & key::down) { tr_zone_ = 3; tr_opt_ = 0; }
             if (k & key::cross) {
-                if (tr_from_ == tr_to_) { toast(tr("Choisissez une destination différente de la source.")); return; }
+                if (tr_from_ == tr_to_ && tr_action_ != 2) { toast(tr("Même disque : seulement pour Compresser (l'image est écrite à côté du jeu).")); return; }
+                if (tr_from_ == tr_to_) toast(tr("Compresser sur le même disque : l'image est écrite à côté du jeu, vérifiée, et le jeu d'origine reste en place."));
                 const TrDevice& f = devs[static_cast<std::size_t>(tr_from_)];
                 const TrDevice& t = devs[static_cast<std::size_t>(tr_to_)];
-                if (f.kind == "add" || t.kind == "add") { open_editor("", "ftp"); return; }
+                if (f.kind == "add" || t.kind == "add") { open_add_service(); return; }
                 if (tr_action_ == 3 || f.kind == "switch" || t.kind == "switch") {  // les Switch passent par l'écran Synchroniser
                     tr_screen_ = 4; sy_zone_ = 0; sy_card_ = 0; sy_a_ = 0; sy_b_ = static_cast<int>(switches_.size());  // B : Eden
                     return;
@@ -887,11 +1035,28 @@ void Ui::input_transfers(std::uint32_t k) {
         if (k & key::up) tr_task_ = std::max(0, tr_task_ - 1);
         if (k & key::down) tr_task_ = std::min(std::max(0, static_cast<int>(list.size()) - 1), tr_task_ + 1);
         if (k & key::circle) { tr_screen_ = 0; tr_zone_ = 3; return; }
+        if (k & key::options) {  // vider les transferts terminés (seulement la liste : rien n'est retiré des disques)
+            int finished = 0;
+            for (const auto& t : snap_->tasks) if (!active(t.state)) ++finished;
+            if (!finished) return;
+            open_actions(tr("Vider les transferts terminés ?"), {
+                {trf("Oui, retirer les %d terminés de la liste", finished), [this] {
+                    for (const char* st : {"done", "failed", "cancelled"})
+                        model_.command("POST", "/api/v2/tasks/clear", std::string("{\"state\":\"") + st + "\"}", [this](const std::string& e, const std::string&) { if (!e.empty()) post_toast(e); });
+                    post_toast(tr("Transferts terminés retirés de la liste"));
+                    tr_task_ = 0;
+                }},
+                {tr("Annuler"), [] {}},
+            });
+            popup_note_ = tr("Seulement la liste : rien n'est retiré des disques. Les transferts en cours ne sont pas touchés.");
+            return;
+        }
         if (tr_task_ < static_cast<int>(list.size())) {
             const Task& t = *list[static_cast<std::size_t>(tr_task_)];
             const char* a = nullptr;
             if (k & key::square) a = t.state == "paused" ? "resume" : t.state == "running" || t.state == "queued" ? "pause" : nullptr;
             if ((k & key::triangle) && (t.type == "files_copy" || t.type == "files_move") && (t.state == "cancelled" || t.state == "failed")) { files_task_menu(t); return; }
+            if ((k & key::triangle) && t.state == "running" && t.phase == "verify") { verify_menu(t); return; }
             if (k & key::triangle) a = active(t.state) ? "cancel" : "remove";
             if (a) model_.command("POST", "/api/v2/tasks/" + t.id + "/" + a, "{}");
         }
@@ -1272,6 +1437,21 @@ void Ui::input_tr_files(std::uint32_t k) {
 }
 
 // Copie « Fichiers » annulée ou en échec : retirer ce qu'elle a créé (deux confirmations), ou la retirer de la liste.
+// Transfert en vérification : arrêter seulement la vérification (copie gardée) ou annuler tout le transfert.
+void Ui::verify_menu(const Task& t) {
+    const std::string id = t.id;
+    open_actions(tr("Vérification en cours"), {
+        {tr("Arrêter la vérification (garder la copie)"), [this, id] {
+            model_.command("POST", "/api/v2/tasks/" + id + "/skip-verify", "{}", [this](const std::string& e, const std::string&) {
+                post_toast(e.empty() ? std::string(tr("Vérification arrêtée : la copie est gardée, marquée non vérifiée")) : e);
+            });
+        }},
+        {tr("Annuler le transfert (la copie est retirée)"), [this, id] { model_.command("POST", "/api/v2/tasks/" + id + "/cancel", "{}"); }},
+        {tr("Fermer"), [] {}},
+    });
+    popup_note_ = tr("Pause et redémarrage ne perdent rien : le transfert reprend là où il s'est arrêté. Un déplacement non vérifié garde l'original.");
+}
+
 void Ui::files_task_menu(const Task& t) {
     const std::string id = t.id;
     const int copied = static_cast<int>(t.report["copied"].as_int());
