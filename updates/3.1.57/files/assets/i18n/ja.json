@@ -3842,5 +3842,7 @@
  "Web : la fenêtre d'un lien n'a plus qu'un code QR, avec le bouton « Lien de la maison / Lien Internet », comme la touche Carré de la télé.": "Web：リンクのウィンドウの QR コードは 1 つになり、テレビの □ ボタンと同じ「ホームのリンク / インターネットのリンク」ボタンが付きました。",
  "Lien Internet, pour quelqu'un de loin (%s) : la console doit rester allumée et son port BitTorrent ouvert sur la box (UPnP le fait seul s'il est activé dans Paramètres › Réseau).": "インターネットのリンク（遠くの人向け、%s）：本体の電源を入れたままにし、ルーターで BitTorrent ポートを開けておく必要があります（設定 › ネットワークで UPnP が有効なら自動）。",
  "Lien Internet : l'adresse publique seulement": "インターネットのリンク：グローバルアドレスのみ",
- "Lien BitTorrent : le lien Internet ne porte plus que l'adresse publique de la console (plus son adresse de la maison, inutile et indiscrète chez quelqu'un de loin) ; le code QR est plus simple à scanner.": "BitTorrent リンク：インターネットのリンクには本体のグローバルアドレスだけが入るようになりました（遠くの人には不要で知られたくないホームのアドレスは入りません）。QR コードも読み取りやすくなりました。"
+ "Lien BitTorrent : le lien Internet ne porte plus que l'adresse publique de la console (plus son adresse de la maison, inutile et indiscrète chez quelqu'un de loin) ; le code QR est plus simple à scanner.": "BitTorrent リンク：インターネットのリンクには本体のグローバルアドレスだけが入るようになりました（遠くの人には不要で知られたくないホームのアドレスは入りません）。QR コードも読み取りやすくなりました。",
+ "« Copie plus récente » : plus de fausse alerte quand la copie est la même partie": "「新しいコピー」：同じセーブなら誤って表示されなくなりました",
+ "« Copie plus récente » : une copie qui contient la même partie que la console (même contenu lu, où qu'elle soit rangée) n'est plus annoncée « plus récente ». L'heure retenue est celle écrite dans la partie, plus celle du fichier, qui change quand une copie complète est remontée.": "「新しいコピー」：本体と同じセーブを含むコピー（読み取った内容が同じなら、保存場所を問わず）は「新しい」と表示されなくなりました。使う時刻はセーブ内に書かれた時刻で、完全コピーを再マウントすると変わるファイルの時刻ではありません。"
 }

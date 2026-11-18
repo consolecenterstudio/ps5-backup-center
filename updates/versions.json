@@ -1,11 +1,11 @@
 [
  {
-  "version": "3.1.56",
+  "version": "3.1.57",
   "date": "2026-11-18",
-  "title": "Lien Internet : l'adresse publique seulement",
+  "title": "« Copie plus récente » : plus de fausse alerte quand la copie est la même partie",
   "tested": false,
   "channel": "beta",
-  "manifest": "3.1.56/manifest.json"
+  "manifest": "3.1.57/manifest.json"
  },
  {
   "version": "3.1.0",

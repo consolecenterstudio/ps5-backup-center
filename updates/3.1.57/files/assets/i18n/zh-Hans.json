@@ -3842,5 +3842,7 @@
  "Web : la fenêtre d'un lien n'a plus qu'un code QR, avec le bouton « Lien de la maison / Lien Internet », comme la touche Carré de la télé.": "网页：链接窗口现在只有一个二维码，并有“家中链接 / 互联网链接”按钮，和电视上的方块键一样。",
  "Lien Internet, pour quelqu'un de loin (%s) : la console doit rester allumée et son port BitTorrent ouvert sur la box (UPnP le fait seul s'il est activé dans Paramètres › Réseau).": "互联网链接，给远方的人（%s）：主机须保持开机，路由器上须开放 BitTorrent 端口（若在设置 › 网络中启用 UPnP，会自动完成）。",
  "Lien Internet : l'adresse publique seulement": "互联网链接：只含公网地址",
- "Lien BitTorrent : le lien Internet ne porte plus que l'adresse publique de la console (plus son adresse de la maison, inutile et indiscrète chez quelqu'un de loin) ; le code QR est plus simple à scanner.": "BitTorrent 链接：互联网链接现在只含主机的公网地址（不再包含家中地址——对远方的人没用，也不必透露）；二维码更容易扫描。"
+ "Lien BitTorrent : le lien Internet ne porte plus que l'adresse publique de la console (plus son adresse de la maison, inutile et indiscrète chez quelqu'un de loin) ; le code QR est plus simple à scanner.": "BitTorrent 链接：互联网链接现在只含主机的公网地址（不再包含家中地址——对远方的人没用，也不必透露）；二维码更容易扫描。",
+ "« Copie plus récente » : plus de fausse alerte quand la copie est la même partie": "“较新的副本”：副本是同一存档时不再误报",
+ "« Copie plus récente » : une copie qui contient la même partie que la console (même contenu lu, où qu'elle soit rangée) n'est plus annoncée « plus récente ». L'heure retenue est celle écrite dans la partie, plus celle du fichier, qui change quand une copie complète est remontée.": "“较新的副本”：与主机存档相同的副本（读取到的内容相同，无论存放在哪里）不再被标为“较新”。采用存档内记录的时间，而不再是文件时间——完整副本重新挂载时文件时间会改变。"
 }

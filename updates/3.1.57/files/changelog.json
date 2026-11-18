@@ -1,6 +1,17 @@
 {
  "versions": [
   {
+   "version": "3.1.57",
+   "date": "2026-11-18",
+   "title": "« Copie plus récente » : plus de fausse alerte quand la copie est la même partie",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "« Copie plus récente » : une copie qui contient la même partie que la console (même contenu lu, où qu'elle soit rangée) n'est plus annoncée « plus récente ». L'heure retenue est celle écrite dans la partie, plus celle du fichier, qui change quand une copie complète est remontée."
+   ],
+   "web": "oui : même calcul du moteur (carte « Copie plus récente » de l'Accueil, télé et web)"
+  },
+  {
    "version": "3.1.56",
    "date": "2026-11-18",
    "title": "Lien Internet : l'adresse publique seulement",

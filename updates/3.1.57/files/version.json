@@ -1,0 +1,7 @@
+{
+ "version": "3.1.57",
+ "build": "PBCK L03 867C55D39F",
+ "notes": [
+  "« Copie plus récente » : une copie qui contient la même partie que la console (même contenu lu, où qu'elle soit rangée) n'est plus annoncée « plus récente ». L'heure retenue est celle écrite dans la partie, plus celle du fichier, qui change quand une copie complète est remontée."
+ ]
+}

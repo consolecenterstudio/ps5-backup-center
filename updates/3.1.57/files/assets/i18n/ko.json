@@ -3842,5 +3842,7 @@
  "Web : la fenêtre d'un lien n'a plus qu'un code QR, avec le bouton « Lien de la maison / Lien Internet », comme la touche Carré de la télé.": "웹: 링크 창의 QR 코드가 하나가 되고, TV의 □ 버튼처럼 '집 링크 / 인터넷 링크' 버튼이 생겼습니다.",
  "Lien Internet, pour quelqu'un de loin (%s) : la console doit rester allumée et son port BitTorrent ouvert sur la box (UPnP le fait seul s'il est activé dans Paramètres › Réseau).": "인터넷 링크, 멀리 있는 사람용(%s): 콘솔을 켜 두고 공유기에서 BitTorrent 포트를 열어야 합니다(설정 › 네트워크에서 UPnP가 켜져 있으면 자동).",
  "Lien Internet : l'adresse publique seulement": "인터넷 링크: 공인 주소만",
- "Lien BitTorrent : le lien Internet ne porte plus que l'adresse publique de la console (plus son adresse de la maison, inutile et indiscrète chez quelqu'un de loin) ; le code QR est plus simple à scanner.": "BitTorrent 링크: 인터넷 링크에는 이제 콘솔의 공인 주소만 들어갑니다(멀리 있는 사람에게 쓸모없고 드러낼 필요 없는 집 주소는 빠짐). QR 코드도 스캔하기 쉬워졌습니다."
+ "Lien BitTorrent : le lien Internet ne porte plus que l'adresse publique de la console (plus son adresse de la maison, inutile et indiscrète chez quelqu'un de loin) ; le code QR est plus simple à scanner.": "BitTorrent 링크: 인터넷 링크에는 이제 콘솔의 공인 주소만 들어갑니다(멀리 있는 사람에게 쓸모없고 드러낼 필요 없는 집 주소는 빠짐). QR 코드도 스캔하기 쉬워졌습니다.",
+ "« Copie plus récente » : plus de fausse alerte quand la copie est la même partie": "'더 최신 사본': 같은 세이브인 사본에 대한 잘못된 알림이 없어졌습니다",
+ "« Copie plus récente » : une copie qui contient la même partie que la console (même contenu lu, où qu'elle soit rangée) n'est plus annoncée « plus récente ». L'heure retenue est celle écrite dans la partie, plus celle du fichier, qui change quand une copie complète est remontée.": "'더 최신 사본': 콘솔과 같은 세이브를 담은 사본(읽은 내용이 같으면 어디에 있든)은 더 이상 '더 최신'으로 표시되지 않습니다. 기준 시각은 세이브 안에 기록된 시각이며, 전체 사본을 다시 마운트하면 바뀌는 파일 시각이 아닙니다."
 }
