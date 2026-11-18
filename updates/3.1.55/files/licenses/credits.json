@@ -1,0 +1,178 @@
+{
+ "license": "PS5 Backup Center est un logiciel libre sous licence GPL-3.0-or-later. Les sources accompagnent chaque version publiée.",
+ "used": [
+  {
+   "name": "ps5-native-app-boilerplate",
+   "author": "BlackBearReloaded",
+   "license": "GPL-3.0-or-later",
+   "role": "Base de l'application télé (démarrage, affichage) et musique « Night Drive »",
+   "url": "https://github.com/blackbearreloaded/ps5-native-app-boilerplate"
+  },
+  {
+   "name": "PS5 Payload SDK",
+   "author": "ps5-payload-dev (John Törnblom et contributeurs)",
+   "license": "GPL-3.0",
+   "role": "Kit de développement : bibliothèques, en-têtes et chaîne de compilation",
+   "url": "https://github.com/ps5-payload-dev/sdk"
+  },
+  {
+   "name": "SharpProspero",
+   "author": "SvenGDK",
+   "license": "GPL-3.0",
+   "role": "Conversion ELF et signature de l'application",
+   "url": "https://github.com/SvenGDK/SharpProspero"
+  },
+  {
+   "name": "LLVM / Clang",
+   "author": "LLVM Project",
+   "license": "Apache-2.0 avec exceptions LLVM",
+   "role": "Compilateur",
+   "url": "https://llvm.org"
+  },
+  {
+   "name": "zlib",
+   "author": "Jean-loup Gailly et Mark Adler",
+   "license": "Licence zlib",
+   "role": "Compression des vignettes",
+   "url": "https://zlib.net"
+  },
+  {
+   "name": "stb_image, stb_truetype",
+   "author": "Sean Barrett",
+   "license": "MIT ou domaine public",
+   "role": "Lecture des jaquettes ; tracé des polices de secours sur la télé",
+   "url": "https://github.com/nothings/stb"
+  },
+  {
+   "name": "Inter",
+   "author": "Rasmus Andersson",
+   "license": "SIL Open Font License 1.1",
+   "role": "Police de l'interface (latin, grec et cyrillique)",
+   "url": "https://rsms.me/inter"
+  },
+  {
+   "name": "Noto Sans Arabic",
+   "author": "Google, Noto Project Authors",
+   "license": "SIL Open Font License 1.1",
+   "role": "Écriture arabe sur la télé (sous-ensemble, version 2.012)",
+   "url": "https://github.com/notofonts/arabic"
+  },
+  {
+   "name": "Noto Sans CJK (SC, TC, JP, KR)",
+   "author": "Adobe, Google, Noto Project Authors",
+   "license": "SIL Open Font License 1.1",
+   "role": "Chinois, japonais et coréen sur la télé (sous-ensembles, version 2.004)",
+   "url": "https://github.com/notofonts/noto-cjk"
+  },
+  {
+   "name": "garlic-worker",
+   "author": "earthonion",
+   "license": "GPL-3.0",
+   "role": "Chiffrement, déchiffrement et re-signature des sauvegardes PS4/PS5 (merci aussi à c0w-ar, hzhreal et Team-Alua)",
+   "url": "https://github.com/earthonion/garlic-worker"
+  },
+  {
+   "name": "Garlic SaveMgr",
+   "author": "earthonion",
+   "license": "GPL-3.0",
+   "role": "Import, montage et export des sauvegardes PS5",
+   "url": "https://github.com/earthonion/garlic-savemgr"
+  },
+  {
+   "name": "PS5 Game Compressor",
+   "author": "juma-sayeh",
+   "license": "GPL-3.0",
+   "role": "Compression, déplacement et validation des jeux",
+   "url": "https://github.com/juma-sayeh/PS5-Game-Compressor"
+  },
+  {
+   "name": "titledb",
+   "author": "blawar et contributeurs",
+   "license": "Données publiques",
+   "role": "Noms des jeux Switch (sauvegardes d'Eden dont le jeu n'est pas sur la PS5)",
+   "url": "https://github.com/blawar/titledb"
+  },
+  {
+   "name": "tinfoil.media",
+   "author": "Tinfoil",
+   "license": "Service public",
+   "role": "Icônes des jeux Switch absents de la bibliothèque",
+   "url": "http://tinfoil.media"
+  },
+  {
+   "name": "BearSSL",
+   "author": "Thomas Pornin",
+   "license": "MIT",
+   "role": "Connexions HTTPS du moteur (jaquettes officielles, noms des jeux)",
+   "url": "https://bearssl.org"
+  },
+  {
+   "name": "libwebp",
+   "author": "Google",
+   "license": "BSD-3-Clause",
+   "role": "Lecture des jaquettes au format WebP",
+   "url": "https://chromium.googlesource.com/webm/libwebp"
+  },
+  {
+   "name": "libsmb2",
+   "author": "Ronnie Sahlberg et contributeurs",
+   "license": "LGPL-2.1-or-later",
+   "role": "Connexion aux NAS en SMB (partages Windows, Synology, QNAP)",
+   "url": "https://github.com/sahlberg/libsmb2"
+  },
+  {
+   "name": "Prospero Patches / Orbis Patches",
+   "author": "prosperopatches.com, orbispatches.com",
+   "license": "Service public",
+   "role": "Icônes officielles des jeux PS5 / PS4 dont il ne reste que la sauvegarde",
+   "url": "https://prosperopatches.com"
+  },
+  {
+   "name": "PlayStation-Titles",
+   "author": "andshrew",
+   "license": "MIT",
+   "role": "Noms des jeux PS4 / PS5",
+   "url": "https://github.com/andshrew/PlayStation-Titles"
+  },
+  {
+   "name": "elfldr",
+   "author": "John Törnblom (ps5-payload-dev)",
+   "license": "GPL-3.0-or-later",
+   "role": "Relance du moteur après une mise à jour, sans chargeur externe (code compilé dans le moteur)",
+   "url": "https://github.com/ps5-payload-dev/elfldr"
+  },
+  {
+   "name": "QR Code generator",
+   "author": "Project Nayuki",
+   "license": "MIT",
+   "role": "Codes QR de l'écran « Soutenir le projet »",
+   "url": "https://github.com/nayuki/QR-Code-generator"
+  }
+ ],
+ "thanks": [
+  {
+   "name": "Elf-Arsenal+",
+   "role": "Référence : sa copie d'elfldr (qui laisse au programme lancé ses droits élevés) a guidé notre lanceur intégré"
+  },
+  {
+   "name": "PS5 Payload Manager",
+   "author": "itsPLK",
+   "role": "Chargement automatique des payloads",
+   "url": "https://github.com/itsPLK/ps5-payload-manager"
+  },
+  {
+   "name": "ShadowMount+",
+   "author": "drakmor",
+   "role": "Montage des jeux, compatibilité de la bibliothèque",
+   "url": "https://github.com/drakmor/ShadowMountPlus"
+  },
+  {
+   "name": "Orbit et BlackBox",
+   "role": "Inspiration pour l'ergonomie et les mises à jour"
+  },
+  {
+   "name": "Prospero Manager",
+   "role": "Référence pour la gestion des sauvegardes et des comptes"
+  }
+ ]
+}
