@@ -3839,5 +3839,8 @@
  "Lien de la maison : pour une autre PS5 ou un PC sur le même réseau.": "집 링크: 같은 네트워크의 다른 PS5나 PC용입니다.",
  "Lien public : le lien BitTorrent marche aussi depuis Internet": "공개 링크: BitTorrent 링크가 인터넷에서도 작동합니다",
  "Lien BitTorrent : comme le lien .zip, il a son lien de la maison et son lien Internet (avec l'adresse publique de la console, trouvée comme pour la PS5 à distance). Un bouton passe de l'un à l'autre ; le code QR et l'adresse suivent.": "BitTorrent 링크: .zip 링크처럼 집 링크와 인터넷 링크가 있습니다(콘솔의 공인 주소는 원격 PS5와 같은 방법으로 찾습니다). 버튼으로 전환하면 QR 코드와 주소도 바뀝니다.",
- "Web : la fenêtre d'un lien n'a plus qu'un code QR, avec le bouton « Lien de la maison / Lien Internet », comme la touche Carré de la télé.": "웹: 링크 창의 QR 코드가 하나가 되고, TV의 □ 버튼처럼 '집 링크 / 인터넷 링크' 버튼이 생겼습니다."
+ "Web : la fenêtre d'un lien n'a plus qu'un code QR, avec le bouton « Lien de la maison / Lien Internet », comme la touche Carré de la télé.": "웹: 링크 창의 QR 코드가 하나가 되고, TV의 □ 버튼처럼 '집 링크 / 인터넷 링크' 버튼이 생겼습니다.",
+ "Lien Internet, pour quelqu'un de loin (%s) : la console doit rester allumée et son port BitTorrent ouvert sur la box (UPnP le fait seul s'il est activé dans Paramètres › Réseau).": "인터넷 링크, 멀리 있는 사람용(%s): 콘솔을 켜 두고 공유기에서 BitTorrent 포트를 열어야 합니다(설정 › 네트워크에서 UPnP가 켜져 있으면 자동).",
+ "Lien Internet : l'adresse publique seulement": "인터넷 링크: 공인 주소만",
+ "Lien BitTorrent : le lien Internet ne porte plus que l'adresse publique de la console (plus son adresse de la maison, inutile et indiscrète chez quelqu'un de loin) ; le code QR est plus simple à scanner.": "BitTorrent 링크: 인터넷 링크에는 이제 콘솔의 공인 주소만 들어갑니다(멀리 있는 사람에게 쓸모없고 드러낼 필요 없는 집 주소는 빠짐). QR 코드도 스캔하기 쉬워졌습니다."
 }

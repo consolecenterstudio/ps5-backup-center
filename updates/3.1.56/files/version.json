@@ -1,0 +1,7 @@
+{
+ "version": "3.1.56",
+ "build": "PBCK L03 0A375A7DC0",
+ "notes": [
+  "Lien BitTorrent : le lien Internet ne porte plus que l'adresse publique de la console (plus son adresse de la maison, inutile et indiscrète chez quelqu'un de loin) ; le code QR est plus simple à scanner."
+ ]
+}

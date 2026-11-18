@@ -1,11 +1,11 @@
 [
  {
-  "version": "3.1.55",
+  "version": "3.1.56",
   "date": "2026-11-18",
-  "title": "Lien public : le lien BitTorrent marche aussi depuis Internet",
+  "title": "Lien Internet : l'adresse publique seulement",
   "tested": false,
   "channel": "beta",
-  "manifest": "3.1.55/manifest.json"
+  "manifest": "3.1.56/manifest.json"
  },
  {
   "version": "3.1.0",

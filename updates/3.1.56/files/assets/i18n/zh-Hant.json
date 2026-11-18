@@ -3839,5 +3839,8 @@
  "Lien de la maison : pour une autre PS5 ou un PC sur le même réseau.": "家中連結：供同一網路中的另一台 PS5 或電腦使用。",
  "Lien public : le lien BitTorrent marche aussi depuis Internet": "公開連結：BitTorrent 連結也能透過網際網路使用",
  "Lien BitTorrent : comme le lien .zip, il a son lien de la maison et son lien Internet (avec l'adresse publique de la console, trouvée comme pour la PS5 à distance). Un bouton passe de l'un à l'autre ; le code QR et l'adresse suivent.": "BitTorrent 連結：和 .zip 連結一樣，有家中連結和網際網路連結（主機的公用位址依遠端 PS5 的方式取得）。按鈕可在兩者間切換，QR 碼和位址隨之改變。",
- "Web : la fenêtre d'un lien n'a plus qu'un code QR, avec le bouton « Lien de la maison / Lien Internet », comme la touche Carré de la télé.": "網頁：連結視窗現在只有一個 QR 碼，並有「家中連結 / 網際網路連結」按鈕，和電視上的方塊鍵一樣。"
+ "Web : la fenêtre d'un lien n'a plus qu'un code QR, avec le bouton « Lien de la maison / Lien Internet », comme la touche Carré de la télé.": "網頁：連結視窗現在只有一個 QR 碼，並有「家中連結 / 網際網路連結」按鈕，和電視上的方塊鍵一樣。",
+ "Lien Internet, pour quelqu'un de loin (%s) : la console doit rester allumée et son port BitTorrent ouvert sur la box (UPnP le fait seul s'il est activé dans Paramètres › Réseau).": "網際網路連結，給遠方的人（%s）：主機須保持開機，路由器上須開放 BitTorrent 連接埠（若在設定 › 網路中啟用 UPnP，會自動完成）。",
+ "Lien Internet : l'adresse publique seulement": "網際網路連結：只含公用位址",
+ "Lien BitTorrent : le lien Internet ne porte plus que l'adresse publique de la console (plus son adresse de la maison, inutile et indiscrète chez quelqu'un de loin) ; le code QR est plus simple à scanner.": "BitTorrent 連結：網際網路連結現在只含主機的公用位址（不再包含家中位址——對遠方的人沒用，也不必透露）；QR 碼更容易掃描。"
 }

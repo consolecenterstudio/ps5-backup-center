@@ -1,6 +1,17 @@
 {
  "versions": [
   {
+   "version": "3.1.56",
+   "date": "2026-11-18",
+   "title": "Lien Internet : l'adresse publique seulement",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Lien BitTorrent : le lien Internet ne porte plus que l'adresse publique de la console (plus son adresse de la maison, inutile et indiscrète chez quelqu'un de loin) ; le code QR est plus simple à scanner."
+   ],
+   "web": "oui : même lien Internet (adresse publique seule) et même phrase sous le code QR"
+  },
+  {
    "version": "3.1.55",
    "date": "2026-11-18",
    "title": "Lien public : le lien BitTorrent marche aussi depuis Internet",
