@@ -1,0 +1,504 @@
+//! Gate G2: a package this crate builds must verify with its own reader, and the inner
+//! image must walk back to the exact source bytes.
+
+use std::path::{Path, PathBuf};
+
+use ps5upload_fpkg::build::{self, BuildRequest};
+use ps5upload_fpkg::crypto::DEFAULT_PASSCODE;
+use ps5upload_fpkg::inner::MetaCodec;
+use ps5upload_fpkg::{cnt, fih, inner, naps, outer, plan, source, PkgFile};
+
+const CONTENT_ID: &str = "UP0000-PPSA01234_00-TESTGAME00000000";
+
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new(name: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("fpkg-writer-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        Self(dir)
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).ok();
+    }
+}
+
+/// A small app tree: a module, the `sce_sys` files the container carries, one file that
+/// crosses a block boundary, one empty directory and one file that only exists in `uroot`.
+fn write_tree(root: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut files = Vec::new();
+    let mut put = |path: &str, data: Vec<u8>| {
+        let full = root.join(path);
+        std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+        std::fs::write(&full, &data).unwrap();
+        files.push((path.to_string(), data));
+    };
+    put("eboot.bin", (0..4096u32).map(|i| (i % 251) as u8).collect());
+    put(
+        "data/small.bin",
+        (0..100u32).map(|i| (i % 13) as u8).collect(),
+    );
+    put("data/large.bin", vec![0xAB; 600 * 1024]);
+    put(
+        "sce_sys/param.json",
+        format!(
+            "{{\"contentId\":\"{CONTENT_ID}\",\"contentVersion\":\"01.001.000\",\"titleId\":\"PPSA01234\",\"applicationCategoryType\":0,\"attributePub\":0}}"
+        )
+        .into_bytes(),
+    );
+    put("sce_sys/icon0.png", vec![0x89; 2048]);
+    put("sce_sys/icon0.dds", vec![0x44; 4096]);
+    put(
+        "sce_sys/about/right.sprx",
+        vec![0x54, 0x14, 0xF5, 0xEE, 0, 0, 0, 0],
+    );
+    std::fs::create_dir_all(root.join("data/empty")).unwrap();
+    files
+}
+
+/// The inner image as stored in the built package's outer PFS.
+fn outer_file(pkg: &Path, name: &str) -> Vec<u8> {
+    let mut file = PkgFile::open(pkg).unwrap();
+    let head = file.read_at(0, fih::HEADER_LEN).unwrap();
+    let parsed = fih::parse(&head).unwrap();
+    let container = cnt::read(&mut file, parsed.cnt_offset).unwrap();
+    let image = outer::open(&mut file, &parsed, &container, DEFAULT_PASSCODE).unwrap();
+    let nodes = image.dinodes();
+    let uroot = nodes.get(2).unwrap();
+    let ino = image
+        .dirents(uroot)
+        .into_iter()
+        .find(|d| d.name == name)
+        .unwrap()
+        .ino as usize;
+    image.file_data(&nodes[ino])
+}
+
+#[test]
+fn gate_g2_a_built_package_verifies_and_round_trips() {
+    let source_dir = TempDir::new("source");
+    let output_dir = TempDir::new("out");
+    let expected = write_tree(source_dir.path());
+
+    let request = BuildRequest {
+        time: Some((1_700_000_000, 0)),
+        seed: Some([0x42; 16]),
+        // This gate asserts the container shape (a stored image shorter than the mount), so it
+        // pins the codec the container belongs to. The default is `Stored`, whose round trip
+        // `mounts.rs` covers.
+        metadata_codec: MetaCodec::Zlib,
+        // The flat layout, which this gate reads back directly.
+        kraken: false,
+        ..BuildRequest::new(source_dir.path(), output_dir.path())
+    };
+    let mut phases = Vec::new();
+    let report = build::build(&request, &mut |phase| phases.push(phase.to_string())).unwrap();
+    assert!(report.verify.ok(), "{}", report.verify);
+    assert_eq!(report.content_id, CONTENT_ID);
+    assert!(report.size > 600 * 1024);
+    assert!(phases.contains(&"verifying".to_string()));
+    assert!(report.path.extension().unwrap() == "pkg");
+    assert!(!output_dir
+        .path()
+        .join(format!("{CONTENT_ID}.pkg.partial"))
+        .exists());
+
+    // The reader's own report must include the checks the writer was built against.
+    for required in [
+        "cnt package digest",
+        "cnt header rollup digest",
+        "cnt body digest",
+        "cnt finalized-image digest",
+        "cnt general digest playgo",
+        "outer flat-path table hashes the uroot names",
+        "si playgo-chunk.crc",
+    ] {
+        assert!(
+            report
+                .verify
+                .checks
+                .iter()
+                .any(|c| c.name == required && c.ok),
+            "missing check: {required}"
+        );
+    }
+
+    // The plan's geometry is what the package carries — less the icons, which the container
+    // carries instead of the image.
+    let only_in_container = |path: &str| ps5upload_fpkg::cnt_write::CONTAINER_ONLY.contains(&path);
+    let (mut files, empty_dirs) = source::scan_tree(source_dir.path()).unwrap();
+    files.retain(|f| !only_in_container(&f.path));
+    let built = plan::build_tree(&files, &empty_dirs, false).unwrap();
+    let mut pkg = PkgFile::open(&report.path).unwrap();
+    let head = pkg.read_at(0, fih::HEADER_LEN).unwrap();
+    let parsed = fih::parse(&head).unwrap();
+    let fih_block = pkg.read_at(0, ps5upload_fpkg::BLOCK as usize).unwrap();
+    assert_eq!(
+        u32::from_le_bytes(fih_block[0x50..0x54].try_into().unwrap()) as u64,
+        built.meta_base / ps5upload_fpkg::BLOCK,
+        "the header must point at the inner metadata base in mount blocks, which the console \
+         multiplies by the block size the header carries at 0x60"
+    );
+    assert_eq!(
+        u32::from_le_bytes(fih_block[0x94..0x98].try_into().unwrap()),
+        built.content_inodes
+    );
+    assert_eq!(
+        u64::from_le_bytes(fih_block[0xA0..0xA8].try_into().unwrap()),
+        built.ndblock * ps5upload_fpkg::BLOCK
+    );
+
+    // The inner image walks back to the source bytes, and the layout reconstructs the mount.
+    let inner_image = outer_file(&report.path, "pfs_image.dat");
+    assert_eq!(
+        u32::from_le_bytes(fih_block[0x90..0x94].try_into().unwrap()) as u64,
+        inner_image.len() as u64 / ps5upload_fpkg::BLOCK,
+        "the header's 0x90 is the stored image's block count"
+    );
+    assert!(
+        (inner_image.len() as u64) < built.ndblock * ps5upload_fpkg::BLOCK,
+        "the fixture's metadata deflates, so the stored image must be shorter than the mount"
+    );
+    assert!(parsed.pfs_size >= inner_image.len() as u64);
+    // What the mount reads at the metadata base is the container expanded, not the container.
+    let mount_image = inner::logical_mount(
+        &inner_image,
+        built.meta_base,
+        MetaCodec::Zlib,
+        &built.placements(),
+    )
+    .unwrap();
+    assert!(
+        mount_image.len() as u64 >= built.ndblock * ps5upload_fpkg::BLOCK,
+        "the mount reaches at least to the end the plan fixed"
+    );
+    let mount = inner::read(&mount_image, built.meta_base).unwrap();
+    assert!(
+        mount.flt_ok,
+        "the inner flat-path table must hash every path"
+    );
+    let mut recovered: Vec<(String, Vec<u8>)> = mount
+        .files
+        .iter()
+        .map(|f| {
+            let at = f.offset as usize;
+            (
+                f.path.clone(),
+                mount_image[at..at + f.size as usize].to_vec(),
+            )
+        })
+        .collect();
+    recovered.sort();
+    let mut wanted: Vec<(String, Vec<u8>)> = expected
+        .iter()
+        .filter(|(p, _)| !only_in_container(p))
+        .map(|(p, d)| (p.clone(), d.clone()))
+        .chain([(
+            "sce_sys/keystone".to_string(),
+            inner::keystone(DEFAULT_PASSCODE).to_vec(),
+        )])
+        .collect();
+    wanted.sort();
+    assert_eq!(recovered, wanted);
+
+    let layout = naps::parse(&outer_file(&report.path, "naps_pkg_layout.dat")).unwrap();
+    assert_eq!(layout.mount_size(), built.ndblock * ps5upload_fpkg::BLOCK);
+    assert_eq!(
+        layout.compression_type, 1,
+        "the layout must declare the codec its payloads use (1 = zlib)"
+    );
+    assert_eq!(layout.num_files as usize, built.afid_order.len() + 3);
+    let faces: Vec<u64> = layout.fidx.iter().map(|(o, _)| *o).collect();
+    assert_eq!(
+        faces[faces.len() - 3..],
+        [
+            built.data_end,
+            built.meta_base,
+            built.ndblock * ps5upload_fpkg::BLOCK
+        ]
+    );
+    // The layout's own reconstruction has to land on the same mount the container expands to.
+    let rebuilt = naps::reconstruct(&inner_image, &layout, &built.placements()).unwrap();
+    let data_end = built.data_end as usize;
+    assert_eq!(
+        &rebuilt[..data_end],
+        &mount_image[..data_end],
+        "the data region is stored where the mount reads it"
+    );
+    assert_eq!(
+        &rebuilt[built.meta_base as usize..],
+        &mount_image[built.meta_base as usize..],
+        "the layout's metadata region is the container's expansion"
+    );
+}
+
+#[test]
+fn a_build_never_overwrites_an_existing_package() {
+    let source_dir = TempDir::new("preserve-source");
+    let output_dir = TempDir::new("preserve-out");
+    write_tree(source_dir.path());
+    let request = BuildRequest::new(source_dir.path(), output_dir.path());
+    let first = build::build(&request, &mut |_| {}).unwrap();
+    let original = std::fs::read(&first.path).unwrap();
+    let error = build::build(&request, &mut |_| {}).err().unwrap();
+    assert!(error.to_string().contains("output already exists"));
+    assert_eq!(std::fs::read(&first.path).unwrap(), original);
+}
+
+/// A Kraken package decodes back to its source: every block through the descriptor, the way
+/// the console reads it, then the inner file system walked and each file compared.
+#[test]
+fn a_kraken_package_decodes_back_to_its_source() {
+    use ps5upload_fpkg::kraken_image;
+    let source_dir = TempDir::new("kraken-src");
+    let out = TempDir::new("kraken-out");
+    let expected = write_tree(source_dir.path());
+    // The default: the block layout, Kraken-compressed.
+    let mut request = BuildRequest::new(source_dir.path(), out.path());
+    assert!(request.kraken, "the block layout is the default");
+    request.time = Some((1_700_000_000, 0));
+    let report = build::build(&request, &mut |_| {}).unwrap();
+    assert!(report.verify.ok(), "{}", report.verify);
+
+    let naps = outer_file(&report.path, "naps_pkg_layout.dat");
+    let image = outer_file(&report.path, "pfs_image.dat");
+    let blocks = kraken_image::describe(&naps).unwrap();
+    let mount_size = blocks.last().map(|b| b.logical + b.len).unwrap();
+    assert!((image.len() as u64) < mount_size, "the image is compressed");
+    let mut mount = vec![0u8; mount_size as usize];
+    for b in &blocks {
+        let bytes = kraken_image::decode_described(&image, b).unwrap();
+        mount[b.logical as usize..(b.logical + b.len) as usize].copy_from_slice(&bytes);
+    }
+    let files = source::scan(source_dir.path()).unwrap();
+    // A Kraken build plans with the compressed image's rules (see plan::build_with).
+    let meta_base = plan::build_with(
+        &files
+            .into_iter()
+            .filter(|f| !ps5upload_fpkg::cnt_write::CONTAINER_ONLY.contains(&f.path.as_str()))
+            .collect::<Vec<_>>(),
+        true,
+    )
+    .unwrap()
+    .meta_base;
+    let walked = inner::read(&mount, meta_base).unwrap();
+    assert!(walked.flt_ok);
+    for (path, data) in &expected {
+        if ps5upload_fpkg::cnt_write::CONTAINER_ONLY.contains(&path.as_str())
+            || path == "sce_sys/param.json"
+        {
+            continue;
+        }
+        let f = walked
+            .files
+            .iter()
+            .find(|f| &f.path == path)
+            .unwrap_or_else(|| panic!("{path} missing from the mount"));
+        assert_eq!(
+            &mount[f.offset as usize..(f.offset + f.size) as usize],
+            &data[..],
+            "{path}"
+        );
+    }
+}
+
+/// A title whose module imports libSceAmpr gets an `ampr_emu.index` generated into its image
+/// root when the dump has none, listing every packaged file at its packaged size; a title that
+/// does not import it gets none.
+#[test]
+fn a_libsceampr_title_gets_an_ampr_index() {
+    use ps5upload_fpkg::kraken_image;
+    let mount_of = |source: &Path, name: &str| -> Vec<u8> {
+        let out = TempDir::new(name);
+        let mut request = BuildRequest::new(source, out.path());
+        request.time = Some((1_700_000_000, 0));
+        let mut phases = Vec::new();
+        let report = build::build(&request, &mut |p| phases.push(p.to_string())).unwrap();
+        assert!(report.verify.ok(), "{}", report.verify);
+        let naps = outer_file(&report.path, "naps_pkg_layout.dat");
+        let image = outer_file(&report.path, "pfs_image.dat");
+        let blocks = kraken_image::describe(&naps).unwrap();
+        let size = blocks.last().map(|b| b.logical + b.len).unwrap();
+        let mut mount = vec![0u8; size as usize];
+        for b in &blocks {
+            let bytes = kraken_image::decode_described(&image, b).unwrap();
+            mount[b.logical as usize..(b.logical + b.len) as usize].copy_from_slice(&bytes);
+        }
+        mount
+    };
+    let find = |hay: &[u8], needle: &[u8]| hay.windows(needle.len()).position(|w| w == needle);
+
+    let plain = TempDir::new("ampr-plain");
+    write_tree(plain.path());
+    assert!(find(&mount_of(plain.path(), "ampr-plain-out"), b"AMPRIDX3").is_none());
+
+    let ampr = TempDir::new("ampr-src");
+    write_tree(ampr.path());
+    let mut eboot: Vec<u8> = (0..4096u32).map(|i| (i % 251) as u8).collect();
+    eboot[1000..1014].copy_from_slice(b"libSceAmpr.prx");
+    std::fs::write(ampr.path().join("eboot.bin"), &eboot).unwrap();
+    let mount = mount_of(ampr.path(), "ampr-out");
+    let at = find(&mount, b"AMPRIDX3").expect("the image carries an ampr_emu.index");
+    let index = &mount[at..];
+    let u64_at = |o: usize| u64::from_le_bytes(index[o..o + 8].try_into().unwrap());
+    let u32_at = |o: usize| u32::from_le_bytes(index[o..o + 4].try_into().unwrap());
+    let n = u64_at(0x10) as usize;
+    let paths_at = 0x30 + n * 24;
+    let listed: Vec<(String, u64)> = (0..n)
+        .map(|i| {
+            let r = 0x30 + i * 24;
+            let (off, len) = (u32_at(r) as usize, u32_at(r + 4) as usize);
+            let path = std::str::from_utf8(&index[paths_at + off..paths_at + off + len]).unwrap();
+            (path.to_string(), u64_at(r + 8))
+        })
+        .collect();
+    assert!(
+        listed.contains(&("/app0/eboot.bin".to_string(), 4096)),
+        "{listed:?}"
+    );
+    assert!(listed.contains(&("/app0/data/large.bin".to_string(), 600 * 1024)));
+    // The icons the container carries instead of the image are not listed.
+    assert!(!listed.iter().any(|(p, _)| p == "/app0/sce_sys/icon0.png"));
+}
+
+/// A dump's own `ampr_emu.index` describes the folder as it was dumped. The package carries
+/// one regenerated from what it actually holds: param.json after its rewrite, an executable
+/// after its repair, without the files left out — so every listed size is the packaged one.
+#[test]
+fn a_dumps_stale_ampr_index_is_regenerated_from_the_packaged_files() {
+    use ps5upload_fpkg::{ampr_index, kraken_image};
+    let src = TempDir::new("stale-index-src");
+    write_tree(src.path());
+    // "free" DRM is rewritten to "standard", which changes param.json's size.
+    std::fs::write(
+        src.path().join("sce_sys/param.json"),
+        format!(
+            "{{\"contentId\":\"{CONTENT_ID}\",\"contentVersion\":\"01.001.000\",\
+             \"titleId\":\"PPSA01234\",\"applicationDrmType\":\"free\"}}"
+        ),
+    )
+    .unwrap();
+    let mut eboot: Vec<u8> = (0..4096u32).map(|i| (i % 251) as u8).collect();
+    eboot[1000..1014].copy_from_slice(b"libSceAmpr.prx");
+    std::fs::write(src.path().join("eboot.bin"), &eboot).unwrap();
+    // A module whose version records start 3 bytes before its header's marker: the repair
+    // inserts 3 bytes.
+    let record = |name: &str| {
+        let mut r = vec![0, 0];
+        r.extend_from_slice(&((name.len() + 17) as u16).to_le_bytes());
+        r.push(8);
+        r.extend_from_slice(name.as_bytes());
+        r.extend_from_slice(&0x0100_0000u64.to_le_bytes());
+        r.extend_from_slice(&0x0100_0000u64.to_le_bytes());
+        r
+    };
+    let mut module = vec![0x54, 0x14, 0xF5, 0xEE];
+    module.resize(0x200, 0x22);
+    let records_at = module.len();
+    module.extend_from_slice(&record("libc:"));
+    module[0x10..0x18].copy_from_slice(&((records_at + 3) as u64).to_le_bytes());
+    std::fs::write(src.path().join("data/mod.sprx"), &module).unwrap();
+    // Left out of every package as a stale packaging sidecar.
+    std::fs::write(src.path().join("sce_sys/ext_info.dat"), [1u8; 40]).unwrap();
+    // The dump's index, made from the folder as it is on disk.
+    let on_disk: Vec<(String, u64)> = source::scan(src.path())
+        .unwrap()
+        .into_iter()
+        .map(|f| (f.path, f.size))
+        .collect();
+    std::fs::write(
+        src.path().join("ampr_emu.index"),
+        ampr_index::build(&on_disk, 0).unwrap(),
+    )
+    .unwrap();
+
+    let out = TempDir::new("stale-index-out");
+    let mut request = BuildRequest::new(src.path(), out.path());
+    request.time = Some((1_700_000_000, 0));
+    let mut phases = Vec::new();
+    let report = build::build(&request, &mut |p| phases.push(p.to_string())).unwrap();
+    assert!(report.verify.ok(), "{}", report.verify);
+    assert!(
+        phases
+            .iter()
+            .any(|p| p.starts_with("regenerating ampr_emu.index")),
+        "{phases:?}"
+    );
+
+    let naps = outer_file(&report.path, "naps_pkg_layout.dat");
+    let image = outer_file(&report.path, "pfs_image.dat");
+    let blocks = kraken_image::describe(&naps).unwrap();
+    let size = blocks.last().map(|b| b.logical + b.len).unwrap();
+    let mut mount = vec![0u8; size as usize];
+    for b in &blocks {
+        let bytes = kraken_image::decode_described(&image, b).unwrap();
+        mount[b.logical as usize..(b.logical + b.len) as usize].copy_from_slice(&bytes);
+    }
+    // The inner superblock opens the metadata region, on a block boundary after the data.
+    let meta_base = (0..mount.len() / 0x10000)
+        .rev()
+        .map(|b| b * 0x10000)
+        .find(|&at| {
+            mount[at..at + 8] == 2u64.to_le_bytes()
+                && mount[at + 8..at + 16] == 20_130_315u64.to_le_bytes()
+        })
+        .unwrap() as u64;
+    let walked = inner::read(&mount, meta_base).unwrap();
+    let file = |path: &str| walked.files.iter().find(|f| f.path == path).unwrap();
+    let index_file = file("ampr_emu.index");
+    let index = &mount[index_file.offset as usize..(index_file.offset + index_file.size) as usize];
+    let mut listed = ampr_index::parse(index).expect("a well-formed index");
+    let mut packaged: Vec<(String, u64)> = walked
+        .files
+        .iter()
+        .filter(|f| f.path != "ampr_emu.index")
+        .map(|f| (f.path.clone(), f.size))
+        .collect();
+    let mut listed_pairs: Vec<(String, u64)> = listed.drain(..).map(|e| (e.path, e.size)).collect();
+    packaged.sort();
+    listed_pairs.sort();
+    assert_eq!(listed_pairs, packaged, "the index lists exactly the image");
+    assert_eq!(file("data/mod.sprx").size, module.len() as u64 + 3);
+    assert!(!listed_pairs
+        .iter()
+        .any(|(p, _)| p == "sce_sys/ext_info.dat"));
+    assert_ne!(
+        file("sce_sys/param.json").size,
+        std::fs::metadata(src.path().join("sce_sys/param.json"))
+            .unwrap()
+            .len()
+    );
+}
+
+/// Two paths an `ampr_emu.index` cannot tell apart stop the build with a message naming them.
+#[test]
+fn a_case_collision_in_an_ampr_title_is_refused() {
+    let src = TempDir::new("case-src");
+    write_tree(src.path());
+    let mut eboot: Vec<u8> = (0..4096u32).map(|i| (i % 251) as u8).collect();
+    eboot[1000..1014].copy_from_slice(b"libSceAmpr.prx");
+    std::fs::write(src.path().join("eboot.bin"), &eboot).unwrap();
+    std::fs::write(src.path().join("data/Case.bin"), b"a").unwrap();
+    std::fs::write(src.path().join("data/case.bin"), b"b").unwrap();
+    if source::scan(src.path()).unwrap().len() < 9 {
+        // A case-insensitive file system kept one file: nothing to test here.
+        return;
+    }
+    let out = TempDir::new("case-out");
+    let err = match build::build(&BuildRequest::new(src.path(), out.path()), &mut |_| {}) {
+        Ok(_) => panic!("built a package whose index cannot tell two files apart"),
+        Err(e) => e.to_string(),
+    };
+    assert!(
+        err.contains("data/Case.bin") && err.contains("data/case.bin"),
+        "{err}"
+    );
+}

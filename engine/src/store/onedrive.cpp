@@ -69,7 +69,24 @@ fs::Entry entry_of(const Json& it) {
 
 class OdWriter : public Writer {
 public:
-    OdWriter(const Graph& g, std::string path) : g_(g), path_(std::move(path)) {}
+    OdWriter(const Graph& g, std::string key, std::string path) : g_(g), key_(std::move(key)), path_(std::move(path)) {}
+    // Reprise d'une session gardée : OneDrive dit à partir d'où il attend la suite, ce doit être exactement là.
+    bool reopen(const Kept& k, std::string& err) {
+        http::Call c;
+        c.method = "GET";
+        c.url = k.session;
+        c.timeout_s = 60;
+        const http::Reply r = http::call(c, std::string());
+        Json j;
+        std::uint64_t next = UINT64_MAX;
+        if (r.ok() && Json::parse(r.body, j) && !j["nextExpectedRanges"].items().empty())
+            next = std::strtoull(j["nextExpectedRanges"].items()[0].as_string().c_str(), nullptr, 10);
+        if (next != k.have || !acked_.restore(k)) { err = "session d'envoi expirée chez OneDrive"; return false; }
+        session_ = k.session;
+        sent_ = k.have;
+        total_ = k.total;
+        return true;
+    }
     ~OdWriter() override { if (!done_) abort(); }
     void size_hint(std::uint64_t n) override { total_ = n; }
     bool write(const char* p, std::size_t n) override {
@@ -90,9 +107,23 @@ public:
         if (!total_ || sent_ + buf_.size() != total_) total_ = sent_ + buf_.size();  // taille réelle (annonce absente ou fausse)
         while (!buf_.empty()) if (!send_chunk(std::min(kChunk, buf_.size()))) { err = "envoi refusé : " + err_; cancel(); return false; }
         if (!finished_) { err = "envoi incomplet vers OneDrive"; cancel(); return false; }
+        kept_drop(key_);
         return true;
     }
-    void abort() override { done_ = true; cancel(); }
+    void abort() override { done_ = true; kept_drop(key_); cancel(); }
+    // Arrêt : la session reste ouverte chez Microsoft (plusieurs jours), ce qu'il a accepté est noté pour la reprise.
+    bool keep() override {
+        if (session_.empty() || sent_ == 0 || failed_) { abort(); return false; }
+        Kept k;
+        acked_.fill(k);
+        k.session = session_;
+        k.total = total_;
+        done_ = true;
+        buf_.clear();
+        buf_.shrink_to_fit();
+        if (!kept_save(key_, k)) { cancel(); return false; }
+        return true;
+    }
 
 private:
     bool open_session() {
@@ -116,6 +147,7 @@ private:
         c.timeout_s = 120;
         const http::Reply r = http::call(c, buf_.substr(0, n));
         if (!r.ok()) { err_ = cloud::api_error(r); return false; }
+        acked_.add(buf_.data(), n);
         sent_ += n;
         buf_.erase(0, n);
         finished_ = r.status == 200 || r.status == 201;
@@ -128,7 +160,8 @@ private:
         buf_.shrink_to_fit();
     }
     Graph g_;
-    std::string path_, buf_, session_, err_;
+    std::string key_, path_, buf_, session_, err_;
+    Acked acked_;
     std::uint64_t total_ = 0, sent_ = 0;
     bool failed_ = false, done_ = false, finished_ = false;
 };
@@ -141,7 +174,7 @@ public:
 
 class OdStore : public Store {
 public:
-    explicit OdStore(const FtpConfig& c) : g_(c) {}
+    explicit OdStore(const FtpConfig& c) : g_(c), account_(!c.account.empty() ? c.account : c.bucket.empty() ? c.password : c.bucket) {}
     std::string label() const override { return "OneDrive"; }
     bool mkdirs(const std::string& dir) override {
         const std::string p = clean(dir);
@@ -171,7 +204,25 @@ public:
         const std::string p = clean(path);
         if (p.empty()) { err = "chemin vide"; return nullptr; }
         if (!mkdirs("/" + parent_of(p))) { err = "dossier impossible à créer sur OneDrive"; return nullptr; }
-        return std::make_unique<OdWriter>(g_, p);
+        drop_partial("/" + p);  // nouvel envoi depuis le début : une session gardée est refermée
+        return std::make_unique<OdWriter>(g_, key(p), p);
+    }
+    bool kept(const std::string& path, Kept& out) override { return kept_load(key(clean(path)), out); }
+    std::unique_ptr<Writer> resume(const std::string& path, std::uint64_t& have, std::string& err) override {
+        have = 0;
+        const std::string p = clean(path);
+        Kept k;
+        if (!kept_load(key(p), k)) { err = "rien à reprendre"; return nullptr; }
+        auto w = std::make_unique<OdWriter>(g_, key(p), p);
+        if (!w->reopen(k, err)) { kept_drop(key(p)); return nullptr; }
+        have = k.have;
+        return w;
+    }
+    void drop_partial(const std::string& path) override {
+        const std::string p = clean(path);
+        Kept k;
+        if (kept_load(key(p), k)) { http::Call c; c.method = "DELETE"; c.url = k.session; http::call(c); }
+        kept_drop(key(p));
     }
     std::unique_ptr<Reader> open(const std::string& path, std::string& err) override { return open_at(path, 0, err); }
     std::unique_ptr<Reader> open_at(const std::string& path, std::uint64_t offset, std::string& err) override {
@@ -230,6 +281,35 @@ public:
         out.free = static_cast<std::uint64_t>(j["quota"]["remaining"].as_int());
         return true;
     }
+    bool share_link(const std::string& path, bool off, std::string& link, std::string& err) override {
+        const std::string p = clean(path);
+        if (p.empty()) { err = "introuvable sur OneDrive"; return false; }
+        if (off) {  // les liens anonymes de l'élément, retirés
+            const http::Reply ir = g_.send("GET", g_.url(p) + "?$select=id");
+            Json ij;
+            if (!ir.ok() || !Json::parse(ir.body, ij) || ij["id"].as_string().empty()) { err = "introuvable sur OneDrive"; return false; }
+            const std::string item = cloud::provider("onedrive")->api_base + "/me/drive/items/" + ij["id"].as_string();
+            const http::Reply r = g_.send("GET", item + "/permissions");
+            Json j;
+            if (!r.ok() || !Json::parse(r.body, j)) { err = "OneDrive : liens illisibles (" + std::to_string(r.status) + ")"; return false; }
+            for (const auto& x : j["value"].items())
+                if (x["link"]["scope"].as_string() == "anonymous") g_.send("DELETE", item + "/permissions/" + x["id"].as_string());
+            return true;
+        }
+        // Par l'identifiant de l'élément : Microsoft refuse « createLink » par le raccourci « special/approot » (400).
+        const http::Reply ir = g_.send("GET", g_.url(p) + "?$select=id");
+        Json ij;
+        if (!ir.ok() || !Json::parse(ir.body, ij) || ij["id"].as_string().empty()) { err = "introuvable sur OneDrive"; return false; }
+        const std::string item = cloud::provider("onedrive")->api_base + "/me/drive/items/" + ij["id"].as_string();
+        Json body = Json::object();
+        body.set("type", "view");
+        body.set("scope", "anonymous");
+        const http::Reply r = g_.send_json("POST", item + "/createLink", body);
+        Json j;
+        if (!r.ok() || !Json::parse(r.body, j) || j["link"]["webUrl"].as_string().empty()) { err = "OneDrive a refusé le partage (" + std::to_string(r.status) + ") : " + r.body.substr(0, 240); return false; }
+        link = j["link"]["webUrl"].as_string();
+        return true;
+    }
     bool remove(const std::string& path) override {  // dossiers compris
         const std::string p = clean(path);
         if (p.empty()) return false;
@@ -255,7 +335,9 @@ public:
     }
 
 private:
+    std::string key(const std::string& p) const { return kept_key("onedrive", account_, p); }
     Graph g_;
+    std::string account_;  // l'appareil (son identifiant ; sinon le nom du compte ou son jeton) : une session n'est reprise que sur le même compte
 };
 
 }  // namespace

@@ -1,0 +1,12 @@
+*.o
+*.elf
+*.so
+*.pyc
+__pycache__/
+/.deps/
+daemon.lock
+debug.log
+notify.txt
+src/notify_icon_asset.c
+refs/*
+docs/*

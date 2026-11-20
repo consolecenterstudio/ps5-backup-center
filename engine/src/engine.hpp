@@ -8,6 +8,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <set>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -25,6 +26,7 @@
 #include "saves/progress.hpp"
 #include "accounts/identities.hpp"
 #include "link/link.hpp"
+#include "bt/bt.hpp"
 #include "store/remotes.hpp"
 #include "update/updater.hpp"
 
@@ -34,6 +36,7 @@ namespace pbc {
 // /status (« slow_locks »). Diagnostic des lenteurs ; ne coûte qu'une lecture d'horloge.
 void note_slow_lock(const char* file, int line, std::int64_t ms);
 Json slow_locks_json();
+Json qr_code(const std::string& text);  // une ligne par rangée, « 1 » = case noire ; vide au-delà de 400 caractères
 class MuGuard {
 public:
     MuGuard(std::mutex& m, const char* file, int line) : m_(m), file_(file), line_(line) { m_.lock(); t0_ = now(); }
@@ -56,6 +59,8 @@ inline constexpr const char* engine_version = "2.0.0";
 
 struct Settings {
     std::string default_place = "auto";   // « auto » : premier USB, sinon interne
+    std::string send_place;               // « Envoyer vers… » (Bibliothèque) : endroit proposé en premier ; vide : demander
+    bool ask_where = true;                // demander où ranger à chaque action (le défaut en premier) ; sinon toujours le défaut
     std::string custom_folder;            // vide : « PBC Backup » à la racine du disque
     std::string update_source;            // adresse du manifeste de mises à jour (http://…)
     std::string update_channel = "stable";  // « stable » (recommandé) ou « beta » : les bêtas ne sont jamais des Releases GitHub
@@ -76,8 +81,43 @@ struct Settings {
     bool wan_enabled = false;
     int wan_port = 52373;
     std::string wan_public_host;
+    // Paramètres › Réseau (16/11) : BitTorrent (téléchargements, synchro — pas encore dans le moteur : réglages gardés
+    // pour son arrivée) et l'endroit où ranger les téléchargements (n'importe quel endroit connu ; vide : interne).
+    std::string bt_proto = "both";        // « both », « tcp » ou « udp » (uTP)
+    int bt_port_from = 6891, bt_port_to = 6899;  // un port ou une plage : le premier libre est pris
+    bool bt_incoming = false;             // ancien réglage (jamais appliqué) : remplacé par bt_accept_in en 3.1.40
+    bool bt_accept_in = true;             // accepter les connexions entrantes (non : sortant seulement)
+    bool bt_upnp = false;                 // ouvrir le port sur la box (UPnP / NAT-PMP)
+    bool bt_dht = true;                   // trouver des sources sur Internet (liens magnet) ; jamais pour nos sauvegardes
+    int bt_rate_max = 0;                  // Ko/s, 0 : illimité
+    int bt_rate_game = 2048;              // Ko/s pendant une partie, 0 : illimité
+    int bt_upload_max = 1024;             // Ko/s d'envoi, 0 : illimité
+    int bt_active = 3;                    // téléchargements actifs en même temps (les autres attendent leur tour)
+    int bt_connections = 200;             // connexions au plus
+    // Options BitTorrent (3.1.35) : arrêter de partager un torrent terminé après un ratio (×100) ou une durée (heures) ;
+    // 0 : jamais. Les liens créés ici ne s'arrêtent pas seuls. Réserver l'espace au départ ; refuser un torrent trop gros
+    // pour le disque ; la nuit (de bt_night_from à bt_night_to heures), téléchargements sans limite.
+    int bt_seed_ratio = 0;
+    int bt_seed_hours = 0;
+    bool bt_prealloc = false;
+    bool bt_space_check = true;
+    bool bt_night = false;
+    int bt_night_from = 1, bt_night_to = 7;
+    // À la fin d'un téléchargement (3.1.36) : le copier vers un endroit (NAS, nuage, USB… ; vide : non) dans son dossier
+    // « Téléchargements », et / ou déplacer ses fichiers vers un autre disque de cette console (il reste partagé).
+    std::string bt_done_copy, bt_done_move;
+    std::string bt_watch;  // dossier surveillé : disque de la console (id) ; son dossier « Torrents à ajouter »
+    // Réseau BitTorrent (3.1.39) : chiffrement « prefer » | « force » | « off » ; adresses refusées (200 au plus).
+    std::string bt_encrypt = "prefer";
+    std::vector<std::string> bt_blocklist;
+    std::string dl_place;                 // identifiant de l'endroit des téléchargements (vide : interne)
+    std::string pkg_mount = "auto";      // .pkg Kraken : « auto » (Kraken Mount s'il tourne, sinon le nôtre), « theirs », « ours »
+    std::string img_mount = "auto";      // images et dossiers : « auto » (ShadowMountPlus s'il tourne, sinon le nôtre) ou « theirs »
     // Démarrage du moteur par l'appli télé : chargeurs à essayer, dans l'ordre (vide : aucun). Voir update/autostart.hpp.
     std::vector<std::string> launchers{"elfldr"};
+    // Cartes de l'Accueil acquittées (« Pas maintenant ») : ce qu'elles montraient à ce moment-là (télé et web). Une carte
+    // revient dès qu'elle montre quelque chose qui n'y est pas. Clé : la carte (« sync ») ; valeur : ses lignes vues.
+    std::map<std::string, std::vector<std::string>> home_ack;
     bool is_ignored(const std::string& title_id) const { return !title_id.empty() && std::find(ignored.begin(), ignored.end(), title_id) != ignored.end(); }
     Json to_json() const;
     static Settings from_json(const Json&);
@@ -109,6 +149,10 @@ public:
     Json items_json(const std::string& kind_filter, const std::string& place_filter) const;
     Json emulators_json() const;
     bool find_item(const std::string& key, Item& out) const;
+    // Où vit un élément : le dossier du jeu, le dossier de son image ou de sa ROM, sinon son inscription.
+    static std::string item_location(const Item& it);
+    // Le jeu lui-même, à partager : son dossier ou son image (partie « app »), sinon le fichier ou dossier de la ROM.
+    static std::string item_game_path(const Item& it);
     std::string cover_path(const std::string& key) const;
     // Demande d'une PS5 jumelée (« local=1 ») : la clé de l'élément d'ICI qui a la jaquette de ce jeu, sinon vide
     // (jamais de nouvel appel vers les pairs : pas d'aller-retour en boucle).
@@ -131,6 +175,8 @@ public:
     static std::string task_origin();
     Json mkdir_remote(const std::string& id, const std::string& path, std::string& error);  // explorateur : « Nouveau dossier… »
     bool mkdir_in(pbc::store::Store& st, const std::string& path, std::string& error);
+    bool read_only_place(const std::string& id) const;  // partage reçu : lecture seule
+    Json probe_share(const Json& body, std::string& error);
     bool test_config(const Json& body, std::string& error);  // tester avant d'enregistrer
     // Gestion des backups : action « protect » {on}, « measure », « delete » {confirm:true} sur {place, bundle}.
     // Une tâche de sauvegarde terminée : où est la version qu'elle a faite ({place, bundle} au format de version_action).
@@ -162,7 +208,7 @@ public:
     // installation demandée là-bas. Suivi dans les tâches (« Gex → PS5-Salon »).
     // Compatibilité (Backup Center : constat et avertissement, jamais de correctif — la gestion avancée est
     // dans PS5 Center). Identité du jeu lue sans monter (images/identify.hpp), console visée, puis un état :
-    // system_ok | backport_present | no_backport | insufficient (verified / incompatible_known : verdicts prouvés, PS5 Center),
+    // system_ok | backport_present | backport_insufficient (backport fait pour un système plus récent) | no_backport | insufficient (verified / incompatible_known : verdicts prouvés, PS5 Center),
     // avec ses preuves (codes, traduits par l'interface). compat_item ajoute « peers » : le constat pour chaque PS5 jumelée.
     // Application ouverte au premier plan : {open, title_id, title, game, ours} ; fermer celle qu'on a confirmée.
     Json foreground_app();
@@ -177,6 +223,7 @@ public:
     bool restore_inbox(const std::string& transfer, const std::string& title_id, const std::string& user_id, std::string& task_id, std::string& error);
     Json takeover(const std::string& from, const std::string& user_id, const Json& titles, std::string& error);
     Json trash_list(const std::string& place_id, std::string& error);   // corbeille d'un appareil
+    Json trash_delete(const Json& body, std::string& error);   // supprimer pour de bon (une version, ou toute la corbeille d'un endroit)
     Json trash_restore(const Json& body, std::string& error);           // {place, path} → remise en place
     static constexpr const char* trash_dir = "Corbeille";
     void pbc_root(const std::string& place_id, const std::string& path, std::string& root, std::string& rel);
@@ -205,8 +252,33 @@ public:
     bool delete_plan(const std::string& id);
     // Crée les tâches du plan maintenant ; renvoie le nombre de sauvegardes ajoutées.
     int run_plan(const std::string& id, std::string& error);
+    // Verrou d'un plan à sa destination (docs/PLAN-taches-automatiques.md, règle 4) : un petit fichier « .pbc-en-cours.json »
+    // (console, plan, fin prévue). SEULEMENT pour les plans lancés seuls : sauvegardes à la main, synchros, restaurations
+    // et envois ne le regardent jamais. take : le poser (faux si une autre PS5 le tient encore, holder = son nom) ;
+    // sinon : le retirer s'il est à nous. Un verrou expiré (console coupée) ne compte plus.
+    bool plan_lock(const plans::Plan& p, bool take, std::string& holder);
+    // « Garder N » d'un plan (docs/PLAN-taches-automatiques.md, règle 3), sur tout endroit : disque de la console, NAS,
+    // nuage. Compté par jeu à cette destination, toutes consoles ensemble (le dossier est commun) : les N contenus les
+    // plus récents restent (une copie de chacun) ; le reste part à la CORBEILLE de l'endroit (30 jours, récupérable),
+    // jamais effacé d'un coup. Une copie protégée ou pas encore terminée n'est jamais touchée.
+    void stamp_console(backup::Request& req);  // la PS5 qui fait la copie (manifeste)
+    // Messages entre PS5 pour les plans (docs/PLAN-taches-automatiques.md, règle 4) — autant de PS5 qu'on veut :
+    // dest_key : la même destination vue par n'importe quelle console (type, adresse, dossier ; un disque de la console :
+    // vide, il n'est pas partagé). plan_note_peers : prévenir toutes les PS5 jumelées en ligne (« start » / « done »).
+    // plan_note : reçu d'une autre PS5 ; « done » fait relire tout de suite les copies de cette destination.
+    std::string dest_key(const std::string& place_id);
+    void plan_note_peers(const std::string& event, const std::string& key, const std::string& plan);
+    Json plan_note(const Json& body);
+    bool dest_busy(const std::string& key, std::string& who);
+    std::mutex dest_busy_mu_;
+    std::map<std::string, std::map<std::string, std::pair<std::int64_t, std::string>>> dest_busy_;  // clé → console → (jusqu'à, nom)
+    void apply_retention_at(const std::string& place_id, const std::string& item_key, int keep, const Json& parts);
+    std::map<std::string, std::int64_t> plan_locks_;  // plans dont nous tenons le verrou → heure de pose
     // Vue « Sauvegardes par compte » : comptes (console et backups) et, par jeu, état console + versions sur les disques.
     Json saves_overview(bool include_ignored = false);
+    // La même vue pour les écrans : une avancée (« progress_hint ») pour les jeux dont la partie ne la dit pas d'elle-même
+    // (lue dans le contenu, comme dans Sauvegardes) ou qui ne sont pas sur cette console (la copie la plus avancée).
+    Json saves_overview_view();
     Json ignore_title(const Json& body, std::string& error);
     // {title_id, user_id} : supprime la sauvegarde de ce jeu sur la console — seulement si une copie à jour est dans Backups.
     Json delete_console_save(const Json& body, std::string& error);
@@ -237,6 +309,12 @@ public:
     Json parties_plan(const std::string& peer);
     Json parties_start(const Json& body, std::string& error);   // {peer, title_ids?, here_place?, peer_place?}
     Json parties_status();
+    // Synchro automatique des parties (maquette docs/maquettes/synchro-auto.html, validée le 19/11) : réglage par cible
+    // (« off », « close », « close_night ») ; à la fermeture d'un jeu suivi, la partie qu'on vient de jouer part ; la nuit
+    // à 4 h, tous les jeux suivis dans les deux sens. Jamais pendant une partie, jamais un conflit.
+    void parties_auto_tick(const std::string& running, std::int64_t now);
+    void parties_auto_run(const std::string& why, const std::string& only_tid);
+    Json parties_auto_last(const std::string& peer);
     Json set_parties_prefs(const Json& body, std::string& error);  // {peer, follow?: {numéro: bool}, follow_all?}
     // Synchro des APPLIS (sync_parties.cpp) : même version → rien ; plus récente → remplace l'ancienne de l'autre côté.
     Json apps_versions();                           // applis installées ici et leur version (param.json), empreinte, réglages
@@ -250,6 +328,62 @@ public:
     // Bibliothèque de paquets (.pkg) rangés sur les points de stockage de cette console (clés USB, dossiers de
     // téléchargement) : identifiant de contenu, jeu, DLC ou jeu / mise à jour. Lecture seule, relue toutes les 5 min.
     Json pkg_library(bool fresh = false);
+    Json apps_downloads(bool fresh = false);
+    // Orbit / BlackBox, étape 3 : les jeux qu'ils ont amenés (téléchargement terminé, numéro connu), l'élément de la
+    // bibliothèque qui y correspond, et s'il en existe déjà une copie complète quelque part (disques, NAS, nuage).
+    Json arrivals(bool fresh = false);
+    Json items_view(const std::string& kind, const std::string& place);  // items_json + « via » (arrivé par Orbit / BlackBox)
+    Json arrivals_backup(const Json& body, std::string& error);  // {place?, title_ids?} → sauvegarde de ceux pas encore sauvegardés
+    bool arrivals_later();
+    // « Installer… » (maquette docs/maquettes/installer.html) : un jeu qui se monte (image, dossier) rangé dans le dossier de
+    // jeux de son propre disque, sans copie — ShadowMount le monte. Déjà dans un dossier de jeux ou déjà monté : rien à faire.
+    Json install_here(const Json& body, std::string& error);
+    // « Installer… » d'un jeu qui est ailleurs (NAS, nuage, autre PS5 — la source) vers une PS5 et ses disques (la cible) :
+    // {src_place, path, dir, dst_place, how: "mount" | "console"} ; copie vérifiée (tâche), puis montage ou console.
+    std::string install_from(const Json& body, std::string& error);
+    // Installer par étapes (install_jobs.cpp) : façons d'installer (format, étapes, temps, place), tâches en cours.
+    struct InstallJobSpec {
+        std::string title, as, how, src_place, src_label, dst, dst_dir, name, target_label, copy_task;
+        std::uint64_t bytes = 0;
+        bool peer = false;
+    };
+    Json install_options(const Json& body);
+    Json install_jobs();
+    std::set<std::string> install_children();  // tâches de la file cachées derrière une installation
+    bool install_cancel(const std::string& id, std::string& error);
+    int install_jobs_clear(const std::string& state);
+    // Envoi depuis le navigateur du PC (Fichiers › « Installer depuis ce PC… ») : le fichier arrive par morceaux sur le
+    // disque choisi (ou, pour une autre PS5, dans un dossier d'attente d'ici), puis s'installe comme install_from.
+    bool upload_path(const std::string& place, const std::string& name, std::string& path, std::string& error);
+    Json upload_done(const Json& body, std::string& error);
+    // Lancer depuis un .pkg Kraken (engine/src/kraken.cpp) : préparer + inscrire en fond ; l'état de nos jeux .pkg.
+    Json kraken_mount(const std::string& pkg_path, const std::string& title_id, std::string& error);
+    Json kraken_titles();
+    void kraken_note(const std::string& tid, const Json& entry);
+    void kraken_start();
+    // Paramètres › Montage des jeux : ShadowMountPlus et Kraken Mount installés / en marche, nos versions intégrées, et
+    // qui monte les .pkg (« theirs » : Kraken Mount installé, « ours » : notre moteur) d'après le réglage pkg_mount.
+    Json mounting();
+    std::string pkg_uses();
+    // Images et dossiers (smp.cpp) : le ShadowMountPlus installé ou notre version intégrée, jamais les deux.
+    bool smp_installed_running();
+    std::string images_uses();
+    std::string smp_state();
+    void smp_tick(const std::string& running_title);
+    void smp_scan_now();
+    void smp_shutdown();
+    // Paramètres › Outils de la console (tools.cpp) : payloads installés et en marche, les lancer, les arrêter.
+    Json payload_processes();
+    Json tools_json();
+    Json tool_start(const std::string& key, std::string& error);
+    Json tool_stop(std::int64_t pid, const std::string& name, std::string& error);
+    Json tool_open_app(const std::string& title_id, std::string& error);
+    // Un paquet .pkg installé par l'installeur de la console (cas 3) : jamais pendant une partie, un seul à la fois.
+    Json package_install(const Json& body, std::string& error);  // « Pas maintenant » : la carte de l'Accueil revient seulement pour un nouveau jeu
+    bool package_delete(const Json& body, std::string& error);
+    std::string package_send(const Json& body, std::string& error);  // {path, place} : un .pkg vers un NAS, le nuage ou une autre PS5 (copie vérifiée)  // {path, confirm:"SUPPRIMER"} : un paquet .pkg, jamais son jeu ouvert
+    std::string apps_dl_move(const Json& body, std::string& error);  // {app, id, place} → tâche de déplacement
+    std::string apps_dl_free(const Json& body, std::string& error);  // {path, confirm:"SUPPRIMER"} → tâche de suppression  // Orbit / BlackBox : leurs téléchargements et fichiers de passage (apps_dl.cpp, lecture seule)
     // Lecture d'un morceau d'un fichier DLC / mise à jour déclaré par dlc_list (rien d'autre n'est servi).
     bool dlc_read(const std::string& title_id, const std::string& id, std::uint64_t offset, std::uint64_t limit, std::string& out, std::string& error);
     // Même progression des émulateurs (ProsperoEden, Églantine) entre deux PS5 — sync_emu.cpp
@@ -263,6 +397,23 @@ public:
     bool cloud_link_code(const std::string& id, const std::string& code, std::string& error);
     Json cloud_services();  // {gdrive: bool, onedrive: bool} : déclarés dans cette version
     Json web_link(const std::string& place);  // adresse de la page web (+ code QR), ex. « #cloud »
+    // Partager ma copie (share_out.cpp) : {place, bundle, kind: local | bt | mega, hours, title} → lien (+ code QR) ou job.
+    Json share_create(const Json& body, std::string& error);
+    Json shares_out();                         // {shares: [{token, title, place, bundle, expires, downloads, url, qr}]}
+    bool share_stop(const std::string& token);
+    // « Mes liens » : tous les liens donnés depuis cette console, quelle que soit leur sorte — .zip de la console,
+    // BitTorrent (en préparation ou partagé), MEGA, lien du service (OneDrive…). Chacun avec son adresse et son code QR.
+    Json links();
+    bool link_stop(const Json& b, std::string& error);   // {kind:"bt", id} (les fichiers restent) ; {kind:"mega"|"service", place, bundle}
+    Json torrent_link(const std::string& id);            // la fiche d'un torrent + magnet (avec nos adresses x.pe) et son QR
+    Json public_address(bool refresh);
+    Json mega_keys(const std::string& remote, std::string& error);  // coffre ^!keys d'un compte MEGA : lecture seule (diagnostic)         // {host, set_by_hand} : adresse publique (redemandée si refresh)
+    struct ShareZip {                          // GET /s/<jeton>/… : la copie en .zip, taille connue d'avance
+        std::string name;
+        std::uint64_t size = 0;
+        std::function<bool(const std::function<bool(const char*, std::size_t)>&)> write;
+    };
+    bool share_zip(const std::string& token, ShareZip& out, std::string& error);
     Json support(bool fresh);  // « Soutenir le projet » : moyens de soutien + codes QR (support.cpp)
     Json emu_saves();                                                        // sauvegardes d'émulateurs d'ici (aussi lue par l'autre PS5)
     Json emu_files(const std::string& key, std::string& error);              // fichiers d'une sauvegarde (chemin, taille, heure)
@@ -320,6 +471,7 @@ public:
     // Identité et arrêt (fiche /status) : identifiant d'instance aléatoire, arrêt en cours.
     const std::string& instance() const { return instance_; }
     link::Link* link() { return link_.get(); }
+    bt::Session* torrents() { return bt_.get(); }
     const std::string& state_dir() const { return dir_; }
     const std::string& app_dir() const { return app_dir_; }
     void set_http_port(std::uint16_t p) { http_port_ = p; }
@@ -339,8 +491,16 @@ public:
     // body : {title_id, delete_source, confirm:"DESINSTALLER"}. Jeu fermé ; sauvegardes du jeu sauvegardées d'abord ;
     // retiré de la liste de ShadowMountPlus puis désinstallé par lui ; image / dossier supprimés seulement si demandé.
     bool uninstall_game(const Json& body, std::string& error);
+    Json uninstall_info(const std::string& title_id);  // par qui, et ce qui peut partir avec (menu « Désinstaller… »)
+    bool kraken_owns(const std::string& title_id);
     Json uninstall_status() const;  // id de la tâche ; body.confirm == "SUPPRIMER"
     std::unique_ptr<store::Store> open_files_place(const std::string& id, std::string& error);
+    // Bibliothèques de jeux non installés (gamelib.cpp) : dossiers déclarés, lus en fond, index gardé.
+    Json gamelib_list();
+    Json gamelib_games();
+    bool gamelib_add(const std::string& place, const std::string& path, std::string& error);
+    bool gamelib_remove(const std::string& place, const std::string& path, std::string& error);
+    void gamelib_rescan(const std::string& place, const std::string& path);
     std::string ui_text(const std::string& fr, const std::string& arg = "") const;  // texte traduit (notifications)
     bool set_settings(const Settings&);
 
@@ -363,6 +523,29 @@ private:
     // n'a changé depuis (choix, mise à niveau, nouveau scan), sinon il est recalculé.
     void plans_loop();
     std::thread plans_thread_;
+    std::string install_job_start(const InstallJobSpec& spec);
+    void install_job_run(const std::string& id, InstallJobSpec spec);
+    void job_update(const std::string& id, const std::function<void(Json&)>& f, bool persist = false);
+    void install_jobs_resume();
+    bool pkg_ok_at(const std::string& dst, std::string& why);
+    double install_speed(const std::string& step, const std::string& src);
+    void learn_speed(const std::string& step, const std::string& src, double bps);
+    std::string speeds_file() const;
+    std::mutex jobs_mu_;
+    Json jobs_ = Json::object();      // id → installation (étapes, état)
+    std::mutex speeds_mu_;
+    Json speeds_;                     // vitesses mesurées (octets/s) : « copy:<endroit> », « verify », « convert »
+    std::atomic<int> jobs_seq_{0};
+    void gamelib_loop();
+    void gamelib_load();
+    void gamelib_save_locked();
+    void gamelib_scan(const std::string& place, const std::string& path);
+    std::string gamelib_file() const;
+    std::thread gamelib_thread_;
+    std::mutex gamelib_mu_;
+    Json gamelib_;                    // {libs:[{place, path, games, scanned_at, error, rescan}]}
+    std::string gamelib_scanning_;    // « place|path » en cours de lecture
+    std::atomic<std::uint64_t> gamelib_rev_{0};
     std::mutex plans_mu_;
     struct CachedPlan { Json plan; std::int64_t at = 0; std::uint64_t gen = 0, rev = 0; std::int64_t took_s = 0; };
     std::map<std::string, CachedPlan> plans_cache_;
@@ -416,9 +599,22 @@ private:
     bool take_link(const Json& body, store::Remote& r, std::string& error);  // jeton d'une connexion par code
     std::unique_ptr<plans::Store> plans_;
     std::unique_ptr<progress::Tracker> playtime_;  // notre compteur de temps de jeu par jeu
+    std::atomic<bool> night_{false};  // la plage « plein débit la nuit » est en cours (relevé toutes les 30 s)
+    bool night_now(const Settings& s) const;
+    int dl_rate_kbps(const Settings& s) const;
+    void bt_after(const std::string& name, const std::string& dir);  // à la fin d'un téléchargement : copie  // débit de réception : maximum, la nuit, pendant une partie
+    std::atomic<bool> game_running_{false};  // un jeu au premier plan (relevé toutes les 30 s) : téléchargements plus lents
     std::unique_ptr<link::Link> link_;  // liaison entre consoles (module réutilisable, docs/PROTOCOLE-link.md)
+    std::unique_ptr<bt::Session> bt_;  // BitTorrent (Téléchargements) ; indisponible sur le banc de test du Mac
+    bt::Config bt_config(const Settings& s) const;  // Paramètres › Réseau → réglages de la session
     std::string link_id_;
     std::uint16_t http_port_ = 52370;
+    std::string shares_out_path() const;
+    std::string share_public_host(bool refresh = false);
+    Json shares_out_load() const;
+    std::string links_path() const;                     // liens MEGA / du service donnés (pour les retrouver)
+    void links_note(const Json& rec, bool off);
+    void bt_name_note(const std::string& path, const std::string& title);
     // Backups des PS5 jumelées (leurs copies, sur LEURS disques) : relus en arrière-plan toutes les 2 min, jamais pendant
     // une demande. { instance: {name, summary, accounts, at} }.
     Json peer_backups_ = Json::object();
@@ -427,6 +623,10 @@ private:
     std::atomic<bool> sync_running_{false}, sync_stop_{false};
     Json parties_status_ = Json::object();  // mise à niveau des parties actives en cours / dernière
     std::atomic<bool> parties_running_{false};
+    std::string auto_last_game_;                       // jeu ouvert au dernier relevé (synchro automatique)
+    std::map<std::string, std::int64_t> auto_closed_;  // jeux fermés → heure (la partie part 1 min après)
+    std::int64_t auto_night_day_ = 0;                  // jour (heure de la console) de la dernière synchro de nuit
+    std::atomic<bool> auto_running_{false};
     std::int64_t peer_backups_at_ = 0;
     void refresh_peer_backups();
     // Après une sauvegarde, une restauration ou une comparaison : l'autre PS5 relit nos copies tout de suite

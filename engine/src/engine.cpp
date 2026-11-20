@@ -9,6 +9,7 @@
 #include "store/webdav.hpp"
 
 #include <algorithm>
+#include <strings.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -49,6 +50,8 @@
 #include "places/places.hpp"
 #include "images/identify.hpp"
 #include "images/images.hpp"
+#include "images/kraken_bridge.h"
+#include "images/pkg_install.hpp"
 #include "scan/recognizers/title_dir.hpp"
 
 #if defined(PBCK_PS5)
@@ -94,6 +97,8 @@ struct OpMark {
 Json Settings::to_json() const {
     Json j = Json::object();
     j.set("default_place", default_place);
+    j.set("send_place", send_place);
+    j.set("ask_where", ask_where);
     j.set("custom_folder", custom_folder);
     j.set("update_source", update_source);
     j.set("update_auto_check", update_auto_check);
@@ -119,14 +124,50 @@ Json Settings::to_json() const {
     j.set("wan_enabled", wan_enabled);
     j.set("wan_port", static_cast<std::int64_t>(wan_port));
     j.set("wan_public_host", wan_public_host);
+    j.set("bt_proto", bt_proto);
+    j.set("bt_port_from", static_cast<std::int64_t>(bt_port_from));
+    j.set("bt_port_to", static_cast<std::int64_t>(bt_port_to));
+    j.set("bt_incoming", bt_incoming);
+    j.set("bt_accept_in", bt_accept_in);
+    j.set("bt_upnp", bt_upnp);
+    j.set("bt_dht", bt_dht);
+    j.set("bt_rate_max", static_cast<std::int64_t>(bt_rate_max));
+    j.set("bt_rate_game", static_cast<std::int64_t>(bt_rate_game));
+    j.set("bt_upload_max", static_cast<std::int64_t>(bt_upload_max));
+    j.set("bt_active", static_cast<std::int64_t>(bt_active));
+    j.set("bt_connections", static_cast<std::int64_t>(bt_connections));
+    j.set("bt_seed_ratio", static_cast<std::int64_t>(bt_seed_ratio));
+    j.set("bt_seed_hours", static_cast<std::int64_t>(bt_seed_hours));
+    j.set("bt_prealloc", bt_prealloc);
+    j.set("bt_space_check", bt_space_check);
+    j.set("bt_night", bt_night);
+    j.set("bt_night_from", static_cast<std::int64_t>(bt_night_from));
+    j.set("bt_night_to", static_cast<std::int64_t>(bt_night_to));
+    j.set("bt_done_copy", bt_done_copy);
+    j.set("bt_done_move", bt_done_move);
+    j.set("bt_watch", bt_watch);
+    j.set("bt_encrypt", bt_encrypt);
+    {
+        Json bl = Json::array();
+        for (const auto& e : bt_blocklist) bl.push(e);
+        j.set("bt_blocklist", bl);
+    }
+    j.set("dl_place", dl_place);
+    j.set("pkg_mount", pkg_mount);
+    j.set("img_mount", img_mount);
     Json la = Json::array();
     for (const auto& id : launchers) la.push(id);
     j.set("launchers", la);
+    Json ack = Json::object();
+    for (const auto& [card, keys] : home_ack) { Json a = Json::array(); for (const auto& k : keys) a.push(k); ack.set(card, a); }
+    j.set("home_ack", ack);
     return j;
 }
 Settings Settings::from_json(const Json& j) {
     Settings s;
     if (!j["default_place"].as_string().empty()) s.default_place = j["default_place"].as_string();
+    s.send_place = j["send_place"].as_string();
+    s.ask_where = j["ask_where"].as_bool(true);
     s.custom_folder = j["custom_folder"].as_string();
     s.update_source = j["update_source"].as_string();
     s.update_auto_check = j["update_auto_check"].as_bool(true);
@@ -154,7 +195,51 @@ Settings Settings::from_json(const Json& j) {
     s.wan_enabled = j["wan_enabled"].as_bool(false);
     s.wan_port = static_cast<int>(std::clamp<std::int64_t>(j["wan_port"].as_int(52373), 1024, 65535));
     if (const std::string& h = j["wan_public_host"].as_string(); h.size() <= 120 && h.find_first_of(" /:@") == std::string::npos) s.wan_public_host = h;
+    if (const std::string& p = j["bt_proto"].as_string(); p == "both" || p == "tcp" || p == "udp") s.bt_proto = p;
+    s.bt_port_from = static_cast<int>(std::clamp<std::int64_t>(j["bt_port_from"].as_int(6891), 1024, 65535));
+    s.bt_port_to = static_cast<int>(std::clamp<std::int64_t>(j["bt_port_to"].as_int(s.bt_port_from + 8), s.bt_port_from, std::min<std::int64_t>(65535, s.bt_port_from + 1000)));
+    // Jamais sur nos ports à nous (52370 web et liaison, 52371 découverte, 52373 PS5 à distance, et celui choisi pour elle) :
+    // une plage qui en touche un revient à la plage par défaut.
+    auto hits = [&](int port) { return port >= s.bt_port_from && port <= s.bt_port_to; };
+    if (hits(52370) || hits(52371) || hits(52372) || hits(52373) || hits(s.wan_port)) { s.bt_port_from = 6891; s.bt_port_to = 6899; }
+    s.bt_incoming = j["bt_incoming"].as_bool(false);
+    s.bt_accept_in = j["bt_accept_in"].as_bool(true);
+    s.bt_upnp = j["bt_upnp"].as_bool(false);
+    s.bt_dht = j["bt_dht"].as_bool(true);
+    s.bt_rate_max = static_cast<int>(std::clamp<std::int64_t>(j["bt_rate_max"].as_int(0), 0, 1000000));
+    s.bt_rate_game = static_cast<int>(std::clamp<std::int64_t>(j["bt_rate_game"].as_int(2048), 0, 1000000));
+    s.bt_upload_max = static_cast<int>(std::clamp<std::int64_t>(j["bt_upload_max"].as_int(1024), 0, 1000000));
+    s.bt_active = static_cast<int>(std::clamp<std::int64_t>(j["bt_active"].as_int(3), 1, 20));
+    s.bt_connections = static_cast<int>(std::clamp<std::int64_t>(j["bt_connections"].as_int(200), 20, 1000));
+    s.bt_seed_ratio = static_cast<int>(std::clamp<std::int64_t>(j["bt_seed_ratio"].as_int(0), 0, 10000));
+    s.bt_seed_hours = static_cast<int>(std::clamp<std::int64_t>(j["bt_seed_hours"].as_int(0), 0, 24 * 365));
+    s.bt_prealloc = j["bt_prealloc"].as_bool(false);
+    s.bt_space_check = j["bt_space_check"].as_bool(true);
+    s.bt_night = j["bt_night"].as_bool(false);
+    s.bt_night_from = static_cast<int>(std::clamp<std::int64_t>(j["bt_night_from"].as_int(1), 0, 23));
+    s.bt_night_to = static_cast<int>(std::clamp<std::int64_t>(j["bt_night_to"].as_int(7), 0, 23));
+    if (const std::string& d = j["bt_done_copy"].as_string(); d.size() <= 200) s.bt_done_copy = d;
+    if (const std::string& d = j["bt_done_move"].as_string(); d.size() <= 200) s.bt_done_move = d;
+    if (const std::string& d = j["bt_watch"].as_string(); d.size() <= 200) s.bt_watch = d;
+    if (const std::string& m = j["bt_encrypt"].as_string(); m == "prefer" || m == "force" || m == "off") s.bt_encrypt = m;
+    if (j.has("bt_blocklist") && j["bt_blocklist"].is_array()) {
+        s.bt_blocklist.clear();
+        for (const auto& e : j["bt_blocklist"].items()) {
+            std::string err;
+            const std::string v = e.as_string();
+            if (v.size() <= 40 && s.bt_blocklist.size() < 200 && bt::Session::valid_block(v, err)) s.bt_blocklist.push_back(v);
+        }
+    }
+    if (const std::string& d = j["dl_place"].as_string(); d.size() <= 200) s.dl_place = d;
+    if (const std::string& m = j["pkg_mount"].as_string(); m == "theirs" || m == "ours") s.pkg_mount = m;
+    if (j["img_mount"].as_string() == "theirs") s.img_mount = "theirs";  // sinon « auto » (on n'arrête jamais le sien)
     if (j.has("launchers") && j["launchers"].is_array()) s.launchers = autostart::clean_order(j["launchers"]);
+    for (const auto& [card, keys] : j["home_ack"].members()) {  // quelques cartes, quelques centaines de lignes au plus
+        if (card.empty() || card.size() > 32 || !keys.is_array() || s.home_ack.size() >= 16) continue;
+        auto& v = s.home_ack[card];
+        for (const auto& k : keys.items()) if (k.is_string() && !k.as_string().empty() && k.as_string().size() <= 200 && v.size() < 500) v.push_back(k.as_string());
+        if (v.empty()) s.home_ack.erase(card);
+    }
     return s;
 }
 
@@ -164,6 +249,8 @@ Engine::Engine(std::string state_dir, std::string app_dir) : dir_(std::move(stat
     updater_ = std::make_unique<Updater>(dir_, std::move(app_dir), engine_version);
     fetcher_ = std::make_unique<covers::Fetcher>(dir_);
     remotes_ = std::make_unique<store::Remotes>(fs::host(fs::join(dir_, "remotes.json")));
+    store::set_share_cache(fs::host(fs::join(dir_, "share-cache")));  // archives des dossiers Dropbox partagés
+    store::set_kept_dir(fs::host(fs::join(dir_, "upload-sessions")));  // envois vers le nuage arrêtés : sessions gardées pour la reprise
     plans_ = std::make_unique<plans::Store>(fs::host(fs::join(dir_, "plans.json")));
     playtime_ = std::make_unique<progress::Tracker>(fs::host(fs::join(dir_, "playtime.json")));
     identities_ = std::make_unique<accounts::Identities>(fs::host(fs::join(dir_, "identities.json")));
@@ -248,6 +335,11 @@ bool Engine::start() {
         const Settings s0 = Settings::from_json(j);
         link_->wan_configure(s0.wan_enabled, static_cast<std::uint16_t>(s0.wan_port), s0.wan_public_host);
     }
+    {   // BitTorrent : la session reprend les torrents connus (données de reprise dans <état>/bt).
+        bt_ = std::make_unique<bt::Session>();
+        bt_->on_done = [this](const std::string& name, const std::string& dir) { bt_after(name, dir); };
+        if (bt_->available()) { std::string berr; if (!bt_->start(bt_config(settings_), berr)) log("bt: pas démarré : %s", berr.c_str()); }
+    }
     if (fs::read(fs::host(fs::join(dir_, "devices.json")), text) && Json::parse(text, j) && j.is_array()) devices_ = j;
     {   // Nouveau code à chaque démarrage ; les appareils déjà appairés le restent.
         const std::string r = random_id(4);
@@ -276,12 +368,28 @@ bool Engine::start() {
         }
         return remotes_->open(id, err);
     };
+    queue_->download_limit_kbps = [this] { return dl_rate_kbps(settings()); };  // Paramètres › Réseau : maximum, la nuit, pendant une partie
     queue_->on_finished = [this](const tasks::Task& t) {
         if (!t.request["remote"].as_string().empty()) { std::lock_guard<std::mutex> l(remote_index_mu_); remote_index_.erase(t.request["remote"].as_string()); }
         if (t.type == tasks::Type::import_switch && !t.request["check_only"].as_bool()) request_scan();
         // Rétention : garder les N dernières versions de cet élément sur ce disque (les versions protégées restent).
-        if (t.type == tasks::Type::backup && t.state == tasks::State::done && t.request["keep"].as_int() > 0 && t.request["remote"].as_string().empty())
-            apply_retention(t.request["folder"].as_string(), t.request["item"]["key"].as_string(), static_cast<int>(t.request["keep"].as_int()));
+        // Rétention « garder N » d'un plan : sur le disque de la console comme sur le NAS et le nuage (règle 3).
+        if (t.type == tasks::Type::backup && t.state == tasks::State::done && t.request["keep"].as_int() > 0) {
+            const std::string place = !t.request["remote"].as_string().empty() ? t.request["remote"].as_string() : t.request["disk_id"].as_string();
+            if (!place.empty() && place.rfind("peer:", 0) != 0)
+            {
+                // Parties réellement copiées (celles de la demande, sinon toutes celles de l'élément) : le genre de la copie.
+                Json ps = Json::array();
+                std::set<std::string> seen;
+                for (const auto& c : t.request["item"]["components"].items()) {
+                    const std::string part = c["part"].as_string();
+                    bool w = !t.request["parts"].is_array() || t.request["parts"].size() == 0;
+                    for (const auto& x : t.request["parts"].items()) if (x.as_string() == part) w = true;
+                    if (w && seen.insert(part).second) ps.push(part);
+                }
+                apply_retention_at(place, t.request["item"]["key"].as_string(), static_cast<int>(t.request["keep"].as_int()), ps);
+            }
+        }
         ++revision_;
         if (t.state == tasks::State::done && (t.type == tasks::Type::backup || t.type == tasks::Type::restore_save || t.type == tasks::Type::inspect_save))
             notify_peers_later();
@@ -330,6 +438,10 @@ bool Engine::start() {
     fetcher_->start();
     scan_thread_ = std::thread([this] { scan_loop(); });
     plans_thread_ = std::thread([this] { plans_loop(); });
+    gamelib_load();
+    install_jobs_resume();  // installations par étapes interrompues par un redémarrage : elles reprennent
+    gamelib_thread_ = std::thread([this] { gamelib_loop(); });  // bibliothèques de jeux : lues en fond
+    kraken_start();  // jeux lancés depuis leur .pkg : la surveillance reprend
     updater_->set_channel(settings_.update_channel == "beta");
     updater_->set_source(settings_.update_source);
     // Mise à jour trouvée : notification système dans la langue de l'interface (même si l'appli est fermée).
@@ -346,12 +458,15 @@ void Engine::stop() {
     if (quit_.exchange(true)) return;
     if (fetcher_) fetcher_->stop();
     if (link_) link_->stop();
+    if (bt_) bt_->stop();
     if (scan_thread_.joinable()) scan_thread_.join();
     if (plans_thread_.joinable()) plans_thread_.join();
+    if (gamelib_thread_.joinable()) gamelib_thread_.join();
     queue_->stop();
     { std::lock_guard<std::mutex> l(playtime_mu_); playtime_->save(); }
     // Aucune image de sauvegarde ne reste montée après nous (montages de Garlic intégré).
     gc_unmount();
+    smp_shutdown();  // notre ShadowMount intégré : ses montages sont rendus proprement
     log("engine stopped");
 }
 
@@ -460,11 +575,18 @@ void Engine::refresh_peer_backups() {
         x.set("accounts", accs);
         all.set(inst, x);
     }
-    MuGuard l(mu_, __FILE__, __LINE__);
-    // Une PS5 jumelée hors ligne garde sa dernière liste connue (Bibliothèque de l'autre console : affichée, sans actions).
-    for (const auto& [inst, x] : peer_backups_.members())
-        if (!all.has(inst)) all.set(inst, x);
-    peer_backups_ = all;
+    bool changed = false;
+    {
+        MuGuard l(mu_, __FILE__, __LINE__);
+        // Une PS5 jumelée hors ligne garde sa dernière liste connue (Bibliothèque de l'autre console : affichée, sans actions).
+        for (const auto& [inst, x] : peer_backups_.members())
+            if (!all.has(inst)) all.set(inst, x);
+        changed = all.dump() != peer_backups_.dump();
+        peer_backups_ = all;
+    }
+    // Les plans de synchro calculés avec l'ancienne liste ne valent plus : sinon un plan vide (liste pas encore arrivée)
+    // restait servi jusqu'à 5 min (« rien à synchroniser » à tort ; vu par le test « plan dans les deux sens »).
+    if (changed) plans_invalidate();
 }
 
 // Jeux installés sur les PS5 jumelées et absents d'ici (Accueil › « Sur PS5-Salon »), depuis le cache de fond.
@@ -620,6 +742,8 @@ Json Engine::sync_copies_plan(const std::string& peer, bool include_full) {
     } else {
         { MuGuard l(mu_, __FILE__, __LINE__); pb = peer_backups_[peer]; }
         if (!pb.is_object()) { out.set("error", "autre PS5 pas encore lue (hors ligne ?)"); return out; }
+        // L'autre PS5 recomptait ses copies quand on l'a lue : sa liste est incomplète, ne pas en conclure « rien à faire ».
+        if (pb["summary"]["updating"].as_bool() && pb["summary"]["games"].size() == 0) { out.set("error", "l'autre PS5 compte encore ses copies : un instant"); return out; }
         out.set("name", pb["name"]);
     }
     auto is_full = [](const Json& parts) { for (const auto& p : parts.items()) if (p.as_string() != "save") return true; return false; };
@@ -1217,15 +1341,46 @@ void Engine::scan_loop() {
                 std::lock_guard<std::mutex> l(playtime_mu_);
                 playtime_->tick(run, now);
             }
+            const bool was = game_running_;
+            game_running_ = !run.empty() && run != "PPSA99950";
+            const bool was_night = night_;
+            night_ = night_now(settings());
+            if (bt_ && (was != game_running_ || was_night != night_)) bt_->configure(bt_config(settings()));  // pendant une partie, la nuit
             // Jamais pendant une partie ; Backup Center lui-même au premier plan n'est pas une partie.
             if ((run.empty() || run == "PPSA99950") && settings().update_auto_install) auto_install_step();
+            parties_auto_tick(run, now);  // synchro automatique des parties : à la fermeture d'un jeu, la nuit
+            smp_tick(run);  // images et dossiers : notre ShadowMount intégré quand le ShadowMountPlus installé n'est pas là
         }
         if (now - last_plan_check >= 20) {
             last_plan_check = now;
             for (const auto& p : plans_->due(now)) {
-                std::string err;
+                std::string err, holder;
+                // L'un après l'autre : si une autre PS5 fait déjà ce plan vers la même destination, on attend (10 min),
+                // puis le contrôle « déjà à jour » ne refait que ce qui manque.
+                const std::string dkey = dest_key(p.place);
+                if (dest_busy(dkey, holder) || !plan_lock(p, true, holder)) {  // une autre PS5 s'est annoncée, ou tient le verrou
+                    plans_->postpone(p.id, now + 600);
+                    log("plan due id=%s : %s fait déjà un plan vers cette destination, réessai dans 10 min", p.id.c_str(), holder.c_str());
+                    continue;
+                }
                 const int n = run_plan(p.id, err);
                 log("plan due id=%s queued=%d error=%s", p.id.c_str(), n, err.c_str());
+                if (n > 0) { plan_locks_[p.id] = now; plan_note_peers("start", dkey, p.name); }
+                else { std::string h; plan_lock(p, false, h); }  // rien lancé (tout déjà à jour) : verrou retiré tout de suite
+            }
+            // Verrous des plans dont toutes les tâches sont finies : retirés.
+            for (auto it = plan_locks_.begin(); it != plan_locks_.end();) {
+                plans::Plan p;
+                if (!plans_->get(it->first, p)) { it = plan_locks_.erase(it); continue; }
+                bool busy = false;
+                for (const auto& t : queue_->list())
+                    if ((t.state == tasks::State::queued || t.state == tasks::State::running || t.state == tasks::State::paused) &&
+                        t.request["origin"].as_string() == "plan:" + p.name) busy = true;
+                if (busy && now - it->second < 3 * 3600) { ++it; continue; }
+                std::string h;
+                plan_lock(p, false, h);
+                plan_note_peers("done", dest_key(p.place), p.name);  // les autres relisent nos copies avant leur plan
+                it = plan_locks_.erase(it);
             }
         }
         ::usleep(200 * 1000);
@@ -1278,8 +1433,9 @@ Json Engine::files_places() {
     }
     for (const auto& r : remotes_->list()) {
         Json j = Json::object();
-        j.set("id", r.id); j.set("kind", r.type == "switch" ? "switch" : "nas"); j.set("label", r.name);
+        j.set("id", r.id); j.set("kind", r.type == "switch" ? "switch" : r.type == "share" ? "share" : "nas"); j.set("label", r.name);
         j.set("root", r.ftp.root.empty() ? std::string("/") : r.ftp.root);
+        if (r.read_only()) j.set("readonly", true);  // partage reçu : on y lit seulement
         a.push(j);
     }
     Json pp;
@@ -1293,6 +1449,12 @@ Json Engine::files_places() {
         a.push(j);
     }
     return a;
+}
+
+// Partage reçu (lecture seule) : rien ne s'y crée, ne s'y copie ni ne s'y supprime.
+bool Engine::read_only_place(const std::string& id) const {
+    store::Remote r;
+    return id.rfind("remote:", 0) == 0 && remotes_->find(id, r) && r.read_only();
 }
 
 std::unique_ptr<store::Store> Engine::open_files_place(const std::string& id, std::string& error) {
@@ -1334,6 +1496,7 @@ bool Engine::files_list(const std::string& place, const std::string& path, Json&
 bool Engine::files_mkdir(const std::string& place, const std::string& path, std::string& error) {
     const bool here = place.rfind("peerfiles:", 0) != 0 && place.rfind("remote:", 0) != 0;
     if (!clean_abs(path) || (here && forbidden_local(path))) { error = "chemin invalide"; return false; }
+    if (read_only_place(place)) { error = "partage en lecture seule"; return false; }
     auto st = open_files_place(place, error);
     if (!st) return false;
     if (!st->mkdirs(path)) { error = "dossier impossible à créer"; return false; }
@@ -1356,6 +1519,7 @@ std::string Engine::files_delete(const Json& b, std::string& error) {
     const std::string place = b["place"].as_string(), dir = b["dir"].as_string();
     if (b["confirm"].as_string() != "SUPPRIMER") { error = "confirmation manquante"; return ""; }
     if (place.rfind("peerfiles:", 0) == 0) { error = "suppression sur l'autre PS5 : pas encore possible"; return ""; }
+    if (read_only_place(place)) { error = "partage en lecture seule : rien n'y est supprimé"; return ""; }
     if (!clean_abs(dir)) { error = "chemin invalide"; return ""; }
     if (!b["names"].is_array() || b["names"].items().empty()) { error = "rien de choisi"; return ""; }
     const bool here = place.rfind("remote:", 0) != 0;
@@ -1383,6 +1547,59 @@ std::string Engine::files_delete(const Json& b, std::string& error) {
 Json Engine::uninstall_status() const {
     std::lock_guard<std::mutex> l(uninstall_mu_);
     return uninstall_status_.is_object() ? uninstall_status_ : Json::object();
+}
+
+// Un .pkg lancé par Kraken (le nôtre) : noté dans notre liste ; à défaut (liste perdue), un jeu que ShadowMountPlus ne
+// connaît pas, inscrit sans installation de la console (pas d'app.pkg), dont un .pkg portant le numéro est dans un
+// dossier de jeux.
+bool Engine::kraken_owns(const std::string& tid) {
+    const Json kt = kraken_titles();
+    if (kt.has(tid)) return kt[tid]["state"].as_string() == "registered";
+    if (!images::smp_game_sources(tid).empty() || !images::manual_sources(tid).empty()) return false;
+    if (!fs::is_dir(fs::host("/user/app/" + tid)) || fs::exists(fs::host("/user/app/" + tid + "/app.pkg"))) return false;
+    std::vector<Place> ps;
+    { MuGuard l(mu_, __FILE__, __LINE__); ps = places_; }
+    for (const auto& p : ps) {
+        if (p.mount.empty() || (p.type != Place::Type::internal && p.type != Place::Type::usb)) continue;
+        std::vector<fs::Entry> es;
+        if (!fs::list(fs::host(images::games_root(p.mount == "/user" ? std::string("/data") : p.mount)), es)) continue;
+        for (const auto& x : es)
+            if (!x.dir && x.name.size() > 4 && strcasecmp(x.name.c_str() + x.name.size() - 4, ".pkg") == 0 && x.name.find(tid) != std::string::npos) return true;
+    }
+    return false;
+}
+
+// Comment ce jeu se désinstalle ici : par qui (ShadowMountPlus ou la console) et ce qui peut être supprimé avec lui
+// (son image, son dossier ou son .pkg ; rien pour un jeu installé par la console). Pour le menu « Désinstaller… ».
+Json Engine::uninstall_info(const std::string& tid) {
+    Json out = Json::object();
+    out.set("title_id", tid);
+    std::vector<std::string> sources = images::manual_sources(tid);
+    for (const auto& s : images::smp_game_sources(tid))
+        if (std::find(sources.begin(), sources.end(), s) == sources.end()) sources.push_back(s);
+    {
+        MuGuard l(mu_, __FILE__, __LINE__);
+        for (const auto& it : items_)
+            if (it.title_id == tid && (it.kind == Kind::game_ps5 || it.kind == Kind::game_ps4 || it.kind == Kind::app))  // les applis aussi
+                for (const auto& c : it.components)
+                    if (c.part == Part::game || c.part == Part::app)  // le contenu du jeu, ou celui de l'appli
+                        for (const auto& s : c.sources)
+                            if (std::find(sources.begin(), sources.end(), s.source) == sources.end() && s.source.rfind("/user/", 0) != 0) sources.push_back(s.source);
+    }
+    const bool kraken = kraken_owns(tid);
+    std::string kind, path;
+    if (kraken) {
+        kind = "pkg";
+        const Json kt = kraken_titles();
+        path = kt[tid]["pkg"].as_string();
+    } else if (!sources.empty()) {
+        path = sources.front();
+        kind = fs::is_dir(fs::host(path)) ? "folder" : "image";
+    }
+    out.set("by", kraken || sources.empty() ? "console" : "smp");
+    out.set("kind", kind);  // "pkg", "image", "folder" ou "" (rien à supprimer : jeu installé par la console)
+    out.set("path", path);
+    return out;
 }
 
 bool Engine::uninstall_game(const Json& body, std::string& error) {
@@ -1466,19 +1683,46 @@ bool Engine::uninstall_game(const Json& body, std::string& error) {
         }
         // 3. Désinstallation par ShadowMountPlus (le système l'accepte, puis retire le jeu en arrière-plan).
         set("step", "uninstall");
+        const Json kt = kraken_titles();
+        const bool kraken = kraken_owns(tid);
+        // Un jeu de ShadowMountPlus : par lui ; un .pkg de Kraken, ou un jeu installé par la console (ShadowMountPlus ne
+        // les connaît pas) : par la console elle-même.
+        const bool by_console = kraken || std::none_of(sources.begin(), sources.end(), [](const std::string& s) { return s.rfind("/user/", 0) != 0 && s.rfind("/system", 0) != 0; });
         if (fs::is_dir(fs::host("/user/app/" + tid))) {
             std::string err;
-            if (!images::smp_uninstall(tid, err)) { relist(); finish(err + " — le jeu reste installé"); return; }
+            if (by_console ? !pkginst::uninstall(tid, err) : !images::smp_uninstall(tid, err)) { relist(); finish(err + " — le jeu reste installé"); return; }
             for (int i = 0; i < 60 && fs::is_dir(fs::host("/user/app/" + tid)); ++i) std::this_thread::sleep_for(std::chrono::seconds(2));
             if (fs::is_dir(fs::host("/user/app/" + tid))) set("note", "désinstallation acceptée, encore en cours côté système");
+        }
+        std::vector<std::string> all_sources = sources;
+        if (kraken) {  // retiré de la liste de Kraken (plus surveillé au lancement) ; son .pkg compte parmi les sources
+            Json en = kt[tid];
+            en.set("state", "removed");
+            kraken_note(tid, en);
+            if (!en["pkg"].as_string().empty()) all_sources.push_back(en["pkg"].as_string());
+            // Son .pkg dans le dossier de jeux d'un disque, même s'il manque à la liste (<TID>.pkg, ou <…>-<TID>_00-….pkg).
+            std::vector<Place> ps;
+            { MuGuard l(mu_, __FILE__, __LINE__); ps = places_; }
+            for (const auto& p : ps) {
+                if (p.mount.empty() || (p.type != Place::Type::internal && p.type != Place::Type::usb)) continue;
+                const std::string root = images::games_root(p.mount == "/user" ? std::string("/data") : p.mount);
+                std::vector<fs::Entry> es;
+                if (!fs::list(fs::host(root), es)) continue;
+                for (const auto& x : es)
+                    if (!x.dir && x.name.size() > 4 && strcasecmp(x.name.c_str() + x.name.size() - 4, ".pkg") == 0 && x.name.find(tid) != std::string::npos) {
+                        const std::string full = fs::join(root, x.name);
+                        if (std::find(all_sources.begin(), all_sources.end(), full) == all_sources.end()) all_sources.push_back(full);
+                    }
+            }
         }
         // 4. Image ou dossier du jeu : seulement si demandé, et seulement ce qui porte le numéro du jeu.
         if (delete_source) {
             set("step", "delete_source");
             Json removed = Json::array();
-            for (const auto& s : sources) {
+            for (const auto& s : all_sources) {
                 const std::string base(fs::basename(s));
-                if (base.compare(0, 9, tid) != 0 || s.rfind("/user/", 0) == 0 || s.rfind("/system", 0) == 0 || s.find("/../") != std::string::npos) continue;
+                const bool our_pkg = kraken && base.size() > 4 && strcasecmp(base.c_str() + base.size() - 4, ".pkg") == 0 && base.find(tid) != std::string::npos;
+                if ((base.compare(0, 9, tid) != 0 && !our_pkg) || s.rfind("/user/", 0) == 0 || s.rfind("/system", 0) == 0 || s.find("/../") != std::string::npos) continue;
                 if (images::mounted(s, images::kind_of(s), tid)) continue;  // encore monté : on n'y touche pas
                 const bool ok = fs::is_dir(fs::host(s)) ? fs::remove_tree(fs::host(s)) : ::unlink(fs::host(s).c_str()) == 0;
                 ::unlink(fs::host(s + ".vhash").c_str());
@@ -1499,6 +1743,8 @@ std::string Engine::files_copy(const Json& b, std::string& error) {
     if (!clean_abs(sd) || !clean_abs(dd) || (here(sp) && forbidden_local(sd)) || (here(dp) && forbidden_local(dd))) { error = "chemin invalide"; return ""; }
     if (!b["names"].is_array() || b["names"].items().empty()) { error = "rien de choisi"; return ""; }
     for (const auto& n : b["names"].items()) if (!files::safe_name(n.as_string())) { error = "nom invalide"; return ""; }
+    if (read_only_place(dp)) { error = "partage en lecture seule : choisissez une autre destination"; return ""; }
+    if (b["move"].as_bool() && read_only_place(sp)) { error = "partage en lecture seule : copier plutôt que déplacer"; return ""; }
     if (sp == dp) {  // pas de copie d'un dossier dans lui-même
         for (const auto& n : b["names"].items()) {
             const std::string src = fs::join(sd, n.as_string());
@@ -1512,6 +1758,13 @@ std::string Engine::files_copy(const Json& b, std::string& error) {
     for (const char* k : {"src_place", "src_dir", "dst_place", "dst_dir"}) r.set(k, b[k]);
     r.set("names", b["names"]);
     r.set("move", b["move"].as_bool());
+    // Un téléchargement (menu Téléchargements) : depuis un lien reçu, ou depuis une PS5 à distance (jointe par Internet).
+    bool from_wan = false;
+    if (sp.rfind("peerfiles:", 0) == 0 && link_) {
+        const std::string inst = sp.substr(10, sp.find(':', 10) - 10);
+        from_wan = link_->via_wan(inst);
+    }
+    if (read_only_place(sp) || from_wan) r.set("origin", "download");
     const std::size_t n = b["names"].items().size();
     const std::string title = n == 1 ? b["names"].items()[0].as_string() : std::to_string(n) + " éléments";
     return queue_->add_files(r, title);
@@ -1792,6 +2045,7 @@ bool Engine::set_emulator_settings(const std::string& id, const Json& settings) 
 Json Engine::browse_config(const Json& body, std::string& error) {
     store::FtpConfig cfg = store::FtpConfig::from_json(body);
     if (body["type"].as_string() == "s3" && cfg.service != "other" && cfg.service != "r2") cfg.host = store::s3_endpoint(cfg);
+    if (body["type"].as_string() == "mega") cfg.host = "mega";  // e-mail et mot de passe saisis : pas d'adresse
     if (body["type"].as_string() == "gdrive" || body["type"].as_string() == "onedrive" || body["type"].as_string() == "dropbox") {
         store::Remote linked;
         linked.type = body["type"].as_string();
@@ -1838,6 +2092,14 @@ Json Engine::mkdir_remote(const std::string& id, const std::string& path, std::s
 
 // Tester des réglages pas encore enregistrés : connexion, puis écriture d'un témoin dans le dossier choisi
 // (lecture seule du dossier JKSV pour une Switch). Rien n'est gardé.
+// Lien de partage collé : ce qu'il contient, avant de l'ajouter (rien n'est gardé).
+Json Engine::probe_share(const Json& body, std::string& error) {
+    Json out;
+    if (!store::share_probe(body["url"].as_string(), out, error)) return Json();
+    out.set("link", "");  // le lien et sa clé restent côté console
+    return out;
+}
+
 bool Engine::test_config(const Json& body, std::string& error) {
     store::Remote r;
     r.type = body["type"].as_string().empty() ? "ftp" : body["type"].as_string();
@@ -1906,6 +2168,7 @@ Json Engine::browse(const std::string& path, std::string& error) const {
 }
 
 Json Engine::places_json() {
+    if (!remotes_->purge_expired().empty()) ++revision_;  // partages arrivés à échéance : retirés tout seuls
     MuGuard l(mu_, __FILE__, __LINE__);
     Json a = Json::array();
     for (const auto& p : places_) {
@@ -1922,12 +2185,14 @@ Json Engine::places_json() {
     for (const auto& r : remotes_->list()) {
         Json j = Json::object();
         j.set("id", r.id);
-        j.set("type", r.type == "smb" || r.type == "webdav" || r.type == "s3" || r.type == "gdrive" || r.type == "onedrive" || r.type == "dropbox" ? std::string("ftp") : r.type);  // NAS FTP, SMB, WebDAV ou stockage S3 : même rôle partout (sauvegardes, synchro, transferts)
+        j.set("type", r.type == "smb" || r.type == "webdav" || r.type == "s3" || r.type == "gdrive" || r.type == "onedrive" || r.type == "dropbox" || r.type == "mega" || r.type == "share" ? std::string("ftp") : r.type);  // NAS FTP, SMB, WebDAV ou stockage S3 : même rôle partout (sauvegardes, synchro, transferts)
         j.set("protocol", r.type);
         j.set("use", r.use.empty() ? std::string("both") : r.use);  // Sauvegardes et Synchro, ou l'un des deux
         j.set("same_as", remotes_->same_as(r.id, "sync"));  // Synchro : même dossier du même NAS qu'un autre appareil, vide sinon
         j.set("same_backups_as", remotes_->same_as(r.id, "backups"));  // Sauvegardes : même dossier (ex. le NAS en FTP et en WebDAV)
-        j.set("service", r.ftp.service);  // S3 : « b2 », « aws »… (logo du service)
+        j.set("service", r.type == "share" ? r.ftp.host : r.ftp.service);  // S3 : « b2 », « aws »… ; partage : « mega » (logo du service)
+        if (r.read_only()) j.set("readonly", true);  // lien de partage reçu : on y lit, on n'y écrit pas
+        if (r.type == "share") j.set("expires", r.ftp.expires);
         j.set("mount", r.address());
         j.set("label", r.name);
         j.set("free", static_cast<std::uint64_t>(0));
@@ -1959,6 +2224,7 @@ Json Engine::items_json(const std::string& kind, const std::string& place) const
         const Item& it = items[i];
         Json j = it.to_json();
         if (ignored[i]) j.set("ignored", true);  // la télé et le web le montrent à part
+        j.set("location", item_location(it));  // Parcourir (télé et web) : les listes de fichiers ne partent pas
         // Le client n'a pas besoin des listes de fichiers : seulement composants, libellés et tailles.
         Json comps = Json::array();
         for (const auto& c : j["components"].items()) {
@@ -1979,6 +2245,18 @@ Json Engine::items_json(const std::string& kind, const std::string& place) const
 bool Engine::find_item(const std::string& key, Item& out) const {
     MuGuard l(mu_, __FILE__, __LINE__);
     for (const auto& it : items_) if (it.key == key) { out = it; return true; }
+    // « tid:ps4:CUSA… » / « tid:ps5:PPSA… » : la vue Parties et l'Accueil désignent ainsi un jeu qui n'a que ses sauvegardes sur
+    // la console (jeu sur disque, désinstallé), pour sa jaquette ; « Sauvegarder » repart avec cette clé (bug vu le 19/11 :
+    // Detroit, « élément introuvable »). On retrouve l'élément par son numéro et sa plateforme.
+    if (key.rfind("tid:ps4:", 0) == 0 || key.rfind("tid:ps5:", 0) == 0) {
+        const std::string tid = key.substr(8), plat = key.compare(4, 3, "ps4") == 0 ? "PS4" : "PS5";
+        const Item* best = nullptr;
+        for (const auto& it : items_) {
+            if (it.title_id != tid || (!it.platform.empty() && it.platform != plat)) continue;
+            if (!best || (best->key.rfind("save:", 0) == 0 && it.key.rfind("save:", 0) != 0)) best = &it;  // le jeu lui-même d'abord
+        }
+        if (best) { out = *best; return true; }
+    }
     return false;
 }
 
@@ -2154,6 +2432,75 @@ bool Engine::resolve_place(const std::string& place_id, Place& out, std::string&
 // Qui lance la sauvegarde en cours (plan programmé, synchro) : noté dans la tâche, montré dans la liste.
 namespace { thread_local std::string tl_origin; }
 std::string Engine::task_origin() { return tl_origin; }
+std::string Engine::dest_key(const std::string& place_id) {
+    if (place_id.rfind("remote:", 0) != 0) return {};  // disque de cette console, autre PS5 : rien de partagé
+    store::Remote r;
+    if (!remotes_->find(place_id, r) || r.read_only()) return {};
+    auto low = [](std::string v) { for (auto& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return v; };
+    // Le même NAS ou le même compte de nuage, quel que soit son identifiant sur chaque console.
+    return r.type + "|" + low(r.ftp.host) + ":" + std::to_string(r.ftp.port) + "|" + low(r.ftp.bucket) + "|" + r.folder();
+}
+
+void Engine::plan_note_peers(const std::string& event, const std::string& key, const std::string& plan) {
+    if (!link_ || key.empty()) return;
+    Json b = Json::object();
+    b.set("event", event);
+    b.set("key", key);
+    b.set("plan", plan);
+    b.set("instance", instance_);
+    { std::lock_guard<std::mutex> l(console_name_mu_); b.set("console", console_name_.empty() ? std::string("PS5") : console_name_); }
+    b.set("until", now_unix() + 3 * 3600);
+    std::thread([this, b] {  // jamais dans la boucle : une PS5 lente ou éteinte ne retarde rien
+        const Json peers = link_->peers();
+        for (const auto& p : peers.items()) {
+            if (!p["paired"].as_bool() || !p["online"].as_bool()) continue;
+            Json out;
+            std::string err;
+            if (!link_->call(p["instance"].as_string(), "POST", "/api/v2/link/plan-note", b, out, err, 8))
+                log("plan-note %s → %s : %s", b["event"].as_string().c_str(), p["instance"].as_string().c_str(), err.c_str());
+        }
+    }).detach();
+}
+
+Json Engine::plan_note(const Json& b) {
+    const std::string event = b["event"].as_string(), key = b["key"].as_string(), who = b["instance"].as_string();
+    Json out = Json::object();
+    if (key.empty() || who.empty() || who == instance_) return out;
+    {
+        std::lock_guard<std::mutex> l(dest_busy_mu_);
+        if (event == "start") dest_busy_[key][who] = {std::min<std::int64_t>(b["until"].as_int(), now_unix() + 3 * 3600), b["console"].as_string()};
+        else if (event == "done") { auto it = dest_busy_.find(key); if (it != dest_busy_.end()) it->second.erase(who); }
+    }
+    if (event == "done") {  // ses copies viennent d'arriver : notre liste de cette destination est relue avant le prochain plan
+        for (const auto& r : remotes_->list())
+            if (dest_key(r.id) == key) { std::lock_guard<std::mutex> l(remote_index_mu_); remote_index_.erase(r.id); }
+        plans_invalidate();
+        ++revision_;
+    }
+    log("plan-note %s de %s (%s)", event.c_str(), b["console"].as_string().c_str(), b["plan"].as_string().c_str());
+    out.set("ok", true);
+    return out;
+}
+
+bool Engine::dest_busy(const std::string& key, std::string& who) {
+    if (key.empty()) return false;
+    std::lock_guard<std::mutex> l(dest_busy_mu_);
+    const auto it = dest_busy_.find(key);
+    if (it == dest_busy_.end()) return false;
+    const std::int64_t now = now_unix();
+    for (auto c = it->second.begin(); c != it->second.end();) {
+        if (c->second.first <= now) { c = it->second.erase(c); continue; }  // annonce périmée (console coupée) : oubliée
+        who = c->second.second;
+        return true;
+    }
+    return false;
+}
+
+void Engine::stamp_console(backup::Request& req) {
+    req.console_id = instance_;
+    std::lock_guard<std::mutex> l(console_name_mu_);
+    req.console_name = console_name_.empty() ? std::string("PS5") : console_name_;
+}
 Engine::OriginScope::OriginScope(std::string o) : prev(tl_origin) { tl_origin = std::move(o); }
 Engine::OriginScope::~OriginScope() { tl_origin = prev; }
 
@@ -2216,13 +2563,14 @@ bool Engine::backup_item(Item item, const std::vector<Part>& parts, const std::s
             req.disk_id = place_id;
             req.remote_id = place_id;
             req.keep = keep;
-            req.origin = task_origin(); task_id = queue_->add_backup(req);
+            req.origin = task_origin(); stamp_console(req); task_id = queue_->add_backup(req);
             return true;
         }
     }
     if (place_id.rfind("remote:", 0) == 0) {  // appareil réseau : connexion vérifiée tout de suite
         store::Remote r;
         if (!remotes_->find(place_id, r)) { error = "appareil inconnu"; return false; }
+        if (r.read_only()) { error = "« " + r.name + " » est un partage en lecture seule"; return false; }
         auto st = remotes_->open(place_id, error);
         if (!st) return false;
         if (!st->mkdirs(r.folder())) { error = "dossier impossible à créer sur " + r.name; return false; }
@@ -2244,7 +2592,7 @@ bool Engine::backup_item(Item item, const std::vector<Part>& parts, const std::s
                 name = backup::platform_bundle(item, date + " (" + std::to_string(n) + ")");  // déjà une sauvegarde ce jour-là
             req.bundle_name = name;
         }
-        req.origin = task_origin(); task_id = queue_->add_backup(req);
+        req.origin = task_origin(); stamp_console(req); task_id = queue_->add_backup(req);
         return true;
     }
     Place place;
@@ -2272,7 +2620,7 @@ bool Engine::backup_item(Item item, const std::vector<Part>& parts, const std::s
     req.folder = folder;
     req.disk_id = place.id;
     req.keep = keep;
-    req.origin = task_origin(); task_id = queue_->add_backup(req);
+    req.origin = task_origin(); stamp_console(req); task_id = queue_->add_backup(req);
     return true;
 }
 // Dossier « PBC Backup » d'un appareil réseau : sa racine, ou la racine elle-même si on a choisi « PBC Backup »
@@ -2492,7 +2840,7 @@ Json Engine::remote_index(const std::string& id, bool fresh) {
             for (const auto& b : all.items()) seen.insert(b["bundle"].as_string());
             const std::string pbc = fs::join(root, "PBC Backup");
             fs::Entry pe;
-            if (fs::basename(root) == "PBC Backup") {  // dossier de l'appareil = « PBC Backup » lui-même : son index est là
+            if (fs::basename(root) == "PBC Backup" || r.type == "share") {  // dossier de l'appareil = « PBC Backup » lui-même (ou un partage reçu de ce dossier) : son index est là
                 const Json own = backup::read_index(*st, root);
                 log("remote_index %s: %s → %d sauvegarde(s) dans l'index", id.c_str(), root.c_str(), static_cast<int>(own["backups"].size()));
                 for (const auto& b : own["backups"].items())
@@ -2582,20 +2930,41 @@ bool Engine::add_remote(const Json& body, std::string& id, std::string& error) {
     r.ftp = store::FtpConfig::from_json(body);
     const std::string use = body["use"].as_string();  // « both » (défaut), « backups » ou « sync »
     if (use == "backups" || use == "sync") r.use = use;
-    if (!body["link"].as_string().empty() && !take_link(body, r, error)) return false;  // Google Drive, OneDrive
+    if (r.type == "share") {  // lien de partage collé : {url, name?, days} (0 jour : gardé jusqu'à ce qu'on l'enlève)
+        r.ftp = store::FtpConfig();
+        r.ftp.password = body["url"].as_string();
+        const std::int64_t days = body["days"].as_int(7);
+        r.ftp.expires = days > 0 ? now_unix() + std::min<std::int64_t>(days, 365) * 86400 : 0;
+    }
+    else if (!body["link"].as_string().empty() && !take_link(body, r, error)) return false;  // Google Drive, OneDrive
     if (!remotes_->add(r, id, error)) return false;
     ++revision_;
     return true;
 }
 
 bool Engine::update_remote(const std::string& id, const Json& body, std::string& error) {
+    if (body["reconnect"].as_bool()) {  // {reconnect, link} : même appareil, même nom, même dossier ; un nouveau jeton seulement
+        store::Remote r;
+        if (!remotes_->find(id, r)) { error = "appareil inconnu"; return false; }
+        const std::string name = r.name;
+        if (!take_link(body, r, error)) return false;
+        r.name = name;
+        if (!remotes_->update(id, r, error)) return false;
+        { std::lock_guard<std::mutex> l(remote_index_mu_); remote_index_.erase(id); }
+        ++revision_;
+        return true;
+    }
     store::Remote r;
     r.type = body["type"].as_string();
     r.name = body["name"].as_string();
     r.ftp = store::FtpConfig::from_json(body);
     const std::string use = body["use"].as_string();  // « both » (défaut), « backups » ou « sync »
     if (use == "backups" || use == "sync") r.use = use;
-    if (!body["link"].as_string().empty() && !take_link(body, r, error)) return false;  // compte reconnecté
+    if (r.type == "share") {  // garder plus longtemps (ou moins) : {days} compté à partir de maintenant
+        const std::int64_t days = body["days"].as_int(7);
+        r.ftp.expires = days > 0 ? now_unix() + std::min<std::int64_t>(days, 365) * 86400 : 0;
+    }
+    else if (!body["link"].as_string().empty() && !take_link(body, r, error)) return false;  // compte reconnecté
     if (!remotes_->update(id, r, error)) return false;
     ++revision_;
     return true;
@@ -2923,26 +3292,177 @@ bool Engine::delete_plan(const std::string& id) {
     return true;
 }
 
+bool Engine::plan_lock(const plans::Plan& p, bool take, std::string& holder) {
+    // Où : le dossier de sauvegarde de la destination (disque de la console ou appareil réseau). Autre PS5, « auto » :
+    // pas de verrou (chaque console écrit chez elle).
+    std::unique_ptr<store::Store> st;
+    std::string path, local;
+    if (p.place.rfind("remote:", 0) == 0) {
+        store::Remote r;
+        std::string err;
+        if (!remotes_->find(p.place, r) || r.read_only()) return true;
+        st = remotes_->open(p.place, err);
+        if (!st) return true;  // appareil injoignable : la sauvegarde dira pourquoi ; le verrou ne bloque rien
+        path = fs::join(r.folder(), ".pbc-en-cours.json");
+    } else if (!p.place.empty() && p.place != "auto" && p.place.rfind("peer:", 0) != 0) {
+        Place pl;
+        std::string err, folder;
+        if (!resolve_place(p.place, pl, err) || !places::backup_folder(pl, settings().custom_folder, folder)) return true;
+        local = fs::host(fs::join(folder, ".pbc-en-cours.json"));
+    } else return true;
+    auto read = [&](Json& j) {
+        std::string text;
+        const bool ok = st ? st->read_small(path, text, 4096) : fs::read(local, text);
+        return ok && Json::parse(text, j) && j.is_object();
+    };
+    const std::int64_t now = now_unix();
+    Json cur;
+    const bool have = read(cur);
+    const bool mine = have && cur["instance"].as_string() == instance_;
+    if (!take) {
+        if (mine) { if (st) st->remove(path); else ::unlink(local.c_str()); }
+        return true;
+    }
+    if (have && !mine && cur["expires"].as_int() > now) { holder = cur["console"].as_string(); return false; }
+    Json j = Json::object();
+    j.set("instance", instance_);
+    { std::lock_guard<std::mutex> l(console_name_mu_); j.set("console", console_name_.empty() ? std::string("PS5") : console_name_); }
+    j.set("plan", p.name);
+    j.set("started", now);
+    j.set("expires", now + 3 * 3600);  // une console coupée en pleine tâche ne bloque pas l'autre plus de 3 h
+    const std::string text = j.dump(true);
+    if (st) st->write_small(path, text); else fs::write_atomic(local, text);
+    return true;
+}
+
 int Engine::run_plan(const std::string& id, std::string& error) {
     plans::Plan p;
     if (!plans_->get(id, p)) { error = "plan inconnu"; return 0; }
     std::vector<Part> parts;
     for (const auto& s : p.parts) { Part x; if (parse_part(s, x)) parts.push_back(x); }
-    int queued = 0;
+    int queued = 0, same = 0;
     std::string last_err;
+    // « Déjà à jour » (docs/PLAN-taches-automatiques.md, règle 2) : une partie dont le contenu est déjà à la destination
+    // — copie faite par n'importe quelle PS5 — n'est pas recopiée. Aucun calcul : l'empreinte de la partie de la console
+    // vient de sa lecture gardée (valable tant que ses images n'ont pas bougé) ; celle des copies, de leur manifeste.
+    // Partie modifiée depuis (ou jamais lue) : on copie, comme avant.
+    const bool saves_only = !parts.empty() && std::all_of(parts.begin(), parts.end(), [](Part x) { return x == Part::save; });
+    std::map<std::string, std::set<std::string>> at_dest;  // compte|jeu → empreintes des copies complètes à la destination
+    std::string dest = p.place;
+    if (dest.empty() || dest == "auto" || dest == "internal") dest.clear();  // destination choisie au moment : pas de contrôle
+    else if (dest.rfind("remote:", 0) != 0 && dest.rfind("peer:", 0) != 0) { Place pl; std::string e2; if (resolve_place(dest, pl, e2)) dest = pl.id; }
+    if (!dest.empty()) {
+        const Json ov = saves_overview(true);
+        for (const auto& e : ov["entries"].items())
+            for (const auto& b : e["backups"].items()) {
+                const std::string bp = b["place"].as_string();
+                if (!b["complete"].as_bool(true) || b["raw"].as_string().empty()) continue;
+                if (bp != dest && bp != "remote:" + dest && "remote:" + bp != dest) continue;
+                at_dest[e["account"].as_string() + "|" + e["title_id"].as_string()].insert(b["raw"].as_string());
+            }
+    }
+    // Les jeux entiers : la signature bon marché (fichiers et tailles) comparée à celle des copies de la destination
+    // (index v5, lu une fois par plan ; rien n'est relu sur la console ni téléchargé).
+    std::set<std::string> games_at_dest;  // jeu|signature
+    if (!dest.empty() && !saves_only) {
+        Json idx;
+        if (dest.rfind("remote:", 0) == 0) idx = remote_index_cached(dest);
+        else if (dest.rfind("peer:", 0) != 0) {
+            Place pl; std::string e2, folder;
+            if (resolve_place(dest, pl, e2) && places::backup_folder(pl, settings().custom_folder, folder)) idx = backup::read_index(folder);
+        }
+        for (const auto& b : idx["backups"].items())
+            if (b["complete"].as_bool() && !b["game_sig"].as_string().empty()) games_at_dest.insert(b["title_id"].as_string() + "|" + b["game_sig"].as_string());
+    }
+    auto already_there = [&](const std::string& key, const std::string& account) {
+        if (dest.empty()) return false;
+        Item it;
+        if (!find_item(key, it) || it.title_id.empty()) return false;
+        bool any = false;
+        const bool has_game = std::any_of(it.components.begin(), it.components.end(), [&](const Component& c) {
+            return c.part != Part::save && (parts.empty() || std::find(parts.begin(), parts.end(), c.part) != parts.end()); });
+        if (has_game) {
+            const std::string sig = backup::item_signature(it, parts);
+            log("plan %s : jeu %s signature %s, %zu jeu(x) signé(s) à la destination", p.id.c_str(), it.title_id.c_str(), sig.substr(0, 12).c_str(), games_at_dest.size());
+            if (sig.empty() || !games_at_dest.count(it.title_id + "|" + sig)) return false;  // jeu absent ou différent : copié
+            any = true;
+        }
+        for (const auto& c : it.components) {
+            if (c.part != Part::save) continue;
+            if (!parts.empty() && std::find(parts.begin(), parts.end(), Part::save) == parts.end()) continue;
+            const std::string uid = c.meta["user_id"].as_string();
+            if (uid.empty() || (!account.empty() && uid != account)) continue;
+            const std::string fmt = c.meta["format"].as_string();
+            const std::string raw = saves::console_cached(dir_, it.title_id, uid)["raw_signature"].as_string();
+            if (raw.empty()) return false;  // partie modifiée depuis la dernière lecture, ou jamais lue : on copie
+            const auto hit = at_dest.find(std::string(fmt == "ps4-savedata" ? "ps4:" : "ps5:") + uid + "|" + it.title_id);
+            if (hit == at_dest.end() || !hit->second.count(raw)) return false;
+            any = true;
+        }
+        return any;
+    };
     for (const auto& key : plan_items(p)) {
         std::string task, err;
         const std::string account = p.rule == "ps5_saves" ? p.rule_arg : "";
+        if (already_there(key, account)) { ++same; log("plan %s : %s déjà à jour à la destination", p.id.c_str(), key.c_str()); continue; }
         OriginScope by("plan:" + p.name);
         if (backup(key, parts, p.place, task, err, account, p.keep)) ++queued;
         else last_err = err;
     }
-    const std::string result = std::to_string(queued) + " sauvegarde(s) lancée(s)" + (last_err.empty() ? "" : " · " + last_err);
+    std::string result = std::to_string(queued) + " sauvegarde(s) lancée(s)";
+    if (same) result += " · " + std::to_string(same) + " déjà à jour";
+    if (!last_err.empty()) result += " · " + last_err;
     plans_->mark_run(id, now_unix(), result, utc_offset());
     if (!queued && !last_err.empty()) error = last_err;
     // La rétention s'applique à la fin de chaque sauvegarde (voir on_finished).
     ++revision_;
     return queued;
+}
+
+void Engine::apply_retention_at(const std::string& place_id, const std::string& item_key, int keep, const Json& parts) {
+    if (keep <= 0 || item_key.empty()) return;
+    // Seulement les copies du même genre que celle qui vient d'être faite (mêmes parties : « parties seulement » ou jeu
+    // entier) : une sauvegarde des parties ne fait jamais partir la copie du jeu, ni l'inverse.
+    auto parts_key = [](const Json& ps) { std::set<std::string> v; for (const auto& x : ps.items()) v.insert(x.as_string()); std::string k; for (const auto& x : v) k += x + ","; return k; };
+    const std::string want = parts_key(parts);
+    std::string path, err;
+    auto st = version_store(place_id, "x", path, err);  // le dossier des copies de cet endroit
+    if (!st) { log("retention place=%s : %s", place_id.c_str(), err.c_str()); return; }
+    const std::string folder = path.substr(0, path.rfind('/'));
+    const Json idx = backup::read_index(*st, folder);
+    struct V { std::string bundle, content; std::int64_t t; std::string console; };
+    std::vector<V> versions;
+    for (const auto& b : idx["backups"].items()) {
+        if (b["key"].as_string() != item_key || !b["complete"].as_bool()) continue;  // en cours (ici ou sur l'autre PS5) : jamais
+        if (parts_key(b["parts"]) != want) continue;  // autre genre de copie : jamais compté ici
+        fs::Entry pe;
+        if (st->stat(fs::join(fs::join(folder, b["bundle"].as_string()), "protected"), pe)) continue;  // protégée : jamais
+        // Contenu : signature du jeu + empreintes des parties ; inconnu → la copie compte comme un contenu à part.
+        std::vector<std::string> raws;
+        for (const auto& a : b["accounts"].items()) raws.push_back(a["user_id"].as_string() + "=" + a["raw"].as_string());
+        std::sort(raws.begin(), raws.end());
+        std::string content = b["game_sig"].as_string();
+        for (const auto& r : raws) content += "|" + r;
+        if (b["game_sig"].as_string().empty() && std::all_of(raws.begin(), raws.end(), [](const std::string& r) { return r.back() == '='; }))
+            content = "bundle:" + b["bundle"].as_string();
+        versions.push_back({b["bundle"].as_string(), content, b["created_unix"].as_int(), b["console"]["instance"].as_string()});
+    }
+    std::sort(versions.begin(), versions.end(), [](const V& a, const V& b) { return a.t > b.t; });
+    std::set<std::string> kept, consoles;
+    for (const auto& v : versions) {
+        // La copie la plus récente de chaque PS5 reste toujours (règle 3) : une console ne fait jamais partir la dernière
+        // copie de l'autre. Les copies d'avant (sans console notée) comptent seulement par contenu.
+        if (!v.console.empty() && consoles.insert(v.console).second) { kept.insert(v.content); continue; }
+        if (!kept.count(v.content) && static_cast<int>(kept.size()) < keep) { kept.insert(v.content); continue; }
+        // Au-delà des N contenus les plus récents, ou une seconde copie d'un même contenu : à la corbeille (30 jours).
+        Json body = Json::object();
+        body.set("place", place_id);
+        body.set("bundle", v.bundle);
+        body.set("confirm", true);
+        std::string e2;
+        const Json r = version_action("delete", body, e2);
+        log("retention place=%s item=%s bundle=%s → %s", place_id.c_str(), item_key.c_str(), v.bundle.c_str(), e2.empty() ? "corbeille" : e2.c_str());
+    }
 }
 
 void Engine::apply_retention(const std::string& folder, const std::string& item_key, int keep) {
@@ -4298,6 +4818,34 @@ Json Engine::trash_restore(const Json& body, std::string& error) {
     return out;
 }
 
+// Supprimer pour de bon depuis la corbeille : une version ({place, path}) ou toute la corbeille d'un endroit
+// ({place, all: true}). Toujours avec « confirm » ; seulement sous « …/Corbeille/ » de cet endroit.
+Json Engine::trash_delete(const Json& body, std::string& error) {
+    if (!body["confirm"].as_bool()) { error = "confirmation manquante"; return Json(); }
+    const std::string place_id = body["place"].as_string(), what = body["path"].as_string();
+    std::string path;
+    auto st = version_store(place_id, "x", path, error);
+    if (!st) return Json();
+    std::string root, rel;
+    pbc_root(place_id, path, root, rel);
+    const std::string trash = fs::join(root, trash_dir);
+    Json out = Json::object();
+    if (body["all"].as_bool()) {
+        std::vector<fs::Entry> days;
+        int n = 0;
+        if (st->list(trash, days))
+            for (const auto& d : days) if (d.dir && d.name.size() == 10 && st->remove(fs::join(trash, d.name))) ++n;
+        log("trash empty place=%s days=%d", place_id.c_str(), n);
+        out.set("emptied", n);
+        return out;
+    }
+    if (what.rfind(trash + "/", 0) != 0 || what.find("..") != std::string::npos || what.size() < trash.size() + 12) { error = "élément de corbeille invalide"; return Json(); }
+    if (!st->remove(what)) { error = "suppression impossible"; return Json(); }
+    log("trash delete place=%s path=%s", place_id.c_str(), what.c_str());
+    out.set("deleted", what);
+    return out;
+}
+
 Json Engine::task_backup(const std::string& task_id, std::string& error) {
     tasks::Task t;
     if (!queue_->get(task_id, t) || t.type != tasks::Type::backup) { error = "tâche inconnue"; return Json(); }
@@ -4332,6 +4880,7 @@ Json Engine::task_backup(const std::string& task_id, std::string& error) {
 
 Json Engine::version_action(const std::string& action, const Json& body, std::string& error) {
     const std::string place_id = body["place"].as_string(), bundle = body["bundle"].as_string();
+    if (action != "measure" && read_only_place(place_id)) { error = "partage en lecture seule : gardez-en d'abord une copie chez vous"; return Json(); }
     std::string path;
     auto st = version_store(place_id, bundle, path, error);
     if (!st) return Json();
@@ -4401,7 +4950,10 @@ Json Engine::version_action(const std::string& action, const Json& body, std::st
 }
 
 bool Engine::forget_remote(const std::string& id) {
+    store::Remote r;
+    if (remotes_->find(id, r) && r.type == "share") store::share_forget(r.ftp.password);
     if (!remotes_->remove(id)) return false;
+    { std::lock_guard<std::mutex> l(remote_index_mu_); remote_index_.erase(id); }
     ++revision_;
     return true;
 }
@@ -4434,10 +4986,51 @@ Json Engine::backups_json(const std::string& place_id) {
 
 Json Engine::playtime() { std::lock_guard<std::mutex> l(playtime_mu_); return playtime_->all(); }
 
+Json Engine::saves_overview_view() {
+    Json ov = saves_overview();
+    Json entries = Json::array();
+    for (auto e : ov["entries"].items()) {
+        const Json& con = e["console"];
+        if (con.is_object() && !con["progress"]["text"].as_string().empty()) { entries.push(e); continue; }
+        const std::string acc = e["account"].as_string();
+        const std::string uid = acc.substr(acc.find(':') + 1);
+        const Json ins = saves::cached_inspections(dir_, e["title_id"].as_string(), uid);
+        const Json* pick = nullptr;
+        std::string from;
+        for (const auto& v : ins["versions"].items()) {
+            if (v["progress_text"].as_string().empty()) continue;
+            const bool on_console = v["source"]["kind"].as_string() == "console";
+            if (con.is_object()) {  // la partie est ici : seulement sa propre lecture, à jour (jamais celle d'une copie)
+                if (on_console && !v["stale"].as_bool()) { pick = &v; from = "console"; }
+                continue;
+            }
+            if (on_console) continue;
+            // Pas de partie ici : la copie la plus avancée (temps de jeu), sinon la plus récente.
+            const auto key = [](const Json& x) { return std::make_pair(x["play_time_seconds"].as_int(-1), x["newest_inner_mtime"].as_int()); };
+            if (!pick || key(v) > key(*pick)) { pick = &v; from = "copy"; }
+        }
+        if (!pick && !con.is_object()) {  // jamais lue : l'avancée notée au moment de la copie
+            for (const auto& b : e["backups"].items())
+                if (!b["progress"]["text"].as_string().empty() && (!pick || b["created_unix"].as_int() > (*pick)["created_unix"].as_int())) { pick = &b; from = "copy_noted"; }
+        }
+        if (pick) {
+            Json h = Json::object();
+            const bool noted = from == "copy_noted";
+            h.set("text", noted ? (*pick)["progress"]["text"] : (*pick)["progress_text"]);
+            h.set("play_time_seconds", noted ? (*pick)["progress"]["play_time_seconds"] : (*pick)["play_time_seconds"]);
+            h.set("from", noted ? std::string("copy") : from);
+            e.set("progress_hint", h);
+        }
+        entries.push(e);
+    }
+    ov.set("entries", entries);
+    return ov;
+}
+
 Json Engine::saves_overview(bool include_ignored) {
     struct Acc { std::string key, name, user_id, account_id, platform; bool on_console = false; unsigned titles = 0; };
     std::map<std::string, Acc> accs;          // clé : plateforme:utilisateur
-    struct Seen { std::int64_t saved = 0, created = 0; std::string text; std::int64_t play = -1; };
+    struct Seen { std::int64_t saved = 0, created = 0; std::string text; std::int64_t play = -1; std::string fp; };  // fp : empreinte du contenu lu
     struct Entry { std::string account, title_id, title, item_key; Json console; Json backups = Json::array(); std::int64_t newest = 0, newest_save = 0;
                    std::vector<Seen> seen; };  // heure de partie + avancée de chaque copie (ici, NAS, nuage, autre PS5)
     std::map<std::string, Entry> entries;     // clé : compte|jeu
@@ -4550,16 +5143,29 @@ Json Engine::saves_overview(bool include_ignored) {
                 v.set("complete", b["complete"]);
                 v.set("bytes", b["bytes"]);  // taille de la copie : une grosse copie illisible n'est pas une copie vide
                 if (b["legacy"].as_bool()) v.set("legacy", true);
-                if (a["save_mtime"].as_int()) v.set("save_mtime", a["save_mtime"]);
+                // Heure de la partie : celle écrite DANS la partie quand on l'a lue (manifeste + lecture gardée), pas celle
+                // du fichier image — une image remontée puis refermée (copie « complète ») change d'heure sans que la partie
+                // change, et une partie identique passait pour « plus récente » (Taxi Chaos 2, 18/11).
+                std::int64_t saved = a["save_mtime"].as_int();
+                std::string fp;
+                if (a["raw"].is_string()) {
+                    const Json k = saves::known_by_raw(dir_, a["raw"].as_string(), b["title_id"].as_string());
+                    if (k.is_object()) {
+                        if (k["newest_inner_mtime"].as_int() > 0) saved = k["newest_inner_mtime"].as_int();
+                        fp = k["fingerprint"].as_string();
+                    }
+                }
+                if (saved) v.set("save_mtime", saved);
                 if (a["progress"].is_object()) v.set("progress", a["progress"]);  // avancée notée à la copie
                 if (a["raw"].is_string()) v.set("raw", a["raw"]);  // empreinte du contenu (manifeste)
+                if (!fp.empty()) v.set("content_fp", fp);
                 e.backups.push(v);
                 if (b["complete"].as_bool()) {
                     e.newest = std::max<std::int64_t>(e.newest, b["created_unix"].as_int());
                     // Heure de la sauvegarde du jeu contenue (connue pour nos backups ; pas pour les anciens faits par script).
-                    e.newest_save = std::max<std::int64_t>(e.newest_save, a["save_mtime"].as_int());
-                    e.seen.push_back({a["save_mtime"].as_int(), b["created_unix"].as_int(), a["progress"]["text"].as_string(),
-                                      a["progress"]["play_time_seconds"].is_number() ? a["progress"]["play_time_seconds"].as_int() : -1});
+                    e.newest_save = std::max<std::int64_t>(e.newest_save, saved);
+                    e.seen.push_back({saved, b["created_unix"].as_int(), a["progress"]["text"].as_string(),
+                                      a["progress"]["play_time_seconds"].is_number() ? a["progress"]["play_time_seconds"].as_int() : -1, fp});
                 }
             }
         }
@@ -4582,9 +5188,11 @@ Json Engine::saves_overview(bool include_ignored) {
                 if (en == entries.end()) continue;
                 for (const auto& c : g["copies"].items()) {
                     if (!c["complete"].as_bool(true) || c["place"].as_string().rfind("peer:", 0) == 0) continue;
-                    const std::int64_t saved = std::max(c["save_mtime"].as_int(), c["game_saved_at"].as_int());
+                    // L'heure écrite dans la partie quand l'autre PS5 l'a lue ; sinon celle du fichier.
+                    const std::int64_t saved = c["game_saved_at"].as_int() > 0 ? c["game_saved_at"].as_int() : c["save_mtime"].as_int();
                     en->second.seen.push_back({saved, c["created_unix"].as_int(), c["progress_text"].as_string(),
-                                               c["play_time_seconds"].is_number() && c["play_time_seconds"].as_int() > 0 ? c["play_time_seconds"].as_int() : -1});
+                                               c["play_time_seconds"].is_number() && c["play_time_seconds"].as_int() > 0 ? c["play_time_seconds"].as_int() : -1,
+                                               c["content_fp"].as_string()});
                     if (saved > en->second.newest_save) { en->second.newest_save = saved; en->second.newest = std::max(en->second.newest, c["created_unix"].as_int()); }
                 }
             }
@@ -4679,7 +5287,15 @@ Json Engine::saves_overview(bool include_ignored) {
             // « plus récente » : seule une partie réellement jouée change l'avancée.
             const std::string ctext = e.console["progress"]["text"].as_string();
             const std::int64_t cplay = e.console["progress"]["play_time_seconds"].is_number() ? e.console["progress"]["play_time_seconds"].as_int() : -1;
+            // Et quand le jeu ne dit rien de son avancée : l'empreinte du contenu lu (même fichier de partie = même partie).
+            std::string cfp;
+            bool cfp_read = false;  // lue seulement si une copie a une empreinte (évite de lister le dossier de chaque jeu)
+            auto console_fp = [&]() -> const std::string& {
+                if (!cfp_read) { cfp_read = true; if (e.account.rfind("ps5:", 0) == 0) cfp = saves::console_cached(dir_, e.title_id, e.account.substr(4))["fingerprint"].as_string(); }
+                return cfp;
+            };
             auto same = [&](const Seen& s) {
+                if (!s.fp.empty() && !console_fp().empty()) return s.fp == console_fp();
                 if (ctext.empty() || s.text.empty() || s.text != ctext) return false;
                 return cplay < 0 || s.play < 0 || cplay == s.play;
             };
@@ -4797,6 +5413,96 @@ bool Engine::forget_device(const std::string& id) {
     return true;
 }
 
+// À la fin d'un téléchargement BitTorrent : une copie vers l'endroit choisi (Paramètres › Réseau › Options BitTorrent),
+// dans son dossier « Téléchargements » ; une tâche comme les autres (Transferts en cours, reprise, vérification).
+void Engine::bt_after(const std::string& name, const std::string& dir) {
+    const Settings s = settings();
+    if (s.bt_done_copy.empty() || name.empty()) return;
+    std::string src = "internal";
+    {
+        MuGuard l(mu_, __FILE__, __LINE__);
+        std::size_t best = 0;
+        for (const auto& p : places_)
+            if (!p.mount.empty() && dir.rfind(p.mount, 0) == 0 && p.mount.size() > best) { src = p.id; best = p.mount.size(); }
+    }
+    // Tout connecteur : un disque de cette console, un NAS, le nuage, une Switch, une autre PS5 — la même liste que
+    // « Fichiers » (Appareils › Parcourir), chacun avec sa racine (dossier réglé pour l'appareil) ; on range dans
+    // <racine>/Téléchargements. Une autre PS5 arrive ici sous son identifiant de sauvegardes (« peer:… »).
+    std::string dst = s.bt_done_copy;
+    {
+        std::string inst, place;
+        if (dst.rfind("peer:", 0) == 0 && store::parse_peer_id(dst, inst, place)) dst = "peerfiles:" + inst + ":" + place;
+    }
+    std::string root;
+    bool found = false;
+    const Json all = files_places();  // gardée ici : itérer sur la liste d'un objet temporaire la lirait déjà détruite
+    for (const auto& f : all.items())
+        if (f["id"].as_string() == dst) { root = f["root"].as_string(); found = true; }
+    if (!found) { log("bt: à la fin, copie de %s : destination %s introuvable", name.c_str(), dst.c_str()); return; }
+    while (!root.empty() && root.back() == '/') root.pop_back();
+    const std::string dst_dir = root + "/Téléchargements";
+    Json b = Json::object();
+    b.set("src_place", src);
+    b.set("src_dir", dir);
+    b.set("dst_place", dst);
+    b.set("dst_dir", dst_dir);
+    Json names = Json::array();
+    names.push(name);
+    b.set("names", names);
+    std::string err;
+    const std::string id = files_copy(b, err);
+    log("bt: à la fin, copie de %s vers %s : %s", name.c_str(), s.bt_done_copy.c_str(), id.empty() ? err.c_str() : id.c_str());
+}
+
+// « Plein débit la nuit » : l'heure de la console dans la plage [de, à[ (qui peut passer minuit).
+bool Engine::night_now(const Settings& s) const {
+    if (!s.bt_night || s.bt_night_from == s.bt_night_to) return false;
+    const std::int64_t t = now_unix() + utc_offset();
+    const int h = static_cast<int>(((t % 86400) + 86400) % 86400 / 3600);
+    return s.bt_night_from < s.bt_night_to ? (h >= s.bt_night_from && h < s.bt_night_to) : (h >= s.bt_night_from || h < s.bt_night_to);
+}
+
+// Débit de réception (Ko/s, 0 : sans limite) : le maximum réglé, sans limite la nuit, et pendant une partie le plus bas.
+int Engine::dl_rate_kbps(const Settings& s) const {
+    const int base = night_now(s) ? 0 : s.bt_rate_max;
+    if (game_running_ && s.bt_rate_game > 0) return base > 0 ? std::min(s.bt_rate_game, base) : s.bt_rate_game;
+    return base;
+}
+
+bt::Config Engine::bt_config(const Settings& s) const {
+    bt::Config c;
+    c.state_dir = fs::join(dir_, "bt");
+    // Où ranger : un disque de cette console (interne, USB) ; ailleurs (NAS, nuage), l'interne pour l'instant.
+    std::string root = "/data";
+    {
+        MuGuard l(mu_, __FILE__, __LINE__);
+        for (const auto& p : places_) if (!s.dl_place.empty() && p.id == s.dl_place && !p.mount.empty()) root = p.mount;  // places_ : disques de cette console
+    }
+    c.save_dir = fs::join(root, "Téléchargements");
+    c.port_from = s.bt_port_from; c.port_to = s.bt_port_to;
+    c.tcp = s.bt_proto != "udp"; c.utp = s.bt_proto != "tcp";
+    c.dht = s.bt_dht; c.upnp = s.bt_upnp;
+    c.incoming = s.bt_accept_in;
+    c.down_kbps = dl_rate_kbps(s);
+    c.seed_ratio = s.bt_seed_ratio;
+    c.seed_minutes = s.bt_seed_hours * 60;
+    c.prealloc = s.bt_prealloc;
+    c.space_check = s.bt_space_check;
+    c.encrypt = s.bt_encrypt == "force" ? 1 : s.bt_encrypt == "off" ? 2 : 0;
+    c.blocklist = s.bt_blocklist;
+    {  // déplacer à la fin : un disque de cette console seulement
+        MuGuard l(mu_, __FILE__, __LINE__);
+        for (const auto& p : places_)
+            if (!s.bt_done_move.empty() && p.id == s.bt_done_move && !p.mount.empty()) c.move_dir = fs::join(p.mount, "Téléchargements");
+        for (const auto& p : places_)  // dossier surveillé : « Torrents à ajouter » sur le disque choisi (créé s'il manque)
+            if (!s.bt_watch.empty() && p.id == s.bt_watch && !p.mount.empty()) { c.watch_dir = fs::join(p.mount, "Torrents à ajouter"); fs::mkdirs(fs::host(c.watch_dir)); }
+    }
+    c.up_kbps = s.bt_upload_max;
+    c.active = s.bt_active;
+    c.connections = s.bt_connections;
+    return c;
+}
+
 Settings Engine::settings() const { MuGuard l(mu_, __FILE__, __LINE__); return settings_; }
 
 bool Engine::set_settings(const Settings& s) {
@@ -4809,6 +5515,7 @@ bool Engine::set_settings(const Settings& s) {
     updater_->set_source(s.update_source);
     fetcher_->set_enabled(s.covers_online);
     if (link_) link_->wan_configure(s.wan_enabled, static_cast<std::uint16_t>(s.wan_port), s.wan_public_host);
+    if (bt_) bt_->configure(bt_config(s));
     ++revision_;
     return fs::write_atomic(fs::host(fs::join(dir_, "settings.json")), s.to_json().dump(true) + "\n");
 }

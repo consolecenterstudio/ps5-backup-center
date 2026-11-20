@@ -104,7 +104,28 @@ public:
             if (fh) { smb2_close(s.ctx_, fh); fh = nullptr; }
             smb2_unlink(s.ctx_, part.c_str());
         }
+        bool keep() override {  // arrêt : le .part reste sur le partage, la reprise écrit à la suite
+            if (!fh) return false;
+            smb2_close(s.ctx_, fh);
+            fh = nullptr;
+            return true;
+        }
     };
+
+    std::unique_ptr<Writer> resume(const std::string& path, std::uint64_t& have, std::string& err) override {
+        have = 0;
+        const std::string rel = to_rel(path);
+        struct smb2_stat_64 st{};
+        if (smb2_stat(ctx_, (rel + ".part").c_str(), &st) != 0 || st.smb2_size == 0) return nullptr;
+        auto w = std::make_unique<W>(*this, rel);
+        w->fh = smb2_open(ctx_, w->part.c_str(), O_WRONLY);
+        if (!w->fh) { err = std::string("reprise SMB impossible : ") + smb2_get_error(ctx_); return nullptr; }
+        std::uint64_t cur = 0;
+        if (smb2_lseek(ctx_, w->fh, static_cast<std::int64_t>(st.smb2_size), SEEK_SET, &cur) < 0 || cur != st.smb2_size) { smb2_close(ctx_, w->fh); w->fh = nullptr; err = "reprise SMB impossible"; return nullptr; }
+        have = st.smb2_size;
+        return w;
+    }
+    std::unique_ptr<Reader> open_partial(const std::string& path, std::string& err) override { return open_at(path + ".part", 0, err); }
 
     std::unique_ptr<Writer> create(const std::string& path, std::string& err) override {
         const std::string rel = to_rel(path);

@@ -147,6 +147,62 @@
    "license": "MIT",
    "role": "Codes QR de l'écran « Soutenir le projet »",
    "url": "https://github.com/nayuki/QR-Code-generator"
+  },
+  {
+   "name": "PS5 Dump Forge",
+   "author": "quer3q",
+   "license": "GPL-3.0-or-later",
+   "role": "Paquets .pkg : création, compression Kraken et vérification (ps5upload-fpkg, ps5upload-pkg)",
+   "url": "https://github.com/quer3q/ps5-dump-forge"
+  },
+  {
+   "name": "PS5Upload",
+   "author": "phantomptr",
+   "license": "GPL-3.0-or-later",
+   "role": "Origine du code des paquets .pkg repris par Dump Forge",
+   "url": "https://github.com/phantomptr/ps5upload"
+  },
+  {
+   "name": "ps5-ai-cli",
+   "author": "saawant12",
+   "license": "GPL-3.0-or-later",
+   "role": "Cible Rust PS5 et adaptations FreeBSD 11 pour la bibliothèque des paquets",
+   "url": "https://github.com/saawant12/ps5-ai-cli"
+  },
+  {
+   "name": "Kraken Mount",
+   "author": "quer3q",
+   "license": "GPL-3.0-or-later",
+   "role": "Lancer un jeu depuis son .pkg : cache de démarrage, index AMPR, inscription, lancements (code compilé dans le moteur)",
+   "url": "https://github.com/quer3q/kraken-mount"
+  },
+  {
+   "name": "ampr-emu-ng",
+   "author": "quer3q",
+   "license": "GPL-3.0-or-later",
+   "role": "Bibliothèque glissée dans un jeu lancé depuis son .pkg (lecture du paquet à la demande), compilée par nous",
+   "url": "https://github.com/quer3q/ampr-emu-ng"
+  },
+  {
+   "name": "dlc_emu et pgo_stub",
+   "author": "drakmor",
+   "license": "GPL-3.0",
+   "role": "Bibliothèques glissées dans un jeu lancé depuis son .pkg (DLC, PlayGo), compilées par nous avec nos en-têtes",
+   "url": "https://github.com/drakmor/dlc_emu"
+  },
+  {
+   "name": "ShadowMountPlus",
+   "author": "drakmor",
+   "license": "GPL-3.0",
+   "role": "Notre ShadowMount intégré : montage et inscription des images et dossiers quand le ShadowMountPlus installé ne tourne pas (code compilé dans le moteur, sans ses crochets ni son API)",
+   "url": "https://github.com/drakmor/ShadowMountPlus"
+  },
+  {
+   "name": "json-c",
+   "author": "json-c contributors",
+   "license": "MIT",
+   "role": "Lecture JSON pour notre ShadowMount intégré",
+   "url": "https://github.com/json-c/json-c"
   }
  ],
  "thanks": [
@@ -163,7 +219,7 @@
   {
    "name": "ShadowMount+",
    "author": "drakmor",
-   "role": "Montage des jeux, compatibilité de la bibliothèque",
+   "role": "Montage des jeux, compatibilité de la bibliothèque ; son code sert à notre ShadowMount intégré",
    "url": "https://github.com/drakmor/ShadowMountPlus"
   },
   {
@@ -173,6 +229,10 @@
   {
    "name": "Prospero Manager",
    "role": "Référence pour la gestion des sauvegardes et des comptes"
+  },
+  {
+   "name": "Alembic",
+   "role": "Référence : sa façon d'installer un .pkg sans serveur ni port guidera notre lot 3"
   }
  ]
 }

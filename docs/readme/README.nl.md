@@ -4,6 +4,17 @@
 
 [English](../../README.md) · [Français](README.fr.md) · [Français (Canada)](README.fr-CA.md) · [Español](README.es.md) · [Español (Latinoamérica)](README.es-419.md) · [Português (Brasil)](README.pt-BR.md) · [Português (Portugal)](README.pt-PT.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Nederlands](README.nl.md) · [Polski](README.pl.md) · [Türkçe](README.tr.md) · [Русский](README.ru.md) · [简体中文](README.zh-Hans.md) · [繁體中文](README.zh-Hant.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Tiếng Việt](README.vi.md) · [العربية](README.ar.md)
 
+## 3.2.0
+
+- In Downloads accepteert „+ Link toevoegen” ook een magnetlink of een .torrent-bestand: je kiest de schijf (die uit Instellingen › Netwerk eerst), volgt de voortgang (bronnen, snelheid, resterende tijd) en pauzeert, hervat of verwijdert (tv en web).
+- Downloads › Mijn links: alle links die de console gaf (BitTorrent, console-.zip, MEGA, OneDrive), met QR-code, adres en een manier om ze te stoppen. MEGA- en OneDrive-links worden daar bewaard.
+- Plannen: een save of game die al op de bestemming staat (zelfde inhoud, door welke PS5 ook gekopieerd) wordt niet opnieuw gekopieerd; het overzicht zegt „al bijgewerkt”. Er wordt niets opnieuw gelezen om dat te weten.
+- Downloads › „ORBIT EN BLACKBOX”: wat Orbit en BlackBox op de console hebben gedownload (status, schijf, grootte, bestand niet gevonden) en hun tijdelijke bestanden (bewaard archief, download bezig, rest), bij hen gelezen zonder iets te wijzigen.
+- ‘Installeren…’ in de tools van een game, .pkg-pakketten en Downloads › Orbit en BlackBox: koppelen waar hij staat (in de gamemap van zijn schijf gezet, geen kopie, gekoppeld door ShadowMount), of installeren op een andere schijf of andere PS5 (gecontroleerde kopie, origineel behouden of verwijderd).
+- ‘Installeren… › Koppelen waar hij staat’ voor een Kraken-.pkg: de game wordt bij de console aangemeld en start vanuit zijn pakket, zonder iets uit te pakken — door Kraken Mount als die geïnstalleerd is, anders door onze ingebouwde versie (het werk van Kraken Mount in onze engine, met ampr-emu-ng, pgo_stub en dlc_emu door ons gebouwd; vereist kstuff). Een game die ShadowMount al heeft of die de console heeft geïnstalleerd, blijft ongemoeid. Eerste versie, om te proberen.
+
+De productiegoedkeuring van Dropbox is in behandeling. Automatische synchronisatie tussen PS5’s en installatie op een andere console zijn eerste versies waarvoor consoletests nog lopen.
+
 <p align="center">
   <img src="../assets/screenshots/en-oled-home.png" alt="PS5 Backup Center — Startscherm" width="88%">
 </p>
@@ -14,7 +25,7 @@
 
 **Download, installeer en verplaats je games.** Ontvang games van een gekoppelde PS5 op je lokale netwerk. Maak back-ups, vergelijk, synchroniseer en herstel je saves tussen PS5-consoles, USB-schijven, NAS en cloudopslag via de tv of browser. Beheer PS5-apps en DLC en saves van Switch en compatibele emulators.
 
-[Nieuw 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+[Nieuw 3.2.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.2.0)
 
 **Je collectie. Je voortgang. Je back-ups.**
 

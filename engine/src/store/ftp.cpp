@@ -35,6 +35,7 @@ Json FtpConfig::to_json(bool with_password) const {
     if (!bucket.empty()) j.set("bucket", bucket);
     if (!region.empty()) j.set("region", region);
     if (!service.empty()) j.set("service", service);
+    if (expires) j.set("expires", expires);
     return j;
 }
 
@@ -54,6 +55,7 @@ FtpConfig FtpConfig::from_json(const Json& j) {
     c.region = j["region"].as_string();
     if (s3_known_service(j["service"].as_string())) c.service = j["service"].as_string();
     if (j["proto"].as_string() == "smb" || j["proto"].as_string() == "ftp") c.proto = j["proto"].as_string();
+    c.expires = j["expires"].as_int();
     return c;
 }
 
@@ -108,6 +110,9 @@ struct Conn {
     ssize_t recv(char* p, std::size_t n) { return s ? tls::read(s, p, n) : ::recv(fd, p, n, 0); }
     bool send(const char* p, std::size_t n) { return s ? tls::write_all(s, p, n) : send_all(fd, p, n); }
     void close() { if (s) tls::close(s); s = nullptr; if (fd >= 0) ::close(fd); fd = -1; }
+    // Coupée sans la fin TLS propre : br_sslio_close attend celle du serveur en lisant (et jetant) tout ce qui arrive —
+    // le reste d'un fichier de 50 Go quand on n'en voulait que l'en-tête.
+    void abort() { if (s) tls::abort(s); s = nullptr; if (fd >= 0) ::close(fd); fd = -1; }
     bool ok() const { return fd >= 0; }
 };
 
@@ -115,6 +120,10 @@ struct Conn {
 class Ftp {
 public:
     ~Ftp() { if (ctl_.ok()) { cmd("QUIT"); ctl_.close(); } }
+    // Après une lecture arrêtée en cours de route, les réponses du serveur ne sont plus sûres (un « 426 » de plus ou de
+    // moins selon les serveurs) : la connexion est coupée, le magasin en rouvre une propre à la commande suivante.
+    void drop() { ctl_.abort(); buf_.clear(); broken_ = true; }
+    bool broken() const { return broken_; }
 
     bool open(const FtpConfig& c, std::string& err) {
         host_ = c.host;
@@ -347,7 +356,7 @@ private:
 
     Conn ctl_;
     std::string host_, buf_, last_;
-    bool mlsd_ = true, secure_ = false;
+    bool mlsd_ = true, secure_ = false, broken_ = false;
 };
 
 // Le .part est renommé par commit() : un fichier à moitié envoyé ne porte jamais le nom final.
@@ -370,6 +379,12 @@ public:
         f_.reply();
         f_.cmd("DELE " + path_ + ".part");
     }
+    bool keep() override {  // arrêt : le .part reste sur le serveur, la reprise écrit à la suite (APPE)
+        if (!d_.ok()) return false;
+        d_.close();
+        f_.reply();
+        return true;
+    }
 private:
     Ftp& f_;
     std::string path_;
@@ -379,42 +394,66 @@ private:
 class FtpReader : public Reader {
 public:
     FtpReader(Ftp& f, Conn data) : f_(f), d_(data) {}
-    ~FtpReader() override { if (d_.ok()) { d_.close(); f_.reply(); } }
+    // Lu jusqu'au bout : la réponse de fin du transfert. Arrêté avant (l'en-tête d'un .pkg, quelques centaines
+    // d'octets d'un fichier de 50 Go) : canal de données coupé net, et connexion de contrôle abandonnée (rouverte à la
+    // commande suivante) — attendre la fin du transfert, ou « ABOR », dépend trop des serveurs (NAS Synology : tout le
+    // fichier passait avant la réponse).
+    ~FtpReader() override {
+        if (!d_.ok()) return;
+        if (eof_) { d_.close(); f_.reply(); return; }
+        d_.abort();
+        f_.drop();
+    }
     long read(char* p, std::size_t n) override {
         const ssize_t r = d_.recv(p, n);
+        if (r <= 0) eof_ = true;
         return static_cast<long>(r);
     }
 private:
     Ftp& f_;
     Conn d_;
+    bool eof_ = false;
 };
 
 class FtpStore : public Store {
 public:
     FtpStore(FtpConfig c, std::unique_ptr<Ftp> f) : cfg_(std::move(c)), f_(std::move(f)) {}
     std::string label() const override { return (f_->secure() ? "FTPS " : "FTP ") + cfg_.host; }
-    bool mkdirs(const std::string& dir) override { return f_->mkdirs(dir); }
+    bool mkdirs(const std::string& dir) override { return c().mkdirs(dir); }
     std::unique_ptr<Writer> create(const std::string& p, std::string& err) override {
-        if (!f_->mkdirs(std::string(fs::dirname(p)))) { err = "dossier impossible à créer (" + f_->last() + ")"; return nullptr; }
-        Conn d = f_->data(err);
+        if (!c().mkdirs(std::string(fs::dirname(p)))) { err = "dossier impossible à créer (" + c().last() + ")"; return nullptr; }
+        Conn d = c().data(err);
         if (!d.ok()) return nullptr;
-        if (f_->cmd("STOR " + p + ".part") / 100 != 1) { d.close(); err = "envoi refusé (" + f_->last() + ")"; return nullptr; }
-        if (!f_->secure(d)) { d.close(); f_->reply(); err = "chiffrement du transfert impossible"; return nullptr; }
+        if (c().cmd("STOR " + p + ".part") / 100 != 1) { d.close(); err = "envoi refusé (" + c().last() + ")"; return nullptr; }
+        if (!c().secure(d)) { d.close(); c().reply(); err = "chiffrement du transfert impossible"; return nullptr; }
         return std::make_unique<FtpWriter>(*f_, p, d);
     }
-    std::unique_ptr<Reader> open(const std::string& p, std::string& err) override {
-        Conn d = f_->data(err);
+    // Reprise d'un envoi gardé (Writer::keep) : taille du .part, puis « APPE » pour écrire à la suite.
+    std::unique_ptr<Writer> resume(const std::string& p, std::uint64_t& have, std::string& err) override {
+        have = 0;
+        std::uint64_t sz = 0;
+        if (!c().size(p + ".part", sz) || sz == 0) return nullptr;
+        Conn d = c().data(err);
         if (!d.ok()) return nullptr;
-        if (f_->cmd("RETR " + p) / 100 != 1) { d.close(); err = "lecture refusée (" + f_->last() + ")"; return nullptr; }
-        if (!f_->secure(d)) { d.close(); f_->reply(); err = "chiffrement du transfert impossible"; return nullptr; }
+        if (c().cmd("APPE " + p + ".part") / 100 != 1) { d.close(); err = "reprise refusée (" + c().last() + ")"; return nullptr; }
+        if (!c().secure(d)) { d.close(); c().reply(); err = "chiffrement du transfert impossible"; return nullptr; }
+        have = sz;
+        return std::make_unique<FtpWriter>(*f_, p, d);
+    }
+    std::unique_ptr<Reader> open_partial(const std::string& p, std::string& err) override { return open(p + ".part", err); }
+    std::unique_ptr<Reader> open(const std::string& p, std::string& err) override {
+        Conn d = c().data(err);
+        if (!d.ok()) return nullptr;
+        if (c().cmd("RETR " + p) / 100 != 1) { d.close(); err = "lecture refusée (" + c().last() + ")"; return nullptr; }
+        if (!c().secure(d)) { d.close(); c().reply(); err = "chiffrement du transfert impossible"; return nullptr; }
         return std::make_unique<FtpReader>(*f_, d);
     }
     std::unique_ptr<Reader> open_at(const std::string& p, std::uint64_t offset, std::string& err) override {
-        Conn d = f_->data(err);
+        Conn d = c().data(err);
         if (!d.ok()) return nullptr;
-        if (offset && f_->cmd("REST " + std::to_string(offset)) != 350) { d.close(); return Store::open_at(p, offset, err); }
-        if (f_->cmd("RETR " + p) / 100 != 1) { d.close(); err = "lecture refusée (" + f_->last() + ")"; return nullptr; }
-        if (!f_->secure(d)) { d.close(); f_->reply(); err = "chiffrement du transfert impossible"; return nullptr; }
+        if (offset && c().cmd("REST " + std::to_string(offset)) != 350) { d.close(); return Store::open_at(p, offset, err); }
+        if (c().cmd("RETR " + p) / 100 != 1) { d.close(); err = "lecture refusée (" + c().last() + ")"; return nullptr; }
+        if (!c().secure(d)) { d.close(); c().reply(); err = "chiffrement du transfert impossible"; return nullptr; }
         return std::make_unique<FtpReader>(*f_, d);
     }
     bool read_small(const std::string& p, std::string& out, std::uint64_t limit) override {
@@ -434,26 +473,36 @@ public:
     bool stat(const std::string& p, fs::Entry& out) override {
         out = {};
         out.name = std::string(fs::basename(p));
-        if (f_->size(p, out.size)) return true;
+        if (c().size(p, out.size)) return true;
         std::vector<fs::Entry> l;
-        if (f_->list(std::string(fs::dirname(p)), l))
+        if (c().list(std::string(fs::dirname(p)), l))
             for (const auto& e : l) if (e.name == out.name) { out = e; return true; }
         return false;
     }
-    bool list(const std::string& dir, std::vector<fs::Entry>& out) override { return f_->list(dir, out); }
+    bool list(const std::string& dir, std::vector<fs::Entry>& out) override { return c().list(dir, out); }
     bool space(const std::string&, fs::Space&) override { return false; }  // FTP ne le dit pas de façon standard
     bool remove(const std::string& p) override {
         std::vector<fs::Entry> l;
-        if (f_->list(p, l) && f_->cmd("CWD " + p) / 100 == 2) {
+        if (c().list(p, l) && c().cmd("CWD " + p) / 100 == 2) {
             for (const auto& e : l) remove(p + "/" + e.name);
-            return f_->cmd("RMD " + p) / 100 == 2;
+            return c().cmd("RMD " + p) / 100 == 2;
         }
-        return f_->cmd("DELE " + p) / 100 == 2;
+        return c().cmd("DELE " + p) / 100 == 2;
     }
     bool rename(const std::string& from, const std::string& to) override {
-        return f_->cmd("RNFR " + from) == 350 && f_->cmd("RNTO " + to) / 100 == 2;
+        return c().cmd("RNFR " + from) == 350 && c().cmd("RNTO " + to) / 100 == 2;
     }
 private:
+    // La connexion, rouverte si une lecture arrêtée l'a abandonnée (Ftp::drop).
+    Ftp& c() {
+        if (f_->broken()) {
+            auto f = std::make_unique<Ftp>();
+            std::string err;
+            if (f->open(cfg_, err)) f_ = std::move(f);
+            else log("ftp reopen failed host=%s error=%s", cfg_.host.c_str(), err.c_str());
+        }
+        return *f_;
+    }
     FtpConfig cfg_;
     std::unique_ptr<Ftp> f_;
 };

@@ -4,16 +4,27 @@
 
 [English](../../README.md) · [Français](README.fr.md) · [Français (Canada)](README.fr-CA.md) · [Español](README.es.md) · [Español (Latinoamérica)](README.es-419.md) · [Português (Brasil)](README.pt-BR.md) · [Português (Portugal)](README.pt-PT.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Nederlands](README.nl.md) · [Polski](README.pl.md) · [Türkçe](README.tr.md) · [Русский](README.ru.md) · [简体中文](README.zh-Hans.md) · [繁體中文](README.zh-Hant.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Tiếng Việt](README.vi.md) · [العربية](README.ar.md)
 
+## 3.2.0
+
+- Dans Téléchargements, « + Ajouter un lien » accepte aussi un lien magnet ou un fichier .torrent : on choisit le disque où le ranger (celui de Paramètres › Réseau est proposé d'abord), puis on suit l'avancement (sources, débit, temps restant) et on met en pause, reprend ou retire (télé et web).
+- Téléchargements › Mes liens : tous les liens donnés depuis la console (BitTorrent, .zip de la console, MEGA, OneDrive), avec leur code QR, leur adresse et de quoi les arrêter. Les liens MEGA et OneDrive y sont gardés.
+- Plans : une partie ou un jeu déjà à la destination (même contenu, copie faite par n'importe quelle PS5) n'est plus recopié ; le bilan dit « déjà à jour ». Rien n'est relu pour le savoir.
+- Téléchargements › « ORBIT ET BLACKBOX » : ce qu'Orbit et BlackBox ont téléchargé sur la console (état, disque, taille, fichier introuvable) et leurs fichiers de passage (archive gardée, téléchargement en cours, reste), lus chez eux sans rien changer.
+- « Installer… » dans les outils d'un jeu, Paquets .pkg et Téléchargements › Orbit et BlackBox : le monter là où il est (rangé dans le dossier de jeux de son disque, sans copie, monté par ShadowMount), ou l'installer sur un autre disque ou une autre PS5 (copie vérifiée, original gardé ou retiré).
+- « Installer… › Le monter là où il est » d'un paquet .pkg Kraken : le jeu est déclaré à la console et se lance depuis son paquet, sans rien décompresser — par Kraken Mount s'il est installé, sinon par notre version intégrée (le travail de Kraken Mount dans notre moteur, avec ampr-emu-ng, pgo_stub et dlc_emu compilés par nous ; il faut kstuff). Un jeu déjà pris par ShadowMount ou installé par la console n'est pas touché. Première version, à essayer.
+
+Validation de production Dropbox en attente. La synchro automatique entre PS5 et l’installation vers une autre console sont des premières versions dont les essais console restent à compléter.
+
 <p align="center">
   <img src="../assets/screenshots/tv-home-current.png" alt="PS5 Backup Center — Écran d’accueil" width="88%">
 </p>
 
 **Téléchargez, installez et transférez vos jeux.** Récupérez vos jeux depuis une PS5 jumelée sur votre réseau local. Sauvegardez, comparez, synchronisez et restaurez vos parties entre vos PS5, vos disques USB, votre NAS et vos espaces cloud, depuis la télé ou le navigateur. Gérez vos applications et DLC PS5, ainsi que vos sauvegardes Switch et d’émulateurs compatibles.
 
-[Nouveautés 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+[Nouveautés 3.2.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.2.0)
 
 <p align="center">
-  <a href="../../CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/documented%20version-3.1.0-7cc4ff?style=flat-square&labelColor=0a1729"></a>
+  <a href="../../CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/documented%20version-3.2.0-7cc4ff?style=flat-square&labelColor=0a1729"></a>
   <a href="../../LICENSE"><img alt="Licence : GPL-3.0-or-later" src="https://img.shields.io/badge/licence-GPL--3.0--or--later-3d8bff?style=flat-square&labelColor=0a1729"></a>
   <img alt="Plateforme : PS5" src="https://img.shields.io/badge/plateforme-PS5%20(homebrew)-e8f1fb?style=flat-square&labelColor=0a1729">
   <img alt="Langues" src="https://img.shields.io/badge/langues-19-f0b867?style=flat-square&labelColor=0a1729">

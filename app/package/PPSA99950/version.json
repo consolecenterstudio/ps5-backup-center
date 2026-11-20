@@ -1,23 +1,16 @@
 {
- "version": "3.1.0",
- "build": "PBCK L03 D67D4E09BA",
+ "version": "3.2.0",
+ "build": "PBCK L03 F8FB203D28",
  "notes": [
-  "Google Drive, OneDrive et Dropbox sont disponibles : chacun connecte son compte depuis son téléphone ; sauvegarde, restauration et synchro comme avec un NAS.",
-  "Comparer et trier : toutes les copies d'un jeu côte à côte, jugées par leur contenu (Identique, Plus ancienne, Plus avancée), y compris celles rangées sur l'autre PS5.",
-  "Même partie à plusieurs endroits : des copies voulues, jamais traitées comme un problème ; « Faire le tri » et « Garder seulement sur… » quand on veut regrouper.",
-  "Origine des parties restaurées : la copie d'une partie restaurée garde l'heure de la partie d'origine, et les deux PS5 le savent.",
-  "Compresser une image sur le même disque.",
-  "Sauvegardes ouvertes en quelques secondes, même avec plusieurs NAS et nuages ; plus de « serveur occupé » ni de délai dépassé.",
-  "Chaque copie porte son empreinte et le résultat de sa lecture : une copie déjà lue n'est jamais relue, même par l'autre PS5, qui est prévenue tout de suite.",
-  "Transferts de jeux plus rapides, reprenables au milieu des gros fichiers.",
-  "Sauvegardes plus claires : bulles rangées (Partout, Cette PS5, l'autre PS5, NAS, Nuage, Corbeille) avec un aperçu de celles cachées, le logo de chaque service, et chaque endroit qui parle de ses copies.",
-  "Mises à jour : plus jamais de retour en arrière tout seul.",
-  "Parties : étiquettes courtes et jamais coupées ; « Pas sur cette PS5 » veut dire qu'une copie existe, mais pas la partie sur cette console.",
-  "Sauvegardes : Comparer et trier et la Corbeille empilés à droite, toujours visibles ; les endroits défilent à gauche.",
-  "Aides du bas de l'écran jamais coupées (plus petites, sinon sur deux lignes, dans toutes les langues) ; « △ Arrêter la tâche » au lieu de « Annuler » dans Transferts ; « Options : actions » dans Comparer.",
-  "Plus de fausses « copies plus récentes » après une restauration ou un aller-retour par le nuage.",
-  "Connexion OneDrive et création de ses dossiers réparées.",
-  "Logo de chaque service dès le démarrage (Backblaze n'apparaît plus d'abord en nuage générique) ; arrivé au bout d'une rangée, la carte dit « ‹ 2 avant » au lieu de « + 2 de plus › » ; Synchro compte des cibles, pas des appareils.",
-  "Aides corrigées : Toutes les versions annonce △ Comparer ce jeu et R2 ; la Corbeille n'affiche « Gauche / droite » que sur les bulles ; le cœur et la loupe ont leurs propres aides ; □ change bien de groupe dans Tâches ; « Bas : bouton Lancer »."
+  "« Installer… › Le monter là où il est » d'un paquet .pkg Kraken : le jeu est déclaré à la console et se lance depuis son paquet, sans rien décompresser — par Kraken Mount s'il est installé, sinon par notre version intégrée (le travail de Kraken Mount dans notre moteur, avec ampr-emu-ng, pgo_stub et dlc_emu compilés par nous ; il faut kstuff). Un jeu déjà pris par ShadowMount ou installé par la console n'est pas touché. Première version, à essayer.",
+  "Paramètres › Montage des jeux : ShadowMountPlus et Kraken Mount détectés ; par défaut, on se sert des outils installés, et notre version intégrée prend le relais pour les .pkg quand Kraken Mount n'est pas là (ou au choix).",
+  "Notre ShadowMount intégré (ShadowMountPlus 1.7, compilé par nous) : quand le ShadowMountPlus installé ne tourne pas, nos images et dossiers de jeux sont montés et inscrits quand même — sans crochet dans le système ni port ; le sien reste prioritaire dès qu'il tourne (Paramètres › Montage des jeux), et ses réglages ne sont jamais modifiés.",
+  "« Installer… » d'un jeu qui est ailleurs (NAS, nuage, autre PS5), depuis Fichiers : on choisit la PS5 cible et son disque ; copie vérifiée, puis montage ou installation par la console. Le NAS et le nuage sont des sources, jamais des cibles.",
+  "Web : « Installer depuis ce PC… » (Fichiers) — un fichier de jeu du PC (.pkg ou image) envoyé vers la PS5 et le disque choisis, par morceaux, avec reprise après une coupure, puis monté ou installé par la console.",
+  "Paramètres › Outils de la console : les payloads de Payload Manager et ceux qui tournent — les démarrer ou les arrêter d'ici (kstuff et notre moteur protégés, ShadowMountPlus arrêté proprement), et ouvrir Payload Manager ; plus besoin de redémarrer la console pour relancer un outil.",
+  "Fiche d'un jeu : la sauvegarde à gauche (les cases, puis « Sauvegarder » juste en dessous), ce qu'on fait du jeu à droite, avec « Installer… » ajouté ; ← → passe d'une colonne à l'autre.",
+  "Bibliothèques de jeux : un dossier du NAS, d'un nuage, d'un disque USB ou de l'autre PS5 déclaré depuis Fichiers ; ses jeux non installés apparaissent dans l'Accueil et la Bibliothèque (« À installer »), prêts à installer sur la PS5 et le disque choisis. Lu en fond, rien n'y est modifié. Chaque .pkg est reconnu par son en-tête : jeu, mise à jour ou DLC (jamais pris pour le jeu : rangés sous lui, installables par la console une fois le jeu installé), PS4 ou PS5, fake PKG ou paquet officiel ; Kraken n'est proposé que pour un jeu PS5 en fake PKG, sinon la raison est dite.",
+  "« Installer… » d'ailleurs : choisir le format (l'image, le .pkg du jeu lancé par Kraken ou installé par la console, ou l'image convertie en .pkg puis installée), avec le temps estimé ; puis une seule tâche à étapes numérotées (copie, vérification, conversion, installation), chacune avec sa barre, sa vitesse et le temps restant. On peut l'arrêter à n'importe quelle étape.",
+  "Désinstaller un jeu lancé depuis son .pkg (Kraken) : la console le retire elle-même, puis son paquet est supprimé si demandé ; ShadowMountPlus n'a plus à le connaître. Une installation en cours reprend là où elle en était après un redémarrage du moteur."
  ]
 }

@@ -311,7 +311,19 @@ private:
 // fichiers (S3 accepte 10 000 morceaux au plus).
 class S3Writer : public Writer {
 public:
-    S3Writer(const Client& c, std::string key) : c_(c), key_(std::move(key)) {}
+    S3Writer(const Client& c, std::string kept, std::string key) : c_(c), kept_(std::move(kept)), key_(std::move(key)) {}
+    // Reprise d'un envoi en plusieurs parties gardé : le stockage doit lister exactement les parties notées.
+    bool reopen(const Kept& k, std::string& err) {
+        const http::Reply r = c_.send("GET", key_, {{"uploadId", k.session}});
+        std::size_t parts = 0;
+        for (std::size_t at = 0; (at = r.body.find("<Part>", at)) != std::string::npos; ++at) ++parts;
+        const int n = static_cast<int>(k.extra["n"].as_int());
+        if (!r.ok() || n <= 0 || parts != static_cast<std::size_t>(n) || !acked_.restore(k)) { err = "envoi en plusieurs parties expiré sur le stockage"; return false; }
+        id_ = k.session;
+        n_ = n;
+        parts_ = k.extra["parts"].as_string();
+        return true;
+    }
     ~S3Writer() override { if (!done_) abort(); }
     bool write(const char* p, std::size_t n) override {
         if (failed_) return false;
@@ -330,11 +342,28 @@ public:
         if (!buf_.empty() && !send_part()) { err = "envoi refusé : " + err_; cancel(); return false; }
         const http::Reply r = c_.send("POST", key_, {{"uploadId", id_}}, {}, "<CompleteMultipartUpload>" + parts_ + "</CompleteMultipartUpload>");
         if (!r.ok() || r.body.find("<Error>") != std::string::npos) { err = "envoi refusé : " + why(r); cancel(); return false; }
+        kept_drop(kept_);
         return true;
     }
     void abort() override {
         done_ = true;
+        kept_drop(kept_);
         cancel();
+    }
+    // Arrêt : l'envoi en plusieurs parties reste ouvert sur le stockage, les parties envoyées sont notées pour la reprise.
+    bool keep() override {
+        if (id_.empty() || n_ == 0 || failed_) { abort(); return false; }
+        Kept k;
+        acked_.fill(k);
+        k.session = id_;
+        k.extra = Json::object();
+        k.extra.set("n", n_);
+        k.extra.set("parts", parts_);
+        done_ = true;
+        buf_.clear();
+        buf_.shrink_to_fit();
+        if (!kept_save(kept_, k)) { cancel(); return false; }
+        return true;
     }
 
 private:
@@ -348,6 +377,7 @@ private:
         const http::Reply r = c_.send("PUT", key_, {{"partNumber", std::to_string(n_ + 1)}, {"uploadId", id_}}, {}, buf_);
         const std::string etag = r.header("etag");
         if (!r.ok() || etag.empty()) { err_ = why(r); return false; }
+        acked_.add(buf_.data(), buf_.size());
         ++n_;
         parts_ += "<Part><PartNumber>" + std::to_string(n_) + "</PartNumber><ETag>" + etag + "</ETag></Part>";
         buf_.clear();
@@ -360,7 +390,8 @@ private:
         buf_.shrink_to_fit();
     }
     Client c_;  // copie (partage la connexion) : l'écriture peut finir après le magasin
-    std::string key_, buf_, id_, parts_, err_;
+    std::string kept_, key_, buf_, id_, parts_, err_;
+    Acked acked_;
     int n_ = 0;
     bool failed_ = false, done_ = false;
 };
@@ -385,7 +416,23 @@ public:
     }
     std::unique_ptr<Writer> create(const std::string& path, std::string& err) override {
         if (c_.key(path).empty()) { err = "chemin vide"; return nullptr; }
-        return std::make_unique<S3Writer>(c_, c_.key(path));
+        drop_partial(path);  // nouvel envoi depuis le début : une session gardée est refermée
+        return std::make_unique<S3Writer>(c_, kkey(path), c_.key(path));
+    }
+    bool kept(const std::string& path, Kept& out) override { return kept_load(kkey(path), out); }
+    std::unique_ptr<Writer> resume(const std::string& path, std::uint64_t& have, std::string& err) override {
+        have = 0;
+        Kept k;
+        if (c_.key(path).empty() || !kept_load(kkey(path), k)) { err = "rien à reprendre"; return nullptr; }
+        auto w = std::make_unique<S3Writer>(c_, kkey(path), c_.key(path));
+        if (!w->reopen(k, err)) { kept_drop(kkey(path)); return nullptr; }
+        have = k.have;
+        return w;
+    }
+    void drop_partial(const std::string& path) override {
+        Kept k;
+        if (kept_load(kkey(path), k)) c_.send("DELETE", c_.key(path), {{"uploadId", k.session}});
+        kept_drop(kkey(path));
     }
     std::unique_ptr<Reader> open(const std::string& path, std::string& err) override { return open_at(path, 0, err); }
     std::unique_ptr<Reader> open_at(const std::string& path, std::uint64_t offset, std::string& err) override {
@@ -475,6 +522,7 @@ public:
     }
 
 private:
+    std::string kkey(const std::string& path) const { return kept_key("s3", c_.cfg().host + "\n" + c_.cfg().bucket + "\n" + c_.cfg().user, c_.key(path)); }
     Client c_;
 };
 

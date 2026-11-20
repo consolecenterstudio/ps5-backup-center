@@ -1,0 +1,1 @@
+Source baseline v3.2.0, internal commit 0bbe7e7. Public differences are build path configuration, public build instructions, and anonymized examples in comments. Libtorrent documentation examples use a generic LAN address. Official binaries remain the frozen release artifacts. The public build wrapper has syntax validation; a clean cross-build remains to be checked.

@@ -23,7 +23,7 @@ namespace pbc::images {
 
 // Nature d'un chemin : dossier d'application (dump décompressé), image exFAT, image PFS, conteneur
 // compressé, paquet .ffpkg (monté par ShadowMountPlus), installation native de la PS5 (/user/app/<ID>/app.pkg).
-enum class Kind : std::uint8_t { unknown, folder, exfat, ffpfs, ffpfsc, ffpkg, native };
+enum class Kind : std::uint8_t { unknown, folder, exfat, ffpfs, ffpfsc, ffpkg, native, fpkg };  // fpkg : paquet .pkg (Kraken Mount, Orbit…)
 // Comment le jeu vit sur la console : « native » (installé par le système), « image » (.ffpfsc / .exfat /
 // .ffpfs / .ffpkg montée par ShadowMountPlus), « folder » (dump décompressé, monté par ShadowMountPlus).
 const char* storage_of(Kind);
@@ -40,6 +40,7 @@ struct Info {
     std::uint64_t data_size = 0; // contenu : dossier = size ; image = taille de l'image ; .ffpfsc = image imbriquée
     std::string inner;           // .ffpfsc : « exfat » | « pfs »
     std::string inner_name;      // .ffpfsc : nom de l'image imbriquée (PPSA01234.exfat, pfs_image.dat)
+    std::string content_id;      // .pkg : identifiant de contenu lu dans l'en-tête (UP0001-PPSA01234_00-…)
     bool has_hashes = false;     // .ffpfsc : empreintes de validation (<image>.vhash) présentes
     bool apr_indexed = false;    // dossier : ampr_emu.index présent
     bool mounted = false;        // contenu monté en ce moment (point de montage actif)
@@ -57,11 +58,12 @@ bool inspect(const std::string& console_path, Info& out, std::string& error, boo
 // et inscrits par ShadowMountPlus (/user/app/*/mount_img.lnk).
 std::vector<Info> discover(bool measure_folders = true);
 
-enum class Op : std::uint8_t { compress, uncompress, make_image, extract_image, validate, read_speed, ampr_index, set_read_only, transfer };
+enum class Op : std::uint8_t { compress, uncompress, make_image, extract_image, validate, read_speed, ampr_index, set_read_only, transfer, make_pkg };
 const char* to_string(Op);
 bool parse_op(std::string_view, Op&);  // « compress », « uncompress »… (= type de tâche, voir task_type)
 const char* task_type(Op);              // « compress », « uncompress », « make_image », « extract_image »,
-                                        // « validate_image », « read_speed_test », « build_ampr_index », « set_read_only », « transfer »
+                                        // « validate_image », « read_speed_test », « build_ampr_index », « set_read_only », « transfer »,
+                                        // « make_pkg » (paquet FPKG Kraken, docs/PLAN-paquets-fpkg.md)
 bool parse_task_type(std::string_view, Op&);
 
 struct Options {
@@ -84,6 +86,9 @@ struct Options {
     bool adopt = false;  // transfert : la copie est DÉJÀ à destination (même taille) : la vérifier puis l'inscrire, l'original reste
     std::string previous;        // version installée mise de côté (mise à jour d'une appli) : supprimée si tout va bien, remise sinon
     bool compress = false;       // transfer : compresse en .ffpfsc vers la destination au lieu de copier
+    int pkg_level = 1;           // make_pkg : 0 sans compression (Stored), 1 Fast (proposé), 2 Balanced, 3 Smallest
+    std::string format = "ffpfsc";  // compress / transfer+compress : « ffpfsc » (image ShadowMount) ou « pkg » (paquet Kraken)
+    bool pkg_move = false;       // (interne) transfert « déplacer » demandé en .pkg : refusé pour l'instant
     static bool from_json(const Json& body, Options& out, std::string& error);
     Json to_json() const;
 };
@@ -138,6 +143,8 @@ void set_running_title_probe(std::function<std::string()> probe);
 bool mounted(const std::string& console_path, Kind kind, const std::string& title_id, std::string* mount_path = nullptr);
 // Dossier de jeux d'un stockage (règle de Game Compressor) : /data → /data/homebrew, /mnt/usbN → /mnt/usbN/homebrew.
 std::string games_root(const std::string& storage_mount);
+// Diagnostic : la table des montages (source, point, type), lue sans attente ; filtrée par le début du point de montage.
+Json mounts_json(const std::string& prefix);
 // Inscrire une image déjà en place (copie identique déjà faite) : réglages ShadowMountPlus puis demande de montage.
 bool register_image(const std::string& title_id, const std::string& console_path, std::string& err);
 // Après une demande de montage : raison du report par ShadowMountPlus (« game_active »…), vide si immédiat ou inconnu.

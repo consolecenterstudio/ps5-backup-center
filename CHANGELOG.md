@@ -33,6 +33,1296 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 ---
 
+## [3.2.0] — 2026-11-19
+
+**Launch a game from its .pkg (first version)**
+
+### New
+
+- “Install… › Mount it where it is” for a Kraken .pkg: the game is declared to the console and runs from its package, nothing unpacked — by Kraken Mount if it's installed, otherwise by our built-in version (Kraken Mount's work inside our engine, with ampr-emu-ng, pgo_stub and dlc_emu built by us; needs kstuff). A game already taken by ShadowMount or installed by the console is left alone. First version, to be tried.
+- Settings › Game mounting: ShadowMountPlus and Kraken Mount detected; by default the installed tools are used, and our built-in version takes over for .pkg files when Kraken Mount isn't there (or by choice).
+- Our built-in ShadowMount (ShadowMountPlus 1.7, built by us): when the installed ShadowMountPlus isn't running, game images and folders are still mounted and registered — no hook in the system, no port; the installed one takes priority as soon as it runs (Settings › Game mounting). Its settings are never modified.
+- “Install…” for a game that is elsewhere (NAS, cloud, other PS5), from Files: choose the target PS5 and its drive; verified copy, then mounting or installation through the console. The NAS and the cloud are sources, never targets.
+- Web: “Install from this PC…” (Files) — a game file from the PC (.pkg or image) sent to the chosen PS5 and drive, in chunks, resuming after a dropout, then mounted or installed through the console.
+- Settings › Console tools: Payload Manager's payloads and those running — start or stop them from here (kstuff and our engine protected, ShadowMountPlus stopped cleanly), and open Payload Manager; no more restarting the console to relaunch a tool.
+- Game sheet: backup on the left (the checkboxes, then “Back up” right below), what you do with the game on the right, with “Install…” added; ← → switches column.
+- Game libraries: a folder on the NAS, a cloud, a USB drive or the other PS5, declared from Files; its uninstalled games appear in Home and Library (“To install”), ready to install on the chosen PS5 and drive. Read in the background, nothing there is changed. Each .pkg is recognized from its header: game, update or DLC (never taken for the game: filed under it, installable through the console once the game is installed), PS4 or PS5, fake PKG or official package; Kraken is offered only for a PS5 game in fake PKG, otherwise the reason is given.
+- “Install…” from elsewhere: choose the format (the image, the game's .pkg launched by Kraken or installed by the console, or the image converted to .pkg then installed), with the estimated time; then a single task with numbered steps (copy, verification, conversion, installation), each with its bar, speed and time left. It can be stopped at any step.
+- Uninstalling a game launched from its .pkg (Kraken): the console removes it itself, then its package is deleted if requested; ShadowMountPlus no longer needs to know it. An installation in progress resumes where it left off after the engine restarts.
+
+
+## [3.1.76] — 2026-11-19
+
+**Preparing to launch from a .pkg**
+
+### Improved
+
+- Read-only diagnostic of the mount table, to prepare launching a game from its .pkg.
+
+
+## [3.1.75] — 2026-11-19
+
+**Send a .pkg and install it on the other PS5**
+
+### New
+
+- “Install…” for a .pkg package: “Send it to <PS5> and install it there” — verified copy, then the other console installs it itself; a notification says so.
+
+### Improved
+
+- Install with the console: tried for real (Breeze on PS5-01, installed on internal storage).
+
+
+## [3.1.74] — 2026-11-19
+
+**Install a .pkg package with the console**
+
+### New
+
+- “Install… › Install with the console” for a .pkg package: the console installs it itself, like a Store game, with no server or port; never during a game; the package stays where it is.
+
+
+## [3.1.73] — 2026-11-19
+
+**Install a game, where it is or elsewhere**
+
+### New
+
+- “Install…” in a game's tools, .pkg packages and Downloads › Orbit and BlackBox: mount it where it is (placed in its drive's games folder, no copy, mounted by ShadowMount), or install it on another drive or another PS5 (verified copy, original kept or removed).
+
+
+## [3.1.72] — 2026-11-19
+
+**Automatic save sync**
+
+### New
+
+- Sync › Active saves: an “Automatic” setting per PS5 or NAS — when a followed game closes, the save you just played goes over 1 min later; or also every night at 4 AM, both ways. The replaced save is always backed up first; never during a game; a conflict waits for your choice.
+- Home: the Sync bubble says “Updated automatically: … · 5 min ago”.
+
+### Improved
+
+- Orbit and BlackBox: the Home bubble announces newly arrived games (backed up or not) with, on equal terms, Back up, Move, Compress to .pkg, See and “Seen”. No more nightly plan for these games.
+
+
+## [3.1.71] — 2026-11-19
+
+**Orbit and BlackBox: back up what they bring**
+
+### New
+
+- Library: a game that arrived via Orbit or BlackBox carries their badge; its sheet says “Arrived via Orbit” and whether it is not backed up yet.
+- Home › To do: an “Arrived via Orbit” card while a game they brought isn't backed up — Back up now (a .pkg that isn't installed goes as is to the NAS, the cloud or the other PS5), back them up every night, compress to .pkg, see, or Not now.
+- Plans: new rule “Games that arrived via Orbit and BlackBox” and a preset “New Orbit games, every night at 3 AM”.
+
+
+## [3.1.70] — 2026-11-19
+
+**Disc games: recognised and backed up**
+
+### Improved
+
+- Packages .pkg: “Send to a NAS, the cloud or another PS5” (verified copy; on the other PS5, into its games folder).
+
+### Fixed
+
+- A game that only has its saves on the console (PS4 disc game, uninstalled game) is no longer taken for an app, and “Back up” from Saves or Home no longer says “item not found”.
+- Transfers (TV): going down from “What to do?” to the row below, the cursor keeps its column.
+
+
+## [3.1.69] — 2026-11-18
+
+**Packages .pkg everywhere**
+
+### New
+
+- Transfers › “.pkg packages”: every .pkg on the drives (made here, Orbit…), with Verify, Copy or move, Delete; never registered in ShadowMount.
+
+### Improved
+
+- Transfers › Compress and “Compress before sending”: choose the format, .ffpfsc image or .pkg package (and its compression); Orbit and BlackBox: “Compress to .pkg” or “to .ffpfsc” for an .exfat image.
+
+
+## [3.1.68] — 2026-11-18
+
+**A log that survives a restart**
+
+### Improved
+
+- The engine also keeps its log in /data/pbc-backup-center/logs/engine.log (4 MB, plus the previous one): after the console freezes, you can see what it was doing.
+
+
+## [3.1.67] — 2026-11-18
+
+**Package .pkg: choose the compression**
+
+### Improved
+
+- “Create a .pkg package (Kraken)” asks for the compression: Fast (recommended), Uncompressed (safest, read by every console) or Smaller (slower).
+
+
+## [3.1.66] — 2026-11-18
+
+**Create a .pkg package (Kraken)**
+
+### New
+
+- Game tools (folder, .exfat, .ffpkg or .ffpfsc): “Create a .pkg package (Kraken)” — a single compressed file, read back and verified before it is kept; the original stays. Dump Forge and PS5Upload code built into the engine (no extra app or port).
+
+
+## [3.1.65] — 2026-11-18
+
+**Orbit and BlackBox: tidy up their games**
+
+### New
+
+- Downloads › Orbit and BlackBox: “Move to…” a finished game (internal ↔ USB, verified copy, always shown in its new place) and “Free up space…” from a kept archive or leftover, with confirmation; never an open game, a mounted image, or while they are downloading.
+
+
+## [3.1.64] — 2026-11-18
+
+**Orbit and BlackBox: their downloads in Downloads**
+
+### New
+
+- Downloads › “ORBIT AND BLACKBOX”: what Orbit and BlackBox downloaded on the console (status, drive, size, file not found) and their temporary files (kept archive, download in progress, leftover), read from their side without changing anything.
+
+
+## [3.1.63] — 2026-11-18
+
+**PS5s warn each other before a plan**
+
+### Improved
+
+- Backup plans to the same NAS or cloud from two or more PS5s: each console tells the others when it starts and when it is done; the others wait, then see its new copies right away.
+
+
+## [3.1.62] — 2026-11-18
+
+**Every copy knows which PS5 made it**
+
+### Improved
+
+- Every new copy records the PS5 that made it; “Keep N” never removes another PS5's latest copy stored in the same place.
+
+
+## [3.1.61] — 2026-11-18
+
+**Web: the same card details as the TV**
+
+### Improved
+
+- Web: dates as on the TV (“17/11/2026 14:36”), “Everywhere” on two lines, the other PS5's card with its status and address, and in Sync the summary of a device family (“Switch · 2 targets”).
+
+
+## [3.1.60] — 2026-11-18
+
+**Dropbox links, and reconnecting a cloud account without losing anything**
+
+### New
+
+- Share: “Dropbox link · from the service”, like OneDrive (permission granted by Dropbox).
+
+### Improved
+
+- Devices › a Google Drive, OneDrive or Dropbox account › Settings: “Reconnect the account” (Cross on “Account” on the TV) keeps the device and its settings; only the access is renewed.
+
+### Fixed
+
+- Sync with the other PS5: no more wrong “nothing to sync” for a few minutes after it comes back (the plan is redone as soon as its list of copies changes).
+
+
+## [3.1.59] — 2026-11-18
+
+**Automatic plans without duplicates, even with several PS5s**
+
+### New
+
+- Plans: a save or a game already at the destination (same content, copied by any PS5) is no longer copied again; the summary says “already up to date”. Nothing is reread to know it.
+- Plans: when another PS5 is already running a plan to the same destination, this one waits 10 minutes, then only does what is missing.
+
+### Improved
+
+- “Keep N copies” also applies to the NAS and the cloud; extra copies go to the trash (30 days), and a saves backup never touches the full-game copy anymore.
+
+
+## [3.1.58] — 2026-11-18
+
+**Web like the TV: the last 14 layout gaps**
+
+### Improved
+
+- Web: Saves grouped by family (This PS5, NAS, Cloud), “Where to store?” window as cards, game sheet in two columns, device actions in “≡ Actions”, Network › OPTIONS, closing Settings returns to the previous tab.
+- Web: “Ask where to store: No” is respected everywhere; Saves counters and Settings sentences say the same as the TV.
+
+
+## [3.1.57] — 2026-11-18
+
+**“Newer copy”: no more false alert when the copy is the same save**
+
+### Fixed
+
+- “Newer copy”: a copy holding the same save as the console (same content read, wherever it is stored) is no longer announced as “newer”. The time used is the one written in the save, no longer the file's time, which changes when a full copy is remounted.
+
+
+## [3.1.56] — 2026-11-18
+
+**Internet link: the public address only**
+
+### Fixed
+
+- BitTorrent link: the Internet link now carries only the console's public address (no longer its home address, useless and revealing for someone far away); the QR code is easier to scan.
+
+
+## [3.1.55] — 2026-11-18
+
+**Public link: the BitTorrent link also works from the Internet**
+
+### New
+
+- BitTorrent link: like the .zip link, it has a home link and an Internet link (with the console's public address, found as for a remote PS5). A button switches between them; the QR code and the address follow.
+
+### Improved
+
+- Web: a link's window now has a single QR code, with the “Home link / Internet link” button, like the Square button on the TV.
+
+
+## [3.1.54] — 2026-11-18
+
+**My links says when a link no longer shares anything; web menus have their title**
+
+### Improved
+
+- My links: a BitTorrent link whose files were moved or removed is marked “files not found” instead of “shared”, with what to do.
+- Web: the “Send to…” and “Format of…” menus have their title at the top, as on the TV; a PS5 that is off no longer offers “See its drives”.
+
+
+## [3.1.53] — 2026-11-18
+
+**My links: all your links in one place; the web catches up with the TV (full audit)**
+
+### New
+
+- Downloads › My links: every link given from the console (BitTorrent, console .zip, MEGA, OneDrive), with its QR code, its address and a way to stop it. MEGA and OneDrive links are kept there.
+
+### Improved
+
+- Creating a link for a game opens its window right away: you watch the preparation, then the QR code appears. The link carries the game's name.
+- Stopping a BitTorrent share touches nothing: the game and its files stay where they are.
+- Web: 52 gaps filled after a full audit of the TV (Tasks, Where to put, Home “In the cloud”, Devices and Sync by family, Compare, .torrent files by folder, clear error messages…).
+- Web: the sentence under menus, like the TV; “Progress tab” to put saves back on an account, on both sides.
+
+### Fixed
+
+- Safeguard: a version is no longer frozen if a TV text is missing from the web without a written reason; the exception list was reviewed line by line.
+
+
+## [3.1.52] — 2026-11-18
+
+**Web like the TV; “Browse” and sharing a game image fixed**
+
+### Improved
+
+- Web › Settings › Where to put and Settings › Devices: like the TV; the Devices tab no longer holds these settings.
+- Web: the tagline under the name, and on each page the title and its sentence on the same line, with the TV's sentences.
+- Web: “Details” in menus, “Close without saving” in forms, “Actions” for the ≡ menu (TV and web).
+
+### Fixed
+
+- “Browse” on a game stored as an image (for example on USB): the location comes from the engine, on the TV and the web; it said “Unknown location”.
+- Share my copy › The game: a game stored as an image can be shared (the image itself); it said “not stored as a single folder”.
+- My share links: BitTorrent links created here appear too, with their QR code.
+- BitTorrent: large files (a game image, tens of GB) can be shared and downloaded; the console refused the memory (“Cannot allocate memory”).
+
+
+## [3.1.51] — 2026-11-18
+
+**Web: Transfers, Tasks and Settings like the TV**
+
+### Improved
+
+- Web › Transfers: the TV's title and order (This PS5 first), the count of each family and the names of the cloud services.
+- Web › Tasks: a message for each filter when the list is empty.
+- Web › Settings: “Devices” and “Where to put” in the menu, like on the TV.
+
+
+## [3.1.50] — 2026-11-18
+
+**Web: the same cards and bubbles as the TV**
+
+### Improved
+
+- Web › Saves: the same cards as the TV (Everywhere with the number of copies, Compare · sort with what is left, Trash) and the three colored bubbles (safe duplicates, not compared yet, to check).
+- Web › Devices: the TV's families (This PS5, each NAS, Cloud, other PS5s); a click opens the family's devices and their actions.
+- Web › Sync: cloud services grouped in a “Cloud” card, with their logo.
+
+
+## [3.1.49] — 2026-11-18
+
+**Beta: share, download, resume after an interruption**
+
+### New
+
+- Share my copy: a link and a QR code for a game, a ROM, an app or a save, wherever it is stored (console, USB, NAS, cloud); home or Internet link, BitTorrent, MEGA or OneDrive.
+- Downloads: magnet links and .torrent files; MEGA, Google Drive, Dropbox and OneDrive share links opened like a drive; what comes from a remote PS5.
+- Full BitTorrent: torrent details, queue, limits, encryption, stop sharing, copy or move at the end to any place, watch folder.
+- Resume after an interruption, without starting over: backups, restores, NAS (FTP, SMB, WebDAV) and cloud (MEGA included).
+- MEGA arrives in Devices › Cloud.
+- Settings › Network: the app's ports, “Test ports”, the public address.
+- “Where to put”: a single place choice, offered at each action.
+- TV: the same help at the bottom of every screen, windows and bubbles drawn the same way, L3 for all menus, R3 for Settings.
+
+
+## [3.1.48] — 2026-11-18
+
+**MEGA links: the key in the account's vault**
+
+### Fixed
+
+- MEGA folder link: the share key is written to the account's key vault (backed up on the console first), so the link shown by the MEGA site and app works too; an already shared folder keeps its key.
+
+
+## [3.1.47] — 2026-11-18
+
+**Share…: sort before choosing**
+
+### New
+
+- Downloads › Share…: first what (PS5 games, PS4 games, ROMs by console, apps, game saves, a file or folder), then where (each drive, with the count), then the A to Z list.
+- “The game” can also be shared for a ROM or an app (BitTorrent link, no copy), wherever it is (internal, USB…).
+
+
+## [3.1.46] — 2026-11-18
+
+**Share my copy: “What to share?”**
+
+### New
+
+- Share my copy: a first choice “What to share?” — the game (with where it is: internal, USB…, and its size), a game save, or a copy of the game with its save.
+
+
+## [3.1.45] — 2026-11-18
+
+**Share my copy: clearer, and the game too**
+
+### New
+
+- Share my copy: the installed game is offered first (BitTorrent link, no copy).
+
+### Improved
+
+- Each copy says what it is: “Game save · account” or “Copy of the game”, then the place, date and size.
+- Link kinds renamed: console link (.zip, home or Internet), BitTorrent link, service link (MEGA, OneDrive).
+- Public address: Settings › Network shows it with “Refresh”; Triangle asks again in a link's window.
+
+
+## [3.1.44] — 2026-11-17
+
+**Share over the Internet and OneDrive; BitTorrent options**
+
+### New
+
+- BitTorrent options: watch folder (a .torrent dropped into “Torrents à ajouter” is added by itself).
+- Torrent menu: first and last pieces first, super-seed, rename.
+
+### Improved
+
+- Share my copy: besides the home link, an Internet link with the console's public address (the one set for “Remote PS5”, otherwise the one learned by BitTorrent); on the TV, Square shows it.
+- The console's port 52370 is opened on your router by UPnP if the option is on (Settings › Network); otherwise forward it on your router.
+- The public address is asked again each time the app opens (also when you close and reopen it).
+- OneDrive link for a copy on OneDrive (read-only, for anyone with the link; can be removed); a copy on Google Drive or Dropbox goes through the console's temporary link.
+- If it is not known, the public address is asked from an online service (api.ipify.org), like remote play gateways do.
+
+### Fixed
+
+- Web: windows where you type (magnet link, .torrent file, peer, tracker, identity name) keep what you typed.
+
+
+## [3.1.43] — 2026-11-17
+
+**Share my copy: a link and a QR code**
+
+### New
+
+- Share my copy: from a game's sheet (“Share my copy…”) or a copy's menu (“Share this copy…”), a link to a copy wherever it is stored (console, USB, NAS, cloud), with its QR code.
+- Console temporary link: the copy downloads as a .zip on the home network, read straight from where it is stored; it stops by itself (1 hour, 24 hours or 7 days) or by hand in “My share links”.
+- BitTorrent link for a copy on a console drive, MEGA link for a copy on MEGA.
+
+
+## [3.1.42] — 2026-11-17
+
+**Where to put: the PS5 photo for other PS5s**
+
+### Fixed
+
+- “Where to put?” and Settings › Where to put: other PS5s show the PS5 photo, like this PS5 (no longer the group picture).
+- “Where to put?”: “Up / down to see more” as soon as there are more choices below, and no family title left alone at the bottom.
+- Home: a game on a USB drive shows “USB 0”, not a drive identifier.
+
+
+## [3.1.41] — 2026-11-17
+
+**Resume after an interruption: WebDAV and MEGA**
+
+### Improved
+
+- Copy to a NAS over WebDAV: a big file goes in 16 MB pieces; after a stop, the copy resumes where it was (if the server allows it, like Synology).
+- Copy to MEGA: after a stop, the upload resumes at the first missing piece instead of starting over.
+
+
+## [3.1.40] — 2026-11-17
+
+**Small fixes: incoming connections, ratio, texts**
+
+### Fixed
+
+- Settings › Network › “Accept incoming connections” really applies (Yes by default; No: outgoing only, and links created here no longer carry the console's address).
+- The ratio is written with the language's decimal separator (1.5 in English).
+- Web: the help of “Where to put downloads” correctly says “a drive of this console”.
+
+
+## [3.1.39] — 2026-11-17
+
+**BitTorrent: encryption, peer by hand, blocked addresses**
+
+### New
+
+- BitTorrent options › Protocol encryption: preferred, required or disabled (encryption hides from internet providers that this is BitTorrent).
+- Torrent details › Actions › Add a peer by hand (ip:port): connect directly to another PS5, a PC or a friend.
+- BitTorrent options › Blocked addresses: addresses or ranges (1.2.3.0/24, 1.2.3.4-1.2.3.9) with which nothing is exchanged.
+
+
+## [3.1.38] — 2026-11-17
+
+**Fix: the copy at the end of a download**
+
+### Fixed
+
+- When done, copy to: the copy never started (destination “not found” every time).
+
+
+## [3.1.37] — 2026-11-17
+
+**BitTorrent: when done, copy or move; links reachable from the Internet**
+
+### New
+
+- BitTorrent options › When done, copy to: a verified copy of each finished download goes on its own to any device — drive, NAS, cloud, Switch or another PS5 (into its “Downloads” folder).
+- BitTorrent options › When done, move to: the files go to another drive of this console (for example USB) and stay shared from there.
+- Magnet links also carry the console's public address: someone far away connects to it directly, if the BitTorrent port is open on the router (or through UPnP).
+- Torrent details › Actions › Download the .torrent on the phone: a QR code opens the console's web page, which offers to save the file.
+
+### Fixed
+
+- When done, copy to a NAS or the cloud: the “Downloads” folder is created in the folder set for the device (in 3.1.36, at the server's root: refused).
+
+
+## [3.1.36] — 2026-11-17
+
+**BitTorrent: when done, copy or move**
+
+### New
+
+- BitTorrent options › When done, copy to: a verified copy of each finished download goes on its own to the NAS, the cloud or a drive (into its “Downloads” folder).
+- BitTorrent options › When done, move to: the files go to another drive of this console (for example USB) and stay shared from there.
+
+
+## [3.1.35] — 2026-11-17
+
+**BitTorrent options: stop sharing, space on the drive, full speed at night**
+
+### New
+
+- Settings › Network › BitTorrent options: stop sharing a finished torrent after a ratio (1.0 to 5.0) or a time (1 h to 7 days); it becomes “finished · sharing stopped”. Links created here never stop on their own.
+- Reserve all the space at the start, and refuse (pause with a message) a torrent bigger than the drive's free space.
+- Full speed at night: during the chosen hours, downloads run without a limit (the rate during a game still applies).
+
+
+## [3.1.34] — 2026-11-17
+
+**Create a link: share a file or folder with BitTorrent**
+
+### New
+
+- Downloads › BitTorrent › Create a link: pick a file or folder on the console; it computes the .torrent then shares it from where it is (nothing is copied). The magnet link QR code is in its details.
+- Torrent details: save the .torrent file next to the files (and, on the web, download it).
+
+### Improved
+
+- The magnet link also carries the console's local network address: another PS5 or a PC at home connects to it right away.
+- A link created here never offers to delete your files: only “Stop sharing”.
+
+
+## [3.1.33] — 2026-11-17
+
+**“Where to put”: one place picker for everything**
+
+### New
+
+- Settings › Where to put: the default place for backups, downloads and “Send to…”, and “Ask where to put it” (Yes: default first; No: always the default).
+- Library: with items checked, ≡ › “Send to…” copies them to a drive of this console (verified copy), a NAS, the cloud or another PS5 (verified backup).
+
+### Improved
+
+- A single “Where to put?” window for Back up (game sheet, Square), adding a torrent and the settings: the default first, then this PS5, other PS5s drive by drive, Switch, NAS and cloud.
+
+### Fixed
+
+- Game sheet: “Back up” without choosing a place went to the first USB drive instead of the default destination you set.
+
+
+## [3.1.32] — 2026-11-17
+
+**Circle now also closes file windows**
+
+### Fixed
+
+- Devices › Browse and every folder or file picker: Circle closes the window, as everywhere; Left goes up to the parent folder (and Triangle when it isn't used to choose the folder).
+
+
+## [3.1.31] — 2026-11-17
+
+**Downloads: two clearly separate families**
+
+### Improved
+
+- Downloads in two rows: “Share links” (MEGA, Google Drive, Dropbox, OneDrive: open like a disk, with “+ Share link”) and “BitTorrent” (“+ Magnet link”, “+ .torrent file”, “Create a link” coming soon, “BitTorrent settings”); below, “For both” shows where downloads are stored and the speeds, and opens those settings.
+- “+ Magnet link”: type the link with the keyboard or, easier, paste it from your phone (QR code, as for share links).
+
+### Fixed
+
+- Choosing a .torrent file: Circle closes, as in the other windows; Triangle goes up to the parent folder.
+
+
+## [3.1.30] — 2026-11-17
+
+**Torrents: details, actions, QR code**
+
+### New
+
+- Downloads: Cross on a torrent opens its details — General (progress, speed, time left, received / sent / ratio, seeds and peers, availability, pieces, limits), Files (progress and priority of each: high, normal, low, or don't download), Peers and Trackers; the magnet link is shown as a QR code to scan and share.
+- Torrent actions (≡): force start, find peers now, move to the top / up / down in the queue, download in order, limit this torrent, recheck files, remove or delete. In the Trackers tab: add a tracker, change the address of a tracker that moved, or remove it.
+
+### Improved
+
+- Settings › Network: “Downloads at the same time” (the others wait their turn in the queue) and “Maximum connections”.
+- The torrent list follows the queue order and says when a torrent is waiting its turn or was force-started.
+
+
+## [3.1.29] — 2026-11-17
+
+**Fixes: windows return where you came from**
+
+### Fixed
+
+- Downloads: the chosen card keeps its highlight after visiting the top bar; a received link's files, opened from Downloads, go back there with Circle; the .torrent file picker closes with Triangle.
+- Library: Circle first unchecks everything that is checked (the bottom help says so).
+
+
+## [3.1.28] — 2026-11-17
+
+**Downloads: magnet links and .torrent**
+
+### New
+
+- In Downloads, “+ Add a link” also takes a magnet link or a .torrent file: you choose the disk to store it on (the one from Settings › Network comes first), then follow its progress (sources, speed, time left) and pause, resume or remove it (TV and web).
+
+### Improved
+
+- Settings › Network: Right / Left switch columns, Cross opens the list of choices; speed limits also apply on the local network.
+- Compare · sort: “Compare all” is there too (Triangle on the bubble, and in the list's ≡ actions; a button on the web).
+
+
+## [3.1.27] — 2026-11-17
+
+**BitTorrent in the engine (first step)**
+
+### New
+
+- The engine can now receive and share over BitTorrent (libtorrent, built in: nothing to install); the screens come next.
+
+
+## [3.1.26] — 2026-11-16
+
+**BitTorrent ports: never Backup Center's**
+
+### Improved
+
+- The BitTorrent port range can be set freely on each console (to suit its firewall), except 52370 to 52373 and the “Remote PS5” port, which stay with Backup Center; a range touching them is refused.
+
+
+## [3.1.25] — 2026-11-16
+
+**Downloads: speed and remote PS5**
+
+### Improved
+
+- Downloads follow the maximum speed set in Settings › Network, and slow down while you play so online games aren't affected.
+- What comes from a remote PS5 (over the Internet) shows in Downloads; the TV tab shows how many are running, like the web.
+
+
+## [3.1.24] — 2026-11-16
+
+**Settings › Network**
+
+### New
+
+- New Settings › Network section (TV and web): the console's ports and what to open on the router or firewall, “Test the ports”, the “Remote PS5” port, and BitTorrent settings (TCP / UDP protocol, one port or a range, incoming or outgoing only, UPnP, DHT, speeds, where to store downloads: internal, USB, NAS or cloud), ready for when it arrives.
+
+
+## [3.1.23] — 2026-11-16
+
+**All bubbles in the same design**
+
+### Improved
+
+- Bubbles that were still flat (Games players, Transfers actions, Whole games, Switch ↔ Eden, Home cards) now have the same soft shadow and sheen as the others; the other PS5 shows all its drives (Internal, USB 0, USB 1), even empty ones.
+
+
+## [3.1.22] — 2026-11-16
+
+**Backups: clearer bubbles**
+
+### Improved
+
+- Each Backups bubble says how many copies it holds, then a detail (free space, network, number of places); the other PS5 opens into one bubble per drive, like this PS5.
+- Compare · sort and the Trash become two full bubbles side by side, with new icons; Compare says how many games are left to compare.
+
+### Fixed
+
+- Cards no longer have square corners: the blue sheen follows their rounding (Home, Backups, Sync, Transfers, Downloads, Devices).
+
+
+## [3.1.21] — 2026-11-16
+
+**Device cards: the same design everywhere**
+
+### Improved
+
+- Backups, Sync, Transfers and Downloads show devices with the same card as the Devices tab; a family shows its count as “3 ›” and what it contains, instead of a blue dot or cut-off text; nothing is removed.
+- The Cloud family says “See services ›”: they are services, not devices.
+
+
+## [3.1.20] — 2026-11-16
+
+**Compatibility: the real numbers**
+
+### Improved
+
+- Web: the last browser confirmations (unpairing two PS5s, moving a save to another account, transferring a Switch ↔ Eden save) now use the app's own windows.
+
+### Fixed
+
+- A backport made for a newer system than the console's is no longer reported as “present”: the sheet says “Won't start” with the backport's SDK (e.g. 007 First Light, backport in SDK 4.00, on a PS5 on 3.21). Without a backport, the sheet gives the game's SDK or the required system (TV and web).
+
+
+## [3.1.19] — 2026-11-16
+
+**Game sheet: actions as lines**
+
+### Improved
+
+- The game sheet follows the window model: what to back up on the left, actions as lines on the right (Back up with its destination, Details, Scheduled plans…, Browse, Send to a PS5…), with what removes or erases at the bottom, in red; Square changes the destination (TV and web).
+
+### Fixed
+
+- After an update, the “Automatic reopen” countdown no longer overlaps the window help.
+- “What's new” follows the window model: the support line under a divider, then the help inside the window (Cross: got it, Circle: close) instead of a separate button.
+
+
+## [3.1.18] — 2026-11-16
+
+**Forms: the same frame as menus**
+
+### Improved
+
+- Forms (adding and setting up a device, cloud sign-in, emulator, plans, folder picker, keyboard) now have the same frame as menus, with their button help inside the window, at the bottom.
+
+### Fixed
+
+- Devices: with many devices (Cloud family open), cards no longer shrink and spill over each other; the page scrolls.
+
+
+## [3.1.17] — 2026-11-16
+
+**Confirmations: the same shape everywhere**
+
+### Improved
+
+- Hold-to-confirm windows all ask a question, without shouting capitals; the instruction uses the right verb (confirm for an uninstall) and appears only once; a sentence says what will happen (TV and web).
+
+
+## [3.1.16] — 2026-11-16
+
+**Keys only at the bottom**
+
+### Improved
+
+- TV: texts no longer name a button (“Cross: see the devices” becomes “See the devices ›”); the bottom help does that. Hold-to-confirm windows keep their instruction. Settings › Take everything back shows its buttons at the bottom.
+- Windows: they all close the same way (Circle; Escape on the web) and you land exactly where you were; a window opened from a menu takes you back to that menu. The folder browser no longer closes with Options.
+
+
+## [3.1.15] — 2026-11-16
+
+**Nothing starts at once; “Details” everywhere**
+
+### Improved
+
+- Sync “Bring up to date” and restoring a full backup now ask first (saying what will happen) instead of starting on the first press (TV and web).
+- TV: in menus, “All versions” is now called “Details” and always comes right after the expected action.
+
+
+## [3.1.14] — 2026-11-16
+
+**Windows: one frame**
+
+### Improved
+
+- TV: action menus, confirmations and the game sheet share one frame (soft shadow, title band); in a menu, whatever erases goes to the bottom, in red, under a line; the help (✕ Choose · ○ Close) is inside the window.
+
+
+## [3.1.13] — 2026-11-16
+
+**Bottom help: the same everywhere**
+
+### Improved
+
+- TV: the bottom help follows the same order everywhere (✕, △, □, L2, R2, Options, ○), the same size, on one line; Options is drawn with its three lines and always opens “Actions”; □ names the next view directly; Library: “R2 Next page”, “○ Back”.
+- TV: every tab has the same page header (its name, a short sentence beside it, never cut); Transfers gets its name back. Web: Escape in a confirmation means “Cancel”, the dialog takes focus and gives it back when it closes.
+
+
+## [3.1.12] — 2026-11-16
+
+**R3 Settings shown at the bottom of the screen**
+
+### Improved
+
+- TV: at the bottom right, “L3 Menus · R3 Settings” on one line, “Home · Hold 2 s: quit” on the other; the left help never runs under it.
+
+
+## [3.1.11] — 2026-11-16
+
+**L3: the top bar on two rows**
+
+### Improved
+
+- TV: L3 no longer opens a window: the top bar itself grows to two rows (same glass, L1 / R1, active tab line); Cross goes there and it goes back to one row. “L3 Menus” is shown at the bottom right, next to Home.
+
+
+## [3.1.10] — 2026-11-16
+
+**L3: all menus; R3: Settings**
+
+### New
+
+- TV: L3 (left stick click) opens all menus on two rows, so you go down to one instead of scrolling with L1 / R1; R3 (right stick click) takes you to Settings from anywhere, Circle brings you back. Both are shown at the top of the screen.
+
+
+## [3.1.9] — 2026-11-16
+
+**Where tasks come from, save dates, details from Saves**
+
+### Improved
+
+- Tasks: a download or a copy shows where it comes from and where it goes (service logo: MEGA, Google Drive…), in the list and in Details.
+- Saves: a game whose save does not say where you are shows at least its date (“Save from …”); Cross › “See details (all versions)”.
+
+
+## [3.1.8] — 2026-11-16
+
+**Sync card you can dismiss, service logo on a download**
+
+### New
+
+- Home: the Sync card announcing available targets can be dismissed (Options › Not now); it only comes back if there is something new (one more game, save or device), marked “new”. A sync in progress is always shown. Sync › Options: show it again.
+
+### Improved
+
+- Home: a download from a received link shows its service logo (MEGA, Google Drive, Dropbox, OneDrive).
+
+
+## [3.1.7] — 2026-11-16
+
+**Progress for every game in Parties, OneDrive and Dropbox links**
+
+### Improved
+
+- Parties: games whose save does not say where you are (Elden Ring, Hades…) show the progress read from the save, as in Backups; games not on this PS5 show the progress of their most advanced copy (“Copy: …”).
+
+### Fixed
+
+- Received links: a OneDrive file shared on its own now opens (it was refused); an empty Dropbox folder opens too.
+
+
+## [3.1.6] — 2026-11-16
+
+**Mid-file resume to the cloud**
+
+### Improved
+
+- Backups and copies to Google Drive, OneDrive, Dropbox and S3 (Backblaze…): after a pause, a dropout or a restart, the current file resumes where it stopped (upload session kept on the console for a few days, beginning checked against the original) instead of starting over.
+
+
+## [3.1.5] — 2026-11-16
+
+**Mid-file resume: restores and NAS**
+
+### Improved
+
+- Restores: after a stop, what is already in place and identical is skipped, and the file in progress resumes where it stopped (manifest checksum verified, redone from scratch if it doesn't match).
+- Backups and copies to a NAS over FTP or SMB: the file in progress also resumes mid-file instead of starting over.
+
+
+## [3.1.4] — 2026-11-16
+
+**Backups: resume mid-file**
+
+### Improved
+
+- Full backups (game, app) to a USB drive: after a pause or a restart, the big file in progress resumes where it stopped instead of starting over; the kept beginning is checked against the original.
+
+
+## [3.1.3] — 2026-11-16
+
+**Downloads: a menu of its own, and resume without starting over**
+
+### New
+
+- Downloads menu (TV and web): received links, downloads in progress with speed and time left, finished ones with average speed, and its own notifications (done, link expiring soon). Opening a link leads to its files: pick, download.
+- Google Drive, Dropbox and OneDrive share links (personal accounts), on top of MEGA: folder or file, read-only, no account needed.
+
+### Improved
+
+- Copies and downloads: after a pause, a dropout or a restart, they resume mid-file where they stopped; the kept beginning is checked against the source.
+
+
+## [3.1.2] — 2026-11-15
+
+**Temporary share: a received link becomes a place**
+
+### New
+
+- Share link: paste a MEGA link you received (folder or file), from your phone thanks to the QR code; it becomes a read-only place for 1, 7 or 30 days, usable in Transfers, Files and Backups (restore a shared save). Nothing is ever written there, and the link is never shown again.
+
+
+## [3.1.1] — 2026-11-15
+
+**MEGA arrives in Devices › Cloud**
+
+### New
+
+- MEGA: a MEGA account is added in Devices › Cloud with its e-mail and password (kept on the console); backups, restore and sync just like a NAS. Files are encrypted on the console before upload, as MEGA does.
+- Trash: delete a copy for good, or empty a place's trash (TV: Options; web: buttons), always with the hold-to-confirm button.
+
+### Improved
+
+- Same buttons everywhere: Square no longer deletes (Delete is in Options, with the preview); △ pauses or resumes a task, and stopping it goes through Options with a confirmation (Tasks and Transfers); Files and folder picker: ✕ opens, ○ goes up, △ picks this folder, L2 ticks.
+- Accurate hints everywhere: Library (the filter row has its own hints, ○ goes back to the filters, R2 shown), Saves (Switch and Eden cards), Settings (nothing wrong in the menu, General shows left / right); Home: △ = Search everywhere and ✕ says what it does on each row.
+- Bottom hints: L1, R1, L2, R2 and Options drawn as real buttons; two balanced lines, below the content. Backups: Down goes from Compare and sort to the Trash.
+
+### Fixed
+
+- MEGA has its logo everywhere from startup (Home, Sync, Transfers, Devices, Backups, web page); Circle goes back to the places from Compare and sort or the Trash, and « Back » is shown there.
+
+
+## [3.1.0] — 2026-11-15
+
+**One hub for your games and saves, everywhere**
+
+### New
+
+- Google Drive, OneDrive and Dropbox are available: everyone connects their account from their phone; backup, restore and sync just like a NAS.
+- Compare and sort: every copy of a game side by side, judged by content (Identical, Older, Further along), including copies stored on the other PS5.
+- Same save in several places: wanted copies, never treated as a problem; « Tidy up » and « Keep only on… » when you want to consolidate.
+- Origin of restored saves: a copy of a restored save keeps the original save time, and both PS5s know it.
+- Compress an image on the same disk.
+
+### Improved
+
+- Backups open in a few seconds, even with several NAS and clouds; no more « server busy » or timeouts.
+- Each copy carries its fingerprint and the result of its reading: a copy already read is never read again, even by the other PS5, which is told right away.
+- Faster game transfers that resume in the middle of large files.
+- Clearer Backups: bubbles in order (Everywhere, This PS5, the other PS5, NAS, Cloud, Trash) with a preview of hidden ones, each service's logo, and each place talking about its own copies.
+- Updates: never again a rollback on its own.
+- Saves: short labels, never cut; « Not on this PS5 » means a copy exists but the save isn't on this console.
+- Backups: Compare and sort and the Trash stacked on the right, always visible; places scroll on the left.
+- On-screen button hints never cut (smaller, or on two lines, in every language); « △ Stop the task » instead of « Cancel » in Transfers; « Options: actions » in Compare.
+
+### Fixed
+
+- No more false « newer copies » after a restore or a round trip through the cloud.
+- OneDrive sign-in and folder creation fixed.
+- Each service's logo from startup (Backblaze no longer shows the generic cloud first); at the end of a row the card says « ‹ 2 before » instead of « + 2 more › »; Sync counts targets, not devices.
+- Hints fixed: All versions shows △ Compare this game and R2; the Trash shows « Left / right » only on the bubbles; the heart and search have their own hints; □ really changes group in Tasks; « Down: Start button ».
+
+
+## [3.0.33] — 2026-11-15
+
+**Fingerprints: never a false « different save »**
+
+### Fixed
+
+- A copy never read no longer gets a content letter from its bytes: the same save can be written with different bytes. The fingerprint is used to reuse a reading already done and to flag a byte-for-byte identical copy.
+
+
+## [3.0.32] — 2026-11-15
+
+**Copies recognised by their fingerprint, readings kept beside the copies**
+
+### New
+
+- Each copy carries its fingerprint (disk, NAS, cloud index): identical copies are recognised right away, without comparing; a copy identical to one already read reuses its analysis without downloading anything.
+- After a copy is read, the result is stored beside it (« lecture.json »): another console, or this one after a reinstall, doesn't read it again.
+
+### Improved
+
+- After a backup, a restore or a comparison, the other PS5 is told right away (before: up to 10 minutes).
+
+
+## [3.0.31] — 2026-11-15
+
+**Clearer Backups: each place talks about its own copies**
+
+### Improved
+
+- Backups: in a place (USB, NAS, cloud), each game says how many copies are HERE, the latest, and how many other places keep it; « duplicates here » or « Nothing to do here ».
+- Bubble names never cut; service names without repetition (« Google Drive » instead of « Google Drive (Google Drive) »); the game sheet counts the same copies as the list (not the other PS5's); clearer R2 hint.
+
+### Fixed
+
+- Trash: every place at a glance at the top, the same NAS through two paths shown once, and the game title found even when the file name turns « : » into « _ ».
+
+
+## [3.0.30] — 2026-11-15
+
+**Same save in several places: wanted copies, tidied only on request**
+
+### New
+
+- Compare and sort: « Several places » filter; « Tidy up » for one game (checked = kept) and « Keep only on… » for all games, with the preview before the trash. The last copy of a save is never removed.
+
+### Improved
+
+- The game sheet and Compare say « Same save in N places: … » instead of talking about duplicates; only a second copy in the same place is still a duplicate.
+
+
+## [3.0.29] — 2026-11-15
+
+**Compare: copies stored on the other PS5 get their real verdict**
+
+### Improved
+
+- A copy on the other PS5 that it hasn't read yet says so (« not read yet by … ») instead of « content not compared ».
+
+### Fixed
+
+- Compare: a copy stored on the other PS5 is judged like the others (Identical, Older, Further along…); the other PS5 sends the fingerprint of the content it read, with no extra reading.
+
+
+## [3.0.28] — 2026-11-15
+
+**Preview of hidden bubbles, compress on the same disk**
+
+### New
+
+- Transfers: Compress accepts the same disk as destination; the image is written next to the game and verified, the original game stays in place.
+
+### Improved
+
+- Backups and Transfers: when everything doesn't fit, the last spot shows what's hidden (« + 3 more › NAS · Cloud · Compare »).
+
+
+## [3.0.27] — 2026-11-15
+
+**Comparing with the other PS5**
+
+### Improved
+
+- Backups: the other PS5's bubble describes its own copies; an already compared copy shows the save date instead of « content not compared ».
+
+### Fixed
+
+- Compare: copies stored on the other PS5 no longer block the comparison (it compares them itself); they show « On … » and Cross brings them here.
+
+
+## [3.0.26] — 2026-11-15
+
+**Compare and sort**
+
+### New
+
+- Backups › Compare and sort: every copy of each game side by side (active save, identical, older, further along, not compared, to check), the key numbers on top and 7 filters; « Compare » on a game's sheet opens it directly.
+
+
+## [3.0.25] — 2026-11-15
+
+**Backups: the other PS5 right after this PS5**
+
+### Improved
+
+- Backups: bubbles are ordered Everywhere, This PS5, the other PS5, NAS, Cloud, then the Trash (the other PS5 is no longer last).
+
+
+## [3.0.24] — 2026-11-14
+
+**Sync without overload**
+
+### Fixed
+
+- Home: sync plans (one per NAS, cloud and other PS5) are requested one after another, no longer all together every 15 s (the engine was overloaded: « server busy »).
+
+
+## [3.0.23] — 2026-11-14
+
+**No more « server busy »**
+
+### Fixed
+
+- Sync: each NAS and cloud plan shares one backup computation instead of starting one per device (5 at once saturated the console: « server busy »).
+
+
+## [3.0.22] — 2026-11-14
+
+**OneDrive folders created**
+
+### Fixed
+
+- OneDrive: folders are created through the parent folder's ID (Microsoft refused creating them at the root of the app folder).
+
+
+## [3.0.21] — 2026-11-14
+
+**Adding OneDrive**
+
+### Fixed
+
+- OneDrive: the app folder is created before « PBC Backup » (adding failed with « cannot write »).
+
+
+## [3.0.20] — 2026-11-14
+
+**OneDrive without waiting**
+
+### Fixed
+
+- Cloud: no more 2-minute wait when the console moves from one server to another (OneDrive got stuck when added and on every upload).
+
+
+## [3.0.19] — 2026-11-14
+
+**OneDrive sign-in fixed**
+
+### Improved
+
+- The other PS5 is read again 30 s later if it was still recounting its backups.
+
+### Fixed
+
+- Code sign-in (OneDrive, Google Drive): a successful connection is no longer erased when the TV and the web page check at the same time (« code already used »).
+
+
+## [3.0.18] — 2026-11-14
+
+**Origin of restored saves**
+
+### Fixed
+
+- A copy made of a restored save (not played since) keeps the original save's time, here and on the other PS5: a round trip through the cloud no longer makes it look « newer ».
+
+
+## [3.0.17] — 2026-11-14
+
+**Restores recognized, Transfers in order**
+
+### Improved
+
+- Transfers: This PS5, « + Add a service », other PS5s, consoles, NAS, then cloud; Left at the start of an open bubble closes it.
+- Backups: the same NAS added twice (FTP and WebDAV) now has a single card; Backblaze shows its logo in tasks and backups.
+
+### Fixed
+
+- A restored save is no longer « newer on the console » until it is played again.
+
+
+## [3.0.16] — 2026-11-14
+
+**Backups right away**
+
+### Improved
+
+- Backups: the list shows right away (the last known one, kept even after a restart) and updates itself as soon as the new count is ready.
+
+
+## [3.0.15] — 2026-11-14
+
+**Backups open in seconds**
+
+### Fixed
+
+- Backups: comparisons already made are read once instead of once per game; no more « timed out » right after startup.
+
+
+## [3.0.14] — 2026-11-14
+
+**Faster Backups at startup**
+
+### Improved
+
+- Backups: the TV, the web page and the other PS5 share one computation of the list instead of each starting its own.
+
+
+## [3.0.13] — 2026-11-14
+
+**Backups without waiting for the cloud**
+
+### Fixed
+
+- Backups: no more « timed out » or « server busy »; the screen shows the last NAS and cloud list right away, reread in the background.
+
+
+## [3.0.12] — 2026-11-14
+
+**Grouped devices, cloud on Home**
+
+### New
+
+- Transfers: « + Add a service » bubble always visible and Square to add a NAS, a cloud, a Switch or a PS5.
+
+### Improved
+
+- Devices, Backups and Sync: one bubble per family (this PS5, NAS, cloud, Switch); Cross opens it on its devices, Circle closes it.
+- Home: « In the cloud » row (anything with a copy on Google Drive, Backblaze…) and « Cloud » in available backups; Sync shows the service's logo.
+
+
+## [3.0.11] — 2026-11-14
+
+**Resume in the middle of big files**
+
+### Improved
+
+- Transfers and verifications of an image (one big file): after a pause, an engine stop or a console restart, they resume where they got to instead of starting over.
+
+
+## [3.0.10] — 2026-11-14
+
+**Saves: no more false « newer »**
+
+### Improved
+
+- Saves and Everywhere open quickly even during a big transfer or verification (they give the screen priority), and the cloud no longer blocks the list.
+
+### Fixed
+
+- A save restored or copied elsewhere (other PS5, NAS, cloud) with the same progress is no longer « to back up » or « newer »: only a game actually played counts.
+
+
+## [3.0.9] — 2026-11-14
+
+**Take over a copy already made**
+
+### New
+
+- Game transfers: a copy already made (interrupted move) can be checked against the original, both read at the same time, then the game is registered at the new place; the original stays until you remove it.
+
+
+## [3.0.8] — 2026-11-14
+
+**Updates: no more automatic rollback**
+
+### Fixed
+
+- Updates: a newer version received from another PS5 is no longer replaced by the site's older version (only « Go back to the previous version » and « Available versions » go back).
+
+
+## [3.0.7] — 2026-11-14
+
+**Game transfers: faster, resumable**
+
+### New
+
+- « Stop verification » keeps the copy (marked unverified); an unverified move keeps the original.
+
+### Improved
+
+- Verification now rereads only the copy (the original's fingerprint is taken during the copy): half as much to reread, several files at once.
+- Pause, restart or power cut: the transfer resumes where it stopped instead of copying everything again.
+- Full (SHA-256) or quick (presence and size) verification, your choice; verification has its own bar and time left.
+
+### Fixed
+
+- Game transfers: the counter no longer adds copy and verification together (a 318 GB game no longer shows 636 GB or hundreds of hours).
+
+
+## [3.0.6] — 2026-11-14
+
+**Transfers and tasks: fixes**
+
+### Fixed
+
+- Transfers: each device appears only once in its bubble (Switch and cloud were counted twice, the NAS bubble was missing).
+- Tasks: size and file count are shown again next to « from → to ».
+
+
+## [3.0.5] — 2026-11-14
+
+**Clearer transfers and tasks**
+
+### Improved
+
+- Transfers: one bubble per device or family (this PS5, the other PS5, NAS, cloud, Switch); Cross opens it on its drives or accounts, Circle closes it.
+- Transfers: FROM and TO each fit on one scrolling row, grouped by family (PS5, drives, NAS, cloud, Switch); Google Drive and Backblaze have their logo; « What to do? », « Full backup » and « Transfers in progress » always stay on screen.
+- Tasks: each backup or restore shows where it comes from and where it goes (with logos) and who started it (plan, sync).
+- Transfers in progress: Triangle removes a finished transfer from the list; Options clears all finished ones.
+
+### Fixed
+
+- Restore from Google Drive: the backup is looked up in the right folder (« PBC Backup » chosen as the device folder).
+- Cloud: « Backups and Sync » by default for S3 storage; « cloud » instead of « network » when choosing the destination; the TV form closes when you save from the phone.
+
+
+## [3.0.4] — 2026-11-14
+
+**One logo per cloud service**
+
+### Improved
+
+- Devices and Backups: each cloud storage shows its service's logo (Google Drive, Dropbox, OneDrive, Backblaze, Amazon S3); the others keep the cloud.
+
+### Fixed
+
+- Browse: if the chosen folder does not exist yet (« PBC Backup » before saving), the browser opens the folder above; it shows the device's name.
+
+
+## [3.0.3] — 2026-11-14
+
+**Google Drive like a NAS**
+
+### Improved
+
+- Google Drive, OneDrive, Dropbox: backups go to « PBC Backup » by default and the account is used for backups and sync, like a NAS; « Browse » to pick another folder.
+- Choosing a folder on a NAS, a Switch or in the cloud: « New folder… » creates it with the keyboard, then opens it.
+- Sync: a cloud storage is named after its service (« Google Drive ») instead of « FTP ».
+
+
+## [3.0.2] — 2026-11-14
+
+**Google Drive: saving fixed**
+
+### Fixed
+
+- Google Drive, OneDrive, Dropbox: « Save » and « Test » no longer close the app; the device takes the service's name.
+- Sign-in with a code: « Waiting for your approval… » no longer overlaps step 3.
+
+
+## [3.0.1] — 2026-11-14
+
+**Google Drive is available**
+
+### New
+
+- Google Drive: connect your own account from your phone (QR code, sign-in at Google), without typing anything on the PS5. The app only has access to the files it creates; Google Drive works like a NAS (backups, destination, sync).
+
+
 ## [3.0.0] — 2026-11-14
 
 **PS5 Backup Center 3**
@@ -66,8 +1356,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Updates: a file that fails is retried once; a version that is installed but not yet active is shown correctly.
 - Small display glitches fixed: cut-off text, QR codes of different sizes, overlapping labels.
 
-**Web:** oui : toutes les nouveautés de la 3.0 sont aussi sur la page web
-
 
 ## [2.99.46] — 2026-11-14
 
@@ -81,8 +1369,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Support the project: all QR codes are the same size (the Bitcoin one looked bigger).
 
-**Web:** oui : même lien Reddit sur la page web (les codes QR du web étaient déjà de même taille)
-
 
 ## [2.99.45] — 2026-11-14
 
@@ -91,8 +1377,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### New
 
 - Settings › Support the project: a “Follow us” row with X, YouTube and Reddit (Discord soon); Cross on a badge shows its code to scan.
-
-**Web:** oui : même rangée « Suivez-nous » sur la page web, qui ouvre les profils
 
 
 ## [2.99.43] — 2026-11-14
@@ -107,8 +1391,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Add a device: the USB drive picture is back where it was in 2.99.41.
 
-**Web:** sans objet : retour à la 2.99.41 sur la page web ; la Switch y a déjà la bonne taille
-
 
 ## [2.99.41] — 2026-11-14
 
@@ -117,8 +1399,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Top of the screen: the “Support the project” heart is the same as the one in “What's new”, only bigger.
-
-**Web:** sans objet : la page web utilise déjà le cœur de la police
 
 
 ## [2.99.40] — 2026-11-14
@@ -130,8 +1410,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Top of the screen: the “Support the project” heart is a real heart, with smooth curves down to the tip.
 - Add a device: Cloud, FTP / SMB and USB drive are cropped to what shows; they are as tall as the other pictures, and the USB drive is centered.
 
-**Web:** oui : mêmes images rognées sur la page web (le cœur de la page web est dessiné par le navigateur)
-
 
 ## [2.99.39] — 2026-11-14
 
@@ -140,8 +1418,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Top of the screen: the “Support the project” heart is symmetric and centered in its circle (it looked shifted and cut off).
-
-**Web:** sans objet : la page web utilise un cœur dessiné par le navigateur
 
 
 ## [2.99.38] — 2026-11-14
@@ -152,8 +1428,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Devices › Add a device: the USB drive picture (the PS5 and its drive) is shown bigger, like Cloud and FTP / SMB.
 
-**Web:** oui : même image agrandie sur la page web
-
 
 ## [2.99.37] — 2026-11-14
 
@@ -162,8 +1436,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Devices › Add a device: the Cloud and FTP / SMB pictures, wider than tall, are shown bigger and fill the same space as the others.
-
-**Web:** oui : mêmes images agrandies sur la page web
 
 
 ## [2.99.36] — 2026-11-14
@@ -174,8 +1446,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Devices: on the Cloud and FTP / SMB icons, the logos are bigger and sit on the cloud or the folder, readable on the TV.
 
-**Web:** oui : mêmes images sur la page web
-
 
 ## [2.99.35] — 2026-11-14
 
@@ -184,8 +1454,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Devices: Cloud gets its HD picture back with the Google Drive, OneDrive, Dropbox, Amazon (AWS), Backblaze and MEGA logos; FTP / SMB gets its HD folder back with Windows, Mac and Linux.
-
-**Web:** oui : mêmes images sur la page web
 
 
 ## [2.99.34] — 2026-11-14
@@ -196,8 +1464,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Devices: new picture for Cloud (a cloud resting on drives) and for FTP / SMB (a network folder in front of a laptop).
 
-**Web:** oui : mêmes images sur la page web
-
 
 ## [2.99.33] — 2026-11-14
 
@@ -207,8 +1473,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Cloud › Dropbox: everyone connects their own account from their phone (QR code, “Allow”, then paste the code Dropbox gives); the app only has access to its folder.
 
-**Web:** oui : même connexion sur la page web, et la page du téléphone ouverte par le code QR
-
 
 ## [2.99.32] — 2026-11-13
 
@@ -217,8 +1481,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### New
 
 - Cloud: Wasabi, Cloudflare R2, Scaleway, OVHcloud and Synology C2 (S3 keys), pCloud, Koofr and Nextcloud (WebDAV account) can be picked by name; the address fills itself in.
-
-**Web:** oui : même liste de services et mêmes réglages préremplis sur la page web
 
 
 ## [2.99.31] — 2026-11-13
@@ -230,8 +1492,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Settings › Devices › Cloud: connect Google Drive or OneDrive without typing anything on the PS5. A QR code and a short code: you sign in (email, password, verification code) on your phone, with Google or Microsoft.
 - The app only has access to its own folder. The account then holds backups and, if you want, sync, like a NAS; free space is shown.
 
-**Web:** oui : même connexion par code et même réglage sur la page web (Appareils › Nuage)
-
 
 ## [2.99.30] — 2026-11-13
 
@@ -240,8 +1500,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Keyboard: a page of special characters (R1), capitals (L1) and the accented letters é è à ç; each button shows the controller button that does the same (L1, R1, △, □, R2).
-
-**Web:** sans objet : la page web utilise le clavier de l'appareil (téléphone, ordinateur)
 
 
 ## [2.99.29] — 2026-11-13
@@ -253,8 +1511,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Settings › Devices › Cloud: add Amazon S3, Backblaze B2 or another S3 service (Wasabi, MinIO…). It holds backups and, if you want, sync, just like a NAS.
 - Paste the keys from your phone: a QR code opens the web page right on the form.
 
-**Web:** oui : même ajout d'un stockage S3 sur la page web (Appareils › Nuage)
-
 
 ## [2.99.27] — 2026-11-13
 
@@ -264,8 +1520,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Library: “Emulator” and “Location” only show their value once something is chosen; the whole filter row fits on screen.
 - Another console's library: “All its games / Missing here / Also here” replaces “Here: all”, and “Refresh” replaces “Rescan”.
-
-**Web:** oui : mêmes libellés courts et mêmes noms sur la page web
 
 
 ## [2.99.25] — 2026-11-13
@@ -277,8 +1531,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Backups: under each game, the list of places no longer repeats; the other PS5 is named only once and a NAS shared with it no longer shows twice.
 - Updates: a file that fails to download the first time is retried once before giving up.
 
-**Web:** oui : même liste d'endroits sous chaque jeu sur la page web
-
 
 ## [2.99.24] — 2026-11-13
 
@@ -287,8 +1539,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Saves: the › arrow to the other places now sits next to the last place card, no longer next to the Trash.
-
-**Web:** sans objet : la page web fait défiler les endroits, sans flèche
 
 
 ## [2.99.23] — 2026-11-13
@@ -300,8 +1550,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Settings › Devices: for each NAS, “Used for”: Saves and Sync, Saves only or Sync only. The same NAS can have one entry per use (e.g. FTP for saves, WebDAV for sync).
 - Sync: several syncs with the same NAS, each in its own folder; two syncs in the same folder are refused with an explanation.
 
-**Web:** oui : même réglage, mêmes étiquettes et même tri sur la page web
-
 
 ## [2.99.22] — 2026-11-13
 
@@ -311,8 +1559,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Home: the “Update” card shows the PS5 Backup Center logo instead of a purple box.
 
-**Web:** oui : même logo sur la carte de la page web
-
 
 ## [2.99.21] — 2026-11-13
 
@@ -321,8 +1567,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Backups: the “Internal” card appears when the internal drive holds copies; the Trash always stays visible on the right.
-
-**Web:** sans objet : la page web montre déjà l'interne quand il garde des copies
 
 
 ## [2.99.20] — 2026-11-13
@@ -336,8 +1580,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Library: back to the previous, well-spaced filter chips.
-
-**Web:** oui : même ordre des Paramètres
 
 
 ## [2.99.19] — 2026-11-13
@@ -354,8 +1596,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Library: the whole filter row fits on screen; “All” no longer disappears when you go to “Console”.
 
-**Web:** oui : même pastille ; Corbeille toujours visible sur téléphone
-
 
 ## [2.99.18] — 2026-11-13
 
@@ -365,8 +1605,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Home and Library: back to the 2.99.16 display (the 2.99.17 trials are removed).
 
-**Web:** oui : même retour
-
 
 ## [2.99.16] — 2026-11-13
 
@@ -375,8 +1613,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Library: moving across the types to reach Console no longer leaves the filter on “Ignored”, and the filter row slides so “Console” stays whole.
-
-**Web:** sans objet : rangée de filtres de la télé (le web a ses propres menus)
 
 
 ## [2.99.15] — 2026-11-13
@@ -391,8 +1627,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Updates: a version installed but not yet active shows “Installed, active when the engine restarts” instead of “Up to date”.
 
-**Web:** oui : même carte et même état
-
 
 ## [2.99.14] — 2026-11-13
 
@@ -401,8 +1635,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Home: the Sync card with no game chosen shows “No game chosen” as its title and the list of devices below (the title is no longer cut off).
-
-**Web:** oui : même carte
 
 
 ## [2.99.13] — 2026-11-13
@@ -413,8 +1645,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Home › To do: one Sync card instead of one per device; games to bring up to date first, and devices with no game chosen grouped on one line.
 
-**Web:** oui : même carte regroupée
-
 
 ## [2.99.12] — 2026-11-13
 
@@ -424,8 +1654,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Report a problem: three cards of the same size (a bug, a question or an idea, a star), each with its code and what it opens; Cross enlarges the code; the versions to copy below.
 
-**Web:** oui : les mêmes trois cartes avec des boutons
-
 
 ## [2.99.11] — 2026-11-13
 
@@ -434,8 +1662,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Projects to fund: PS5 Center presented as the orchestrator of your PS5s (remote play, update, restart), its three highlights visible and the gauge rounded as on the web.
-
-**Web:** oui : même liste de projets (support.json)
 
 
 ## [2.99.10] — 2026-11-13
@@ -450,8 +1676,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Report a problem: QR codes for Discussions and “A star on GitHub”, as on the web page.
-
-**Web:** oui : Messages de la communauté et bouton Laisser un message
 
 
 ## [2.99.9] — 2026-11-13
@@ -468,8 +1692,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Backups: with items ticked, Square offers to delete them (preview, then hold Square 5 s).
 - Copies on a NAS show how it is reached: “NAS (FTP)”, “NAS (WebDAV)”.
 
-**Web:** oui : Détails d'une tâche, cases à cocher et barre de sélection
-
 
 ## [2.99.8] — 2026-11-13
 
@@ -482,8 +1704,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - NAS: if the chosen folder is “PBC Backup” itself, backups go straight into it (no more “PBC Backup/PBC Backup”), and the same NAS added with another protocol is recognised.
-
-**Web:** sans objet : bulles de la télé ; le moteur sert aussi le web
 
 
 ## [2.99.7] — 2026-11-13
@@ -502,8 +1722,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - A backup moved to the trash on a NAS disappears from All versions right away.
 - Devices: the protocol tag no longer overlaps the device name.
 
-**Web:** oui : un même NAS une fois dans Synchro ; texte de Parties
-
 
 ## [2.99.6] — 2026-11-13
 
@@ -517,8 +1735,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Restore from the NAS: a full PS5 backup is no longer put back file by file in its original place (it goes through the guided restore); restoring it into a chosen folder is still possible.
 
-**Web:** oui : le même choix WebDAV dans le formulaire de l'appareil
-
 
 ## [2.99.5] — 2026-11-13
 
@@ -528,8 +1744,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Other PS5's library: tick several items (L2 on the TV, a box on the web), then one action for all: back up their saves there, full backup there, or take the newer saves here.
 
-**Web:** oui : cases à cocher et barre d'actions
-
 
 ## [2.99.4] — 2026-11-13
 
@@ -538,8 +1752,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Tasks: a visible Clear the list button, Clear all (Finished, Failed and Cancelled) and Options to remove a single task; nothing is ever removed from the disks.
-
-**Web:** oui : bouton Tout vider
 
 
 ## [2.99.3] — 2026-11-13
@@ -551,8 +1763,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Settings › Projects to fund: one card per product (PS5 Center, PS5 Connector) with its highlights and a gauge in US dollars.
 - Support the project: a Send a gift card (gift cards, subscriptions, test hardware).
 - Settings › Report a problem: a QR code to the GitHub form and the versions to copy.
-
-**Web:** oui : mêmes sections dans Paramètres
 
 
 ## [2.99.2] — 2026-11-13
@@ -568,8 +1778,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - QR codes always black on white, whatever the theme; full network names; the What's new line is no longer cut off.
 - Settings › Updates and startup scrolls: the last options are reachable; Available versions shows the official site's list even when updates come from a local folder or a USB key.
 
-**Web:** oui : même cœur dans la barre du haut
-
 
 ## [2.99.1] — 2026-11-12
 
@@ -582,8 +1790,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - The list of ways to support is read from our site at most once a day, only when the screen is open; the app keeps its own list if the site does not answer.
-
-**Web:** oui : même écran, adresses à copier, liens cliquables
 
 
 ## [2.99.0] — 2026-11-12
@@ -598,8 +1804,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Each console only writes to its own folders: it fetches the most recent save from the other one, with the files' original times.
 
-**Web:** oui : même carte Émulateurs et même liste dans Synchro
-
 
 ## [2.98.5] — 2026-11-12
 
@@ -613,8 +1817,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - A beta is never published as a GitHub release: Prospero Store and other catalogs only offer stable versions.
 
-**Web:** oui : même réglage dans Paramètres › Mises à jour
-
 
 ## [2.98.4] — 2026-11-12
 
@@ -623,8 +1825,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - After an update, "What's new" no longer hides the "Update installed" window and its countdown; the other PS5's card starts from its installed version.
-
-**Web:** oui : même point de départ sur la carte de l'autre PS5
 
 
 ## [2.98.3] — 2026-11-12
@@ -635,8 +1835,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Devices: when the new version is already installed on the other PS5 but not running yet, its card says so ("installed, active at next start") instead of offering to send it again.
 
-**Web:** oui : même pastille sur la carte de l'autre PS5
-
 
 ## [2.98.2] — 2026-11-12
 
@@ -646,8 +1844,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Other PS5's library: the newer-progress badge is no longer cut off ("Newer here / there"); its saves without the game are shelved under "Saves without the game".
 
-**Web:** oui : mêmes repères et même rangement
-
 
 ## [2.98.1] — 2026-11-12
 
@@ -656,8 +1852,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Lighter package (−5 MB, 29 fewer files): only what the app uses, plus the required licences. Nothing changes in use.
-
-**Web:** rien à faire
 
 
 ## [2.98.0] — 2026-11-12
@@ -674,8 +1868,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - “Reopen” is no longer offered when the engine is older than the app.
 
-**Web:** oui : menu « Console » de la Bibliothèque, même fiche et mêmes actions
-
 
 ## [2.97.0] — 2026-11-12
 
@@ -686,8 +1878,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Uninstall a game: game page (web) or the library’s Options menu (TV) → “Uninstall from this PS5…”; keep the image (default) or delete it; TV: hold Square 5 s; web: type DESINSTALLER. Saves backed up first, never while playing.
 - Remotely: the other PS5’s card → “Uninstall a game on …” (on the local network or over the Internet); the work and checks happen on the console that has the game. Tracked in Tasks (“Uninstall”).
 
-**Web:** oui : même parcours sur la fiche du jeu et la carte de l'autre PS5
-
 
 ## [2.96.1] — 2026-11-12
 
@@ -696,8 +1886,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Uninstall: if ShadowMountPlus is busy, the engine waits and retries; if a step fails, the game is put back in its list; the image is found even outside the list.
-
-**Web:** sans objet : moteur seulement
 
 
 ## [2.96.0] — 2026-11-12
@@ -708,8 +1896,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - The engine can uninstall a game from its PS5, including when the other PS5 asks: game closed, its saves backed up first, removed from ShadowMountPlus's list then uninstalled by it; its image or folder deleted only if asked. TV and web screens follow.
 
-**Web:** à venir dans la version suivante (moteur d'abord)
-
 
 ## [2.95.3] — 2026-11-12
 
@@ -718,8 +1904,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Compressed image (.ffpfsc) that would not mount on a PS5 with an old system: the app forced a block size (64 KiB) on ShadowMountPlus that this system rejects. It no longer does; compressed images also mount on 3.21. The automatic switch to uncompressed from 2.95.2 is removed: it was not needed.
-
-**Web:** sans objet : moteur seulement
 
 
 ## [2.95.2] — 2026-11-12
@@ -730,8 +1914,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Game sent to another PS5 in automatic format: if it has never mounted a compressed image but mounts uncompressed ones, it arrives uncompressed straight away. Before, the first send to a PS5 on an old system failed to mount.
 - When an image replaces another one of the same game, the old one is now removed from ShadowMountPlus's list, even when its name has a space after the game number.
-
-**Web:** sans objet : moteur seulement
 
 
 ## [2.95.1] — 2026-11-12
@@ -747,8 +1929,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - After an update, the engine copy started with the console is replaced at once: a console restarted or crashed before the restart now comes back on the new version, not the old one.
 - Old backup stored under the game's name only (e.g. « Split Fiction »): its game is found even when it isn't installed on this PS5, and the cover is back.
 
-**Web:** oui : même jaquette ; la relance du moteur reste proposée sur la page
-
 
 ## [2.95.0] — 2026-11-12
 
@@ -762,8 +1942,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - ProsperoEden's second folder (/data/eden) is now called « ProsperoEden (/data/eden) » instead of « Eden »: it is not a separate app.
 
-**Web:** oui : bouton « Supprimer… » dans Fichiers
-
 
 ## [2.94.0] — 2026-11-12
 
@@ -774,8 +1952,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Tasks: « Clear the list » for finished, failed and cancelled tasks (one confirmation; only the list, nothing is removed from the disks). A Files copy whose copied files can still be removed stays in the list.
 - Tasks: « Details » on a finished task: start, end, duration, average speed, and for Files what was copied, already there, renamed or failed.
 
-**Web:** oui : mêmes boutons dans Tâches
-
 
 ## [2.93.1] — 2026-11-12
 
@@ -784,8 +1960,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - When the other PS5 is off, sync now answers “offline” at once instead of waiting up to 3 minutes per request: the TV app's requests piled up until the console became unreachable (“server busy”).
-
-**Web:** sans objet : moteur seulement
 
 
 ## [2.93.0] — 2026-11-12
@@ -800,8 +1974,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Églantine settings shared with the other PS5: only its settings file, never the connection to its save server.
 
-**Web:** oui : même bibliothèque et mêmes réglages
-
 
 ## [2.92.4] — 2026-11-12
 
@@ -810,8 +1982,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Files: while a copy is re-read to verify it, the TV and web now show “Verifying x %” with its own bar, instead of a bar stuck at 100 % for several minutes. Same when a file of the same size is already there and both are compared (“Comparing with the existing copy x %”).
-
-**Web:** oui : même affichage dans Tâches et sur l'accueil
 
 
 ## [2.92.3] — 2026-11-12
@@ -822,8 +1992,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - The engine's status answer tells where a « Files » copy stands (step, file, since when): to understand a copy that does not finish.
 
-**Web:** sans objet : moteur seulement
-
 
 ## [2.92.2] — 2026-11-12
 
@@ -832,8 +2000,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - The engine's status answer lists the requests in progress (what, for how long): to find what fills the server when it answers « busy ».
-
-**Web:** sans objet : moteur seulement
 
 
 ## [2.92.1] — 2026-11-12
@@ -853,8 +2019,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Updates: a file replaced by another of the same size within the same second could be taken as unchanged; the kept fingerprint is now forgotten on every replacement.
 
-**Web:** même chose : bouton « Retirer les fichiers copiés… » sur une copie annulée ou en échec ; moteur plus rapide
-
 
 ## [2.92.0] — 2026-11-12
 
@@ -863,8 +2027,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### New
 
 - Transfers › « Files » (TV and web): copy or move any files or folders from one place to another — disks of this PS5, of the other PS5, NAS, Switch. Nothing is ever overwritten (an identical file is skipped, a different one is kept alongside as « (2) »), every file is checked, and « Move » removes the originals only after a verified copy of everything. The engine's own folder stays out of reach.
-
-**Web:** même chose : bouton « Fichiers » dans Transferts, deux colonnes DEPUIS / VERS
 
 
 ## [2.91.1] — 2026-11-12
@@ -875,8 +2037,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Console power: « Put in rest mode » is removed (TV and web) and refused by the engine, because rest mode can crash a jailbroken console. Restart and turn off remain available.
 
-**Web:** même chose : bouton « Mettre en mode repos » retiré de la carte Alimentation
-
 
 ## [2.91.0] — 2026-11-12
 
@@ -885,8 +2045,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### New
 
 - Settings › Updates › « Available versions » (TV and web): the list of the latest versions from the source (date, title; installed, recommended or test). Pick one and it installs through the same checked path, newer or older; when going down, the version you left is no longer offered automatically.
-
-**Web:** même chose : carte « Versions disponibles » dans Paramètres › Mises à jour
 
 
 ## [2.90.9] — 2026-11-11
@@ -901,8 +2059,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Automatic check: an unreadable update source no longer shows as an error (like an unreachable source).
 
-**Web:** sans objet : paquet et moteur seulement
-
 
 ## [2.90.8] — 2026-11-11
 
@@ -916,8 +2072,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Web: the version history showed the day before the real date in the Americas.
 
-**Web:** même chose : source https acceptée dans la carte Mises à jour ; date de l'historique corrigée
-
 
 ## [2.90.7] — 2026-11-11
 
@@ -926,8 +2080,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### New
 
 - Settings › Updates › « Go back to version 2.x » (TV and web): if a version causes trouble, the previous one is reinstalled (files checked, reversible) and the engine restarts. The version you left is no longer offered or installed automatically; a manual check still shows it.
-
-**Web:** même chose : bouton « Revenir à la version 2.x » dans la carte Mises à jour
 
 
 ## [2.90.6] — 2026-11-11
@@ -939,8 +2091,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - The engine's « I'm here » answer no longer copies the whole task list (about 750 KB) on each call, the game list no longer blocks the engine while it is built, and the answer catches the engine between two operations instead of replying « busy ». The app therefore sees an updated engine right away and offers to reopen.
 - No more background sync computation with a device (other PS5, NAS) as long as no sync is set up with it: only when you open its page, result kept 5 min and redone as soon as a choice changes.
 
-**Web:** même correction (moteur)
-
 
 ## [2.90.5] — 2026-11-11
 
@@ -949,8 +2099,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - The engine records any operation that blocks it for more than a quarter of a second (where and for how long), to find the cause of slowdowns.
-
-**Web:** même chose (moteur)
 
 
 ## [2.90.4] — 2026-11-11
@@ -965,8 +2113,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Sync: only one computation at a time per device. With a well-filled NAS, preparing the saves sync took 2 minutes and was restarted in parallel over and over, until the engine was full (« server busy », beeps, reconnections). During a computation the app gets the latest result, and a long computation is no longer redone every 15 s.
 
-**Web:** même chose : bulle et carte Mises à jour
-
 
 ## [2.90.3] — 2026-11-11
 
@@ -975,8 +2121,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - The TV app kept disconnecting and reconnecting, with the « The engine is not responding » window every 30 s: each time it came back it reloaded the whole catalogue, which slowed the engine and caused the next disconnection. It now reloads only what changed, considers itself disconnected only after 3 missed tries, and during an update or an engine restart it shows « Reconnecting… » for 30 s before offering a choice.
-
-**Web:** moteur : l'état répond toujours, même quand le serveur est plein
 
 
 ## [2.90.2] — 2026-11-11
@@ -987,8 +2131,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - While the engine was preparing a sync, the TV app could think it was unreachable: it now answers « busy » in under a second, and the app keeps its display while waiting.
 
-**Web:** même correction (moteur)
-
 
 ## [2.90.1] — 2026-11-11
 
@@ -997,8 +2139,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - During an update check the engine answered slowly and the TV app could show « The engine is not responding » when opening: the fingerprints of installed files are now kept from one check to the next.
-
-**Web:** même correction (moteur)
 
 
 ## [2.90.0] — 2026-11-11
@@ -1009,8 +2149,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Settings › Updates › « Console power » (TV and web): restart, put in rest mode or turn off the PS5, after confirming; refused during a game or a copy. The engine does it itself (system functions), with no other app; a paired PS5 can also ask the other one.
 
-**Web:** même chose : carte « Alimentation de la console » dans Paramètres › Mises à jour
-
 
 ## [2.89.9] — 2026-11-11
 
@@ -1019,8 +2157,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### New
 
 - New « Install automatically » setting (Settings › Updates, TV and web; Off by default): an update that is found installs itself, never during a game, then the engine restarts when no copy is running.
-
-**Web:** même chose : case « Installer automatiquement » dans Paramètres › Mises à jour
 
 
 ## [2.89.8] — 2026-11-11
@@ -1031,8 +2167,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - An update that is found now shows in an « UPDATE · 2.x available » bubble on Home (TV: Cross to install it; web: one click), and the PS5 shows a notification, once per version, even if the app is closed or a game is running.
 
-**Web:** même chose : bulle « MISE À JOUR · 2.x disponible » à l'Accueil, un clic pour installer
-
 
 ## [2.89.7] — 2026-11-11
 
@@ -1041,8 +2175,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### New
 
 - Backup Center checks for an update when the engine starts, when the app opens (TV or web), when you go to Settings, and every hour. If the source doesn't answer, no error is shown.
-
-**Web:** même chose : recherche à l'ouverture de la page et dans Paramètres ; réglage « Rechercher automatiquement »
 
 
 ## [2.89.6] — 2026-11-11
@@ -1053,8 +2185,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Add a Switch: choose FTP or SMB (TV and web). Over SMB, the engine reads the Switch's JKSV folder just like over FTP; the port changes from 5000 to 445.
 
-**Web:** même chose : champ Protocole dans « Ajouter une Switch »
-
 
 ## [2.89.5] — 2026-11-11
 
@@ -1063,8 +2193,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - If the engine stopped abruptly while reading a save (crash, console switched off), the image left mounted is unmounted as soon as it starts, and its temporary copies are deleted.
-
-**Web:** sans objet : moteur seulement
 
 
 ## [2.89.4] — 2026-11-11
@@ -1075,8 +2203,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - When started by Payload Manager or the jailbreak's loader, the engine showed up under the generic name “payload.elf” in the process list: it now names itself “pbc-engine2.elf”.
 
-**Web:** sans objet : moteur seulement
-
 
 ## [2.89.3] — 2026-11-11
 
@@ -1085,8 +2211,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - The engine now picks its own thread stack size (512 KB): launched by Payload Manager or by its own restart, it got threads that were too small and crashed at startup.
-
-**Web:** sans objet : moteur seulement
 
 
 ## [2.89.2] — 2026-11-11
@@ -1102,8 +2226,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Restart through our built-in launcher: the new engine keeps its elevated privileges (it crashed at startup on some consoles).
 - The engine regains its elevated privileges by itself as soon as it starts, whoever launches it (Payload Manager at power-on, the app, its own restart): it crashed when Payload Manager launched it.
 
-**Web:** sans objet : moteur et appli télé (la carte « Démarrage du moteur » du web suit d'elle-même)
-
 
 ## [2.89.1] — 2026-11-11
 
@@ -1112,8 +2234,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - The TV app no longer starts a second engine while the engine restarts after an update (it only starts it by itself when opened, if it isn't running).
-
-**Web:** sans objet : correctif de l'appli télé seulement (démarrage du moteur)
 
 
 ## [2.89.0] — 2026-11-11
@@ -1136,8 +2256,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Engine restart after an update: Backup Center launches its new engine itself (elfldr loader built in), without any external app and without opening a port. If the restart doesn't take, you're told after 45 s.
 
-**Web:** Web : la même tuile « PS5 à distance » (activer, port, adresse publique, invitation avec code à copier, rejoindre) et « Tester la connexion » sur la carte.
-
 
 ## [2.88.11] — 2026-11-10
 
@@ -1146,8 +2264,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Trial version: used to check sending, the « Reopen » window with its timer and fetching from the other PS5. No other change.
-
-**Web:** Sans objet.
 
 
 ## [2.88.10] — 2026-11-10
@@ -1163,8 +2279,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - The Home bubble « UPDATE · X running » opens that same confirmation window; before, it started an invisible countdown that a Cross press cancelled (« Restart cancelled »).
 - « Fetch X from… » answered « Unknown or unpaired PS5 »: the console introduced itself to the other one with the wrong identifier. The sending PS5 also recognises it by its address (consoles not yet updated can therefore fetch).
 
-**Web:** Sans objet : la page web se recharge déjà seule après une mise à jour.
-
 
 ## [2.88.9] — 2026-11-10
 
@@ -1173,8 +2287,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Devices: when an update finishes (sent or fetched), the badge turns green « Update: X running » for one minute, then disappears.
-
-**Web:** Web : la même pastille verte.
 
 
 ## [2.88.8] — 2026-11-10
@@ -1186,8 +2298,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Devices: the older PS5 shows “Update available” on the other one’s card and can “Get” its version from it, just as the other can send it: it works both ways.
 - After an update, if the open app is older than the engine, it offers to reopen (once per version, never automatically); a bubble on the Home screen lets you do it later.
 
-**Web:** Web : le même bouton « Récupérer » et la même pastille ; la page se recharge déjà seule après une mise à jour.
-
 
 ## [2.88.7] — 2026-11-10
 
@@ -1197,8 +2307,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Devices: another PS5's badge is centred above its name; it shows during an update, if it failed, if the new version isn't running yet or if the versions differ, and disappears when both PS5s are on the same version.
 
-**Web:** Web : même règle sur la carte de l'autre PS5.
-
 
 ## [2.88.6] — 2026-11-10
 
@@ -1207,8 +2315,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Devices: another PS5's update progress is shown in a badge above its name; with three disks listed, it spilled out of the card.
-
-**Web:** Web : la même ligne, au-dessus du nom de la console.
 
 
 ## [2.88.5] — 2026-11-10
@@ -1224,8 +2330,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Computing app fingerprints (app sync) read each eboot.bin whole into memory: up to 780 MB used at once, which could make the system close a game (CE-15773-3). It now reads in small chunks.
 - Installing a backport from a copy on another disk no longer loads each file whole into memory.
 
-**Web:** Web : les mêmes boutons sur la carte de l'autre PS5.
-
 
 ## [2.88.4] — 2026-11-10
 
@@ -1235,8 +2339,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - The engine logs the operation or request that makes its memory rise (more than 16 MB at once), to cut these peaks.
 
-**Web:** Sans objet : moteur seulement.
-
 
 ## [2.88.3] — 2026-11-10
 
@@ -1245,8 +2347,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - A new engine now properly replaces an older one during an update (2.88.2 quit, thinking it was a duplicate).
-
-**Web:** Sans objet : moteur seulement.
 
 
 ## [2.88.2] — 2026-11-10
@@ -1266,8 +2366,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Error CE-15773-3 (no game or app launches until a restart): duplicate engines stayed in memory. An engine restarted by the app no longer replaces the one that responds; only an update replaces it, and a stopped engine exits immediately.
 
-**Web:** Mêmes actions sur la carte de l'autre PS5 et même bulle à l'Accueil, côté web.
-
 
 ## [2.88.1] — 2026-11-10
 
@@ -1277,8 +2375,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - The engine decodes one cover at a time (less memory taken at once) and reports its memory in its status, to fix error CE-15773-3 (no game launches until a restart).
 - Web › Devices: the “Update to …” button is readable, and progress shows on the other PS5's card.
-
-**Web:** Fait : corrections de la carte de l'autre PS5.
 
 
 ## [2.88.0] — 2026-11-10
@@ -1293,8 +2389,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - No more need for a computer to update a second console: one up-to-date PS5 is enough.
 
-**Web:** Même bouton et même avancement sur la carte de l'autre PS5, côté web.
-
 
 ## [2.87.2] — 2026-11-10
 
@@ -1304,8 +2398,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Web › Add a NAS: with SMB, the title says “Add an SMB share” and the FTPS encryption row goes away.
 
-**Web:** Fait : correction de la fiche web.
-
 
 ## [2.87.1] — 2026-11-10
 
@@ -1314,8 +2406,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Devices › Add a NAS (TV): with the protocol choice, the buttons no longer cover the help at the bottom of the form.
-
-**Web:** Sans objet : correction de mise en page de la télé.
 
 
 ## [2.87.0] — 2026-11-10
@@ -1329,8 +2419,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Sync › NAS › Apps: “Not in the depot yet” instead of “Not installed on the NAS”.
-
-**Web:** Même choix du protocole dans la fiche d'appareil côté web.
 
 
 ## [2.86.0] — 2026-11-10
@@ -1346,8 +2434,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Same rule as between two PS5s: the most recent wins, never rolled back, and a log prevents endless back-and-forth.
 
-**Web:** Mêmes cartes et mêmes écrans côté web.
-
 
 ## [2.85.7] — 2026-11-10
 
@@ -1356,8 +2442,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Sync: the engine keeps each device's plans ready (saves, active progress, apps, DLC); cards and screens show up right away and refresh every 15 s. A choice or an upgrade triggers an immediate recalculation.
-
-**Web:** Le web en profite aussi (même moteur).
 
 
 ## [2.85.6] — 2026-11-10
@@ -1368,8 +2452,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Sync: on the console, answers over 8 KB (Active progress, Apps, DLC, Settings) reached the TV app truncated, so it stayed on “reading…”. The engine now waits for the app to read instead of giving up.
 
-**Web:** Le web en profite aussi (même moteur).
-
 
 ## [2.85.5] — 2026-11-10
 
@@ -1378,8 +2460,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - For each sync request from the TV app, the engine notes the answer it sent: code, size, duration.
-
-**Web:** Sans objet : diagnostic du moteur seulement.
 
 
 ## [2.85.4] — 2026-11-10
@@ -1390,8 +2470,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - The TV app reports to the engine any sync answer it can't use, with the reason.
 
-**Web:** Sans objet : diagnostic de l'appli télé seulement.
-
 
 ## [2.85.3] — 2026-11-10
 
@@ -1400,8 +2478,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - The engine keeps track of the TV app's latest requests, to understand a Sync screen stuck on “reading…”.
-
-**Web:** Sans objet : diagnostic du moteur seulement.
 
 
 ## [2.85.2] — 2026-11-10
@@ -1412,8 +2488,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Sync: if the other PS5 doesn't answer (restart, rest mode), the Active progress, Apps, DLC and Settings cards say “other PS5 unreachable” instead of “reading…”, and retry every 20 s.
 
-**Web:** Même comportement côté web.
-
 
 ## [2.85.1] — 2026-11-10
 
@@ -1422,8 +2496,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Sync: a Switch game missing from this PS5 shows its cover (Eden's, from the other PS5, cached) instead of a text tile. Sync › DLC: the “Packages stored here” line no longer touches the edge.
-
-**Web:** Même jaquette côté web.
 
 
 ## [2.85.0] — 2026-11-10
@@ -1439,8 +2511,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Each PS5 only writes to its own folders: the receiving one fetches the files, and the other only serves the packages it has declared itself.
 
-**Web:** Même bouton « Compléter… » côté web.
-
 
 ## [2.84.0] — 2026-11-10
 
@@ -1454,8 +2524,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - The package storage location (USB drive on the console or NAS) is set: it will be used at the install step.
 
-**Web:** Même écran DLC côté web.
-
 
 ## [2.83.2] — 2026-11-10
 
@@ -1465,8 +2533,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Home: a NAS Sync bubble now shows the NAS (no longer a PS5). Sync › NAS: the Saves card text is no longer cut off.
 
-**Web:** Même texte côté web.
-
 
 ## [2.83.1] — 2026-11-10
 
@@ -1475,8 +2541,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Sync › NAS: the Saves card now talks about the NAS (no longer “the other PS5”).
-
-**Web:** Même texte côté web.
 
 
 ## [2.83.0] — 2026-11-10
@@ -1488,8 +2552,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Sync: the NAS appears alongside the PS5 and Switch consoles. Its Saves sync just like with another PS5: chosen games keep their saves on both sides, nothing is overwritten or deleted, and nothing is ever copied back and forth in a loop.
 - Sync › Settings: the card opens on apps that have settings (“With settings” filter).
 
-**Web:** Même NAS et même carte Réglages côté web.
-
 
 ## [2.82.1] — 2026-11-09
 
@@ -1498,8 +2560,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Sync › Apps: the first comparison no longer fails while the other PS5 computes its apps’ fingerprints (up to 3 minutes).
-
-**Web:** Même correctif côté web (il est dans le moteur).
 
 
 ## [2.82.0] — 2026-11-09
@@ -1516,8 +2576,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Apps: same version but different files (rebuilt homebrew) → to decide, never silently replaced again.
 - Apps: the header counts chosen apps (not games).
 
-**Web:** Mêmes modes, mêmes réglages et mêmes choix en cas de conflit côté web.
-
 
 ## [2.81.0] — 2026-11-09
 
@@ -1527,8 +2585,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Sync › Apps: the same apps, at the same version, on both PS5s. Same version: nothing; newer on one side: it replaces the older one on the other side (same rule as app updates); missing: installed if you chose it.
 - An app update never keeps two versions: the old one is removed only once the new one is installed, verified and its execute permissions re-read; otherwise it is put back.
-
-**Web:** Même section Applis côté web.
 
 
 ## [2.80.2] — 2026-11-09
@@ -1543,8 +2599,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Active progress: each sync is recorded on both sides. Progress that just arrived is no longer sent back in a loop; only the one you played again goes out. Played on both sides: nothing goes until you choose which one to keep.
 
-**Web:** Mêmes filtres et même choix en cas de conflit côté web.
-
 
 ## [2.80.1] — 2026-11-09
 
@@ -1558,8 +2612,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Active progress: same rule as resuming a game — more play time first, then the newest; if identical, nothing is touched.
 
-**Web:** Même choix des comptes côté web.
-
 
 ## [2.80.0] — 2026-11-09
 
@@ -1570,14 +2622,10 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Sync › Active progress: choose the games whose progress should be the same on both PS5s. For each one, the time the game wrote its progress is compared: the most recent wins and goes to the other console, on the right account.
 - Before progress is replaced, it is backed up (Saves tab): nothing is lost. Never while the game is running, and always after you confirm.
 
-**Web:** Même section Parties actives côté web.
-
 
 ## [2.79.4] — 2026-11-09
 
 **Devices: the IP address of each paired PS5 is shown.**
-
-**Web:** Adresse IP des PS5 jumelées dans Appareils côté web aussi.
 
 
 ## [2.79.3] — 2026-11-09
@@ -1593,8 +2641,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Apps and folder games transferred from one PS5 to another: eboot.bin and modules keep their execute permission (they arrived as 0666 and the app refused to start). Original permissions are recorded in the copy, restored at install and re-read before saying “installed”; otherwise, a clear error.
 
-**Web:** Adresse IP des PS5 jumelées dans Appareils côté web aussi.
-
 
 ## [2.79.2] — 2026-11-09
 
@@ -1608,8 +2654,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Choose games: the “↑ To the other PS5” and “↓ To here” filters are back.
 
-**Web:** Mêmes filtres de direction côté web.
-
 
 ## [2.79.1] — 2026-11-09
 
@@ -1618,8 +2662,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Sync: section names (“Active progress”) are no longer cut off; “Soon” moves below.
-
-**Web:** Le web affichait déjà les noms entiers.
 
 
 ## [2.79.0] — 2026-11-09
@@ -1639,8 +2681,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - A large save whose content can't be read (e.g. Gex) is no longer flagged “to check”.
 
-**Web:** Mêmes noms, même choix des disques et même carte « Jeux entiers » côté web.
-
 
 ## [2.78.5] — 2026-11-09
 
@@ -1649,8 +2689,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Sync: the big top panel and the Backups card follow the theme (no more grey background in the light theme).
-
-**Web:** Le web suivait déjà le thème.
 
 
 ## [2.78.4] — 2026-11-09
@@ -1665,8 +2703,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Home: the Sync bubble shows the PS5 picture without a grey background.
 
-**Web:** Mêmes noms et même bulle côté web.
-
 
 ## [2.78.3] — 2026-11-09
 
@@ -1675,8 +2711,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Choose games: the help bar says Circle takes you back to the Sync page.
-
-**Web:** Bouton « Retour à Synchro » côté web.
 
 
 ## [2.78.2] — 2026-11-09
@@ -1687,8 +2721,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Translations: the Progress tab (saves on the console) and Saves (the copies) no longer share the same name.
 
-**Web:** Mêmes noms côté web.
-
 
 ## [2.78.1] — 2026-11-09
 
@@ -1697,8 +2729,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Web: the Saves card on the Sync tab keeps its shape.
-
-**Web:** Correctif de la page Synchro côté web.
 
 
 ## [2.78.0] — 2026-11-09
@@ -1714,8 +2744,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - The Sync bubble on Home speaks like the page (“No games chosen”, “N games to update”, “Everything is in sync”) and opens this PS5's page.
 
-**Web:** Même page Synchro et même écran « Choisir les jeux » côté web.
-
 
 ## [2.77.5] — 2026-11-09
 
@@ -1724,8 +2752,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Copy sync: if you turn it on, a followed title's full game is sent only once, when the other side lacks it; after that, only its saves follow (never 150 GB re-sent because a save changed).
-
-**Web:** Mêmes règles et mêmes mots côté web.
 
 
 ## [2.77.4] — 2026-11-09
@@ -1737,8 +2763,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Copy sync: followed titles send only their saves; full copies only if you choose, and then only the newest (never older versions of a game or app).
 - Sync tab: one sentence says exactly what the sync touches (and doesn’t), and the size to send is shown.
 
-**Web:** Même bouton « Sauvegardes seulement » et même explication côté web.
-
 
 ## [2.77.3] — 2026-11-09
 
@@ -1747,8 +2771,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Sync tab: after “Follow everything” or “Follow nothing”, the card and summary change right away (before, you had to go back to Home).
-
-**Web:** Côté web, la page se relisait déjà tout de suite.
 
 
 ## [2.77.2] — 2026-11-09
@@ -1760,8 +2782,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Sync tab: the “Mode” button is replaced by “Follow everything” and “Follow nothing”, which start from scratch; the followed games list reminds “Options: all / none”.
 - Home: the sync bubble shows the PS5 picture when no game is followed or everything is up to date.
 
-**Web:** Mêmes boutons « Tout suivre » / « Ne rien suivre » côté web.
-
 
 ## [2.77.1] — 2026-11-09
 
@@ -1770,8 +2790,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Sync tab: the other PS5's card counts like the bubble (followed games only); buttons wrap instead of overflowing.
-
-**Web:** Même carte côté web.
 
 
 ## [2.77.0] — 2026-11-09
@@ -1793,8 +2811,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - An app (e.g. Prospero Themes) stays labeled “App” everywhere — copies, other PS5, sync — instead of “PS5”.
 - Sync tab: paired PS5s show up right away, even before the other console is first read.
 
-**Web:** Mêmes jeux suivis, filtres, tri, bulle et étiquette « App » sur le web ; le raccourci Accueil est déjà là (logo et onglet).
-
 
 ## [2.76.3] — 2026-11-09
 
@@ -1803,8 +2819,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Update: the engine no longer goes silent if the old one is slow to free its place — it retries for 2 minutes and writes its status (engine-status.json); its port can no longer stay stuck because of an engine stopped abruptly.
-
-**Web:** sans objet : moteur seulement
 
 
 ## [2.76.2] — 2026-11-09
@@ -1815,8 +2829,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Top bar redrawn: tabs keep their spacing and scroll with L1 / R1, small ‹ › arrows show the hidden ones; the status dot and version sit on one line next to the search button.
 
-**Web:** sans objet : le web fait déjà défiler ses onglets
-
 
 ## [2.76.1] — 2026-11-09
 
@@ -1825,8 +2837,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Sync: the status with the other PS5 shows as soon as you open it (it used to wait a minute).
-
-**Web:** Correctif web et télé.
 
 
 ## [2.76.0] — 2026-11-09
@@ -1841,8 +2851,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - The tab bar tightens by itself when space runs short.
 - Cards for another PS5 (Sync, Backups, Saves) show the PS5 picture.
-
-**Web:** Même onglet Synchro sur le web.
 
 
 ## [2.75.0] — 2026-11-09
@@ -1866,8 +2874,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Saves: a system app's save (e.g. LAPY20011 “Saved data”) is labeled “System data” and no longer counts as “to back up”.
 
-**Web:** Même maintien 5 s et mêmes phrases d'aide.
-
 
 ## [2.74.0] — 2026-11-09
 
@@ -1880,8 +2886,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Home in two parts: first what is on this console (recently played, PS5 games, PS4 games, saves without the game), then what is elsewhere, with a badge (available backups, the other PS5's installed games and backups), then retro and apps.
-
-**Web:** Même ordre et mêmes pastilles sur l'accueil web.
 
 
 ## [2.73.0] — 2026-11-09
@@ -1896,8 +2900,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Home: “PS5 games” and “PS4 games” in two rows.
 
-**Web:** Mêmes rangées « Sur … » et « Recevoir ici », PS5 et PS4 séparés.
-
 
 ## [2.72.0] — 2026-11-09
 
@@ -1911,8 +2913,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Web: the other PS5's drives no longer show up as “missing drives”.
 
-**Web:** Même carte par PS5 jumelée.
-
 
 ## [2.71.1] — 2026-11-09
 
@@ -1921,8 +2921,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Home: “Saves without the game” now comes right after games, before retro consoles and apps.
-
-**Web:** Même ordre des rangées sur l'accueil.
 
 
 ## [2.71.0] — 2026-11-09
@@ -1941,8 +2939,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Saves and Backups: PS4 games (CUSA) missing from the library were labeled “PS5”; they now show “PS4” and their cover.
 
-**Web:** Même rangée « Backups disponibles » sur l'accueil, même message pour le NAS.
-
 
 ## [2.70.1] — 2026-11-09
 
@@ -1955,8 +2951,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Covers: a console without an official icon (offline) uses the one from a paired PS5 that has the game.
-
-**Web:** Mêmes libellés et même menu.
 
 
 ## [2.70.0] — 2026-11-09
@@ -1972,8 +2966,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Copies from the other PS5 are never checked, suggested for cleanup or deleted from here: that's done from the console that stores them.
 
-**Web:** Mêmes copies dans Backups, groupe « Rangées sur … », menu ⋯ « Récupérer ici ».
-
 
 ## [2.69.0] — 2026-11-09
 
@@ -1986,8 +2978,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Clear label everywhere: “Delete the console's save…”, and every confirmation reminds you it's the save on the console (your progress), not a copy in Backups.
-
-**Web:** Même dernière étape : bouton à maintenir 5 s.
 
 
 ## [2.68.0] — 2026-11-09
@@ -2002,8 +2992,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Covers: a game missing from the console (only its save or its copies) shows its official icon everywhere (Home “To do”, Saves, Backups).
-
-**Web:** Mêmes actions et mêmes confirmations ; jaquettes des cartes « À faire » corrigées.
 
 
 ## [2.67.0] — 2026-11-09
@@ -2022,8 +3010,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Backups: covers were missing for a game present only through its save.
 
-**Web:** Même action dans la fiche et le menu « ⋯ » ; jaquettes corrigées dans Backups.
-
 
 ## [2.66.0] — 2026-11-09
 
@@ -2039,8 +3025,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Backups: full backups stored on internal storage are listed too.
 - Game details: Up and Down move between rows of buttons, to the nearest button, without skipping any.
 
-**Web:** Menu « ⋯ » sur les jaquettes de l'Accueil ; Backups corrigé par le moteur (même vue).
-
 
 ## [2.65.1] — 2026-11-09
 
@@ -2049,8 +3033,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Image status and compatibility: one read at a time; if a read hangs (stuck disk or mount), later requests get the last known result instead of piling up — the engine stays reachable.
-
-**Web:** sans objet : moteur seulement
 
 
 ## [2.65.0] — 2026-11-09
@@ -2061,8 +3043,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - To know whether a game is mounted, the engine reads the system mount table without waiting, instead of looking inside ShadowMountPlus mount folders: a broken mount can no longer block it.
 
-**Web:** sans objet : moteur seulement
-
 
 ## [2.64.1] — 2026-11-09
 
@@ -2071,8 +3051,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Image tools › Move: the ShadowMountPlus registration is updated only when moving the registered game itself; moving a working copy no longer replaces the real game’s registration.
-
-**Web:** sans objet : moteur seulement
 
 
 ## [2.64.0] — 2026-11-09
@@ -2083,8 +3061,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - A game’s ShadowMountPlus backport (backports/<ID> folder) becomes part of the game: copied with it, sent with it to another PS5, and put back in place on install (never overwritten if one already exists).
 
-**Web:** sans objet : moteur seulement ; la partie s'affiche déjà dans « Que sauvegarder ? » sur le web et la télé
-
 
 ## [2.63.2] — 2026-11-09
 
@@ -2093,8 +3069,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Engine: its status always answers, even if an operation gets stuck (it then says “busy”, since when and in which operation); a watchdog writes it to the log to diagnose a stuck disk.
-
-**Web:** sans objet : moteur seulement
 
 
 ## [2.63.1] — 2026-11-09
@@ -2105,8 +3079,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Devices › other PS5 › Disks: each disk opens in the file browser (read-only); on the web, click the disk name on the card.
 
-**Web:** fait : nom du disque cliquable sur la carte, même explorateur
-
 
 ## [2.63.0] — 2026-11-09
 
@@ -2115,8 +3087,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### New
 
 - Devices › a paired PS5’s card: “Disks” (list with free space), “Saves” (its saves, read-only), “Send a game…”, “Send a save…”, “Close the open app…”, “Forget this console…”.
-
-**Web:** fait : mêmes boutons sur la carte de l'autre PS5 dans Appareils
 
 
 ## [2.62.0] — 2026-11-09
@@ -2127,8 +3097,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - After a send, Tasks offers “Close “…” there”; in Devices, the other PS5’s card offers “Close the open app…” at any time. Named confirmation; only the confirmed app is closed; a game is flagged (unsaved progress lost).
 
-**Web:** fait : même bouton dans Tâches et sur la carte de l'autre PS5 dans Appareils
-
 
 ## [2.61.2] — 2026-11-09
 
@@ -2137,8 +3105,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Send a game to a PS5, as is: after its verified arrival, it is moved into the games folder with a simple rename (instant) instead of being copied again — a single copy, the network one.
-
-**Web:** sans objet : moteur seulement
 
 
 ## [2.61.1] — 2026-11-09
@@ -2149,8 +3115,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Send a folder-format game to a PS5 (or install it from a copy): as is, the folder goes to the games folder; as .exfat, an image is created; as .ffpfsc, it is compressed — then registered in ShadowMountPlus.
 
-**Web:** sans objet : moteur seulement, mêmes choix déjà présents sur le web
-
 
 ## [2.61.0] — 2026-11-09
 
@@ -2159,8 +3123,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### New
 
 - Send a game to a PS5: once it is installed in the other console’s games folder and its save restored, the transit copy is removed from “PBC Backup” — the game is there only once. Option to also keep a backup copy; if a step fails, the copy is kept.
-
-**Web:** fait : même choix sur la fiche web
 
 
 ## [2.60.2] — 2026-11-09
@@ -2171,8 +3133,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Read speed test: a single full read of the game (re-reading the same files measured memory, not the disk); the result shows in Tasks, with a warning if the game is too small for a reliable measure.
 
-**Web:** fait : même résultat de vitesse dans Tâches sur le web
-
 
 ## [2.60.1] — 2026-11-09
 
@@ -2181,8 +3141,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Devices: on a paired PS5’s card, each disk has its own small usage bar, with its free space.
-
-**Web:** sans objet : le web affiche déjà une barre par disque sur la carte d'une PS5 jumelée
 
 
 ## [2.60.0] — 2026-11-09
@@ -2197,8 +3155,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Devices: one card per paired PS5, its name as title and the list of its disks (Internal, USB 0, USB 1…) with their free space.
 
-**Web:** fait : même choix du compte et même carte par console sur le web
-
 
 ## [2.59.2] — 2026-11-09
 
@@ -2207,8 +3163,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Send to a PS5: a step accepted by the other console (a restore or install starting) is no longer counted as an error; if refused, the other console’s message is shown.
-
-**Web:** sans objet : correctif du moteur, même effet sur le web et la télé
 
 
 ## [2.59.1] — 2026-11-09
@@ -2219,8 +3173,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Devices: a paired PS5’s disk card shows the console name as title, with “Internal · system 3.21” below.
 
-**Web:** fait : même carte sur le web
-
 
 ## [2.59.0] — 2026-11-09
 
@@ -2229,8 +3181,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### New
 
 - Saves › Options and game sheet › “Send to a PS5…”: send just the current save, choosing the console then the account that receives it; it is restored there, re-signed if the ID differs.
-
-**Web:** fait : mêmes choix sur la fiche web et dans les actions de Parties
 
 
 ## [2.58.0] — 2026-11-09
@@ -2241,8 +3191,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Devices: when a paired PS5’s disks appear (it powers on, or the app was already open), the TV app and the web show them right away — before, an app opened too early never saw them.
 
-**Web:** fait : le web relit aussi les endroits quand la révision change
-
 
 ## [2.57.1] — 2026-11-09
 
@@ -2252,8 +3200,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Devices: a device name drops to a smaller size instead of being cut; a paired PS5 shows its disk as title with “console (system)” below.
 
-**Web:** fait : même découpage disque / console (système) sur le web
-
 
 ## [2.57.0] — 2026-11-09
 
@@ -2262,8 +3208,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### New
 
 - Image tools: each menu choice says in one line what it does (verify, repair, uncompress, read-only, speed, AMPR index…), on the TV and on the web.
-
-**Web:** fait : même explication sous chaque choix du menu web
 
 
 ## [2.56.0] — 2026-11-09
@@ -2279,8 +3223,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Devices: a paired PS5’s disks appear as soon as it is online (at startup or when switched back on), without waiting 30 s.
 - TV: the chosen theme shows as soon as the app opens, even if the engine is slow to answer at console startup.
 
-**Web:** fait : APR-EMU signalé sur la fiche web ; Appareils suit le moteur ; thème : sans objet (le web lit déjà le moteur)
-
 
 ## [2.55.0] — 2026-11-09
 
@@ -2290,8 +3232,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Game sheet: an “Image tools…” button opens a menu (verify, repair, uncompress, read-only, read speed test, copy or move, AMPR index, browse) — on the TV (as well as Triangle) and on the web.
 
-**Web:** fait : même bouton « Outils de l'image… » en menu sur la fiche web
-
 
 ## [2.54.1] — 2026-11-09
 
@@ -2300,8 +3240,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - TV: a menu widens to fit its title; no title is cut anymore.
-
-**Web:** sans objet : affichage de la télé (le web s'adapte déjà)
 
 
 ## [2.54.0] — 2026-11-09
@@ -2316,8 +3254,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Send to a PS5: each disk of the other console shows its system; sheet texts shortened so nothing overflows.
 
-**Web:** fait : mêmes constats par console sur la fiche web et même avertissement
-
 
 ## [2.53.0] — 2026-11-09
 
@@ -2327,8 +3263,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Game sheet and pre-send warning: the available backport is read and shown — the game’s fakelib libraries (with their SDK), ShadowMountPlus backports on the console, and the target console’s fakelib backport setting.
 
-**Web:** fait : même ligne Backport sur la fiche et mêmes preuves dans l'avertissement
-
 
 ## [2.52.1] — 2026-11-09
 
@@ -2337,8 +3271,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Compatibility: the SDK is also read from SELF-format executables when their segments are in clear (prepared games), without changing anything.
-
-**Web:** sans objet : lecture côté moteur, même affichage sur le web et la télé
 
 
 ## [2.52.0] — 2026-11-09
@@ -2354,8 +3286,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Automatic format: chosen from the mounts actually seen on the receiving console (ShadowMountPlus log), no longer from a system number.
 
-**Web:** fait : même ligne Compatibilité sur la fiche et même avertissement sur le web
-
 
 ## [2.51.0] — 2026-11-09
 
@@ -2369,8 +3299,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Tasks: a finished install says when the game will appear on the home screen once the app is closed.
 
-**Web:** fait : même avertissement et même mention dans Tâches sur le web
-
 
 ## [2.50.0] — 2026-11-09
 
@@ -2379,8 +3307,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### New
 
 - Send to a PS5 or install from a copy: choose the format — automatic (based on the console’s system), compressed (.ffpfsc), uncompressed image (.exfat) or as is. In automatic mode, an older console gets an uncompressed image it can mount.
-
-**Web:** fait : même choix du format sur le web (fiche et Toutes les versions)
 
 
 ## [2.49.2] — 2026-11-09
@@ -2391,8 +3317,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Installing a game: ShadowMountPlus is notified through its API (as well as manual.lst); if it waits until no game or app is running, the task and the message say so.
 
-**Web:** fait : même message sur le web (le jeu apparaît une fois l'application fermée)
-
 
 ## [2.49.1] — 2026-11-09
 
@@ -2401,8 +3325,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Installing a received game or a copy: the copied image is now registered in ShadowMountPlus (the game appears on the home screen); if the same image is already on the disk, it is not copied again.
-
-**Web:** sans objet : correctif du moteur, même effet sur le web et la télé
 
 
 ## [2.49.0] — 2026-11-09
@@ -2418,8 +3340,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Game sheet: buttons wrap to a new line when space runs out.
 
-**Web:** fait : mêmes boutons « Envoyer à une PS5… » sur la fiche et « Installer sur … » dans Toutes les versions
-
 
 ## [2.48.1] — 2026-11-09
 
@@ -2428,8 +3348,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### New
 
 - Devices: each drive of a paired PS5 has its own card, like a drive of this console (name, space bar, free space out of total), on both sides; when it's off, a single “Offline” card.
-
-**Web:** fait : mêmes cartes de disques de l'autre PS5 dans Appareils sur le web
 
 
 ## [2.48.0] — 2026-11-09
@@ -2443,8 +3361,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - A paired PS5 is shown “online” as soon as it responds, even without an announcement received on the network.
-
-**Web:** fait : mêmes destinations « autre PS5 » dans la fiche, Transferts et la sauvegarde complète sur le web
 
 
 ## [2.47.0] — 2026-11-09
@@ -2462,8 +3378,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Engine: two loops walked through a temporary list that was already destroyed (possible crash); fixed and covered by tests.
 
-**Web:** fait : cartes des PS5 jumelées dans Appareils, mêmes étapes « Comment ça marche », envois visibles dans Tâches et dans les bulles
-
 
 ## [2.46.3] — 2026-11-09
 
@@ -2472,8 +3386,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Another PS5: one line per paired console (“paired ✓, online”), and its actions in a submenu (See its drives, Forget this console… with confirmation). “Forget” no longer looks like an instruction.
-
-**Web:** fait : mêmes libellés sur le web, et confirmation avant d'oublier
 
 
 ## [2.46.2] — 2026-11-09
@@ -2488,8 +3400,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Link between consoles: pairing is kept under the other console's stable ID (it survives its restarts); before, it could be lost and the console appear twice.
 
-**Web:** sans objet : moteur seulement ; les noms s'affichent dans « Une autre PS5 », télé et web
-
 
 ## [2.46.1] — 2026-11-09
 
@@ -2499,8 +3409,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Updates: nothing to set. Without a chosen source, the app finds its updates by itself: an online source built into the package when there is one, otherwise a “PBC Update” folder on a USB drive, otherwise the folder dropped on the console.
 
-**Web:** sans objet : moteur seulement ; Paramètres › Mises à jour affiche la source trouvée, télé et web
-
 
 ## [2.46.0] — 2026-11-08
 
@@ -2509,8 +3417,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### New
 
 - All versions: “Send to <paired PS5>…” sends the copy to the other console (fingerprint checked), which restores it re-signed for its account, with a safety copy first. Works from a drive or the NAS.
-
-**Web:** fait : même « Envoyer à … » dans le menu d'une version sur le web
 
 
 ## [2.45.1] — 2026-11-08
@@ -2525,8 +3431,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Engine: the link between consoles no longer re-reads the console's accounts every 5 seconds from its own thread (likely cause of an engine stop); the console name comes from the scan loop.
 
-**Web:** fait : même fenêtre « Une autre PS5 » dans Appareils sur le web (le code de la console reste affiché sur la télé)
-
 
 ## [2.44.1] — 2026-11-08
 
@@ -2535,8 +3439,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - Link between consoles: the announce is also sent to the broadcast address of each of the console's networks, so another PS5 on the same network sees it.
-
-**Web:** sans objet : moteur seulement
 
 
 ## [2.44.0] — 2026-11-08
@@ -2547,8 +3449,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Engine: link between consoles — each Backup Center announces itself on the local network, pairs with another console using its 6-digit code and can read its status, drives, library and saves. Reusable module (also planned for PS5 Center).
 
-**Web:** sans objet : moteur seulement ; l'écran (Appareils › autre PS5) arrive ensuite, télé et web ensemble
-
 
 ## [2.43.1] — 2026-11-08
 
@@ -2557,8 +3457,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Engine: read-only view of the account slots in the console registry (name, ID, type, activation), to prepare reactivating an ID. Nothing is changed.
-
-**Web:** sans objet : moteur seulement (diagnostic) ; l'affichage arrive dans Paramètres › Utilisateurs, télé et web ensemble
 
 
 ## [2.43.0] — 2026-11-08
@@ -2569,8 +3467,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Settings › Users: “Resume all on …” for an ID that is not on the console. For each game, the console save is compared with the best copy from that ID; the most advanced one is checked (L2 to change), and each chosen game is restored and re-signed for the console account. The current save is copied first, nothing is deleted, and a running game is left out.
 
-**Web:** fait : même « Tout reprendre sur … » dans Paramètres › Utilisateurs sur le web (tableau à cocher)
-
 
 ## [2.42.4] — 2026-11-08
 
@@ -2579,8 +3475,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Settings: the “Accounts” section is now called “Users”, like on the PS5; you link an ID to the same user.
-
-**Web:** fait : même nom de section et mêmes mots sur le web
 
 
 ## [2.42.3] — 2026-11-08
@@ -2596,8 +3490,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - All versions: Square deletes the copy under the cursor (or the checked copies), with confirmation, without going through a menu; the button is shown at the bottom of the screen.
 - IDs: a copy made under an ID that is not on this console is marked “Other ID”, with “not on this console”; Settings › Accounts says “On this console” or “Not on this console”. No more guessed names.
 
-**Web:** fait : mêmes mots pour les identifiants sur le web ; le web avait déjà Supprimer sur chaque copie et le choix du compte à la restauration
-
 
 ## [2.42.2] — 2026-11-08
 
@@ -2608,8 +3500,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Backups: R2 cleans safe duplicates again (checked games, otherwise all) with the preview before the trash; also in the Options menu, along with “Compare all”. In a game's detail, R2 cleans that game.
 - Devices (TV): cards adapt to the number of devices; the “Add a device” row no longer goes under the hints at the bottom.
 
-**Web:** fait : bouton « Nettoyer les doublons… » dans Backups sur le web ; Appareils : sans objet (mise en page télé)
-
 
 ## [2.42.1] — 2026-11-08
 
@@ -2619,8 +3509,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Home: the category rows (games, one row per retro console, apps, saves without the game) are back under “Recently played”, where you open an item to back it up.
 - Library (TV): each category is shown as a grid of 8 per row; Down goes further down the list (for example all apps), instead of a single row to scroll.
-
-**Web:** fait : rangées par catégorie de retour sur l'Accueil web ; la Bibliothèque web était déjà en grille
 
 
 ## [2.42.0] — 2026-11-08
@@ -2635,8 +3523,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Survey: on each comparison, useful field names (time, level, chapter, map…) from saves of unknown games are noted, to pick the next games for the catalogue.
 
-**Web:** fait : mention « détecté automatiquement » dans Toutes les versions sur le web
-
 
 ## [2.41.0] — 2026-11-08
 
@@ -2649,8 +3535,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Copies already compared with the old reader go back to “Not yet compared”: “Compare all” reads them once more to get their progress. Safe duplicates are still offered meanwhile.
-
-**Web:** sans objet : moteur seulement ; la télé et le web affichent déjà l'avancée fournie par le moteur
 
 
 ## [2.40.0] — 2026-11-08
@@ -2669,8 +3553,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Engine: an old ID's name in All versions is now read safely (2.39.0 bug caught by the tests).
 
-**Web:** fait : même mention « réglages seulement, pas de partie » dans Toutes les versions sur le web ; lieux lisibles fournis par le moteur
-
 
 ## [2.39.0] — 2026-11-08
 
@@ -2684,8 +3566,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - All versions: copies from an old ID show the name you gave it.
 
-**Web:** fait : même section Comptes sur le web (renommer, c'est moi / ce n'est pas moi)
-
 
 ## [2.38.0] — 2026-11-08
 
@@ -2694,8 +3574,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### New
 
 - “Resume on my account”: a copy made under an old ID (before a format, on another console) is marked “Old ID”, with that ID's name when known; the action re-signs it for your current account (checked first, your current save copied beforehand, never while the game is running).
-
-**Web:** fait : même étiquette, même texte et même action « Reprendre sur mon compte… » dans Toutes les versions sur le web
 
 
 ## [2.37.4] — 2026-11-08
@@ -2706,8 +3584,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Task bubbles: one color per family — backup and restore in purple, transfer and sync in teal, compression and images in pink.
 
-**Web:** fait : mêmes couleurs de familles sur le web
-
 
 ## [2.37.3] — 2026-11-08
 
@@ -2716,8 +3592,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Fixed
 
 - “To do” bubble colors made consistent: each kind has its color (to back up orange, duplicates green, not yet compared blue, to check red, tasks purple), applied to the edge, background, title and bar, on the TV and the web, in dark and light themes.
-
-**Web:** fait : même règle de couleurs sur le web (thèmes sombre et clair vérifiés)
 
 
 ## [2.37.2] — 2026-11-08
@@ -2728,8 +3602,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Home: task bubbles (full game backup, compression, transfer…) show the percentage and time left; covers no longer flicker on the web.
 
-**Web:** fait : pourcentage et temps restant aussi sur le web
-
 
 ## [2.37.1] — 2026-11-08
 
@@ -2738,8 +3610,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Home: one bubble per kind of running task (compression, transfer, decompression…), with the progress bar of the task shown.
-
-**Web:** fait : mêmes bulles de tâches avec barre d'avancement sur le web
 
 
 ## [2.37.0] — 2026-11-08
@@ -2763,8 +3633,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - The version number is no longer cut off at the top of the TV screen.
 
-**Web:** fait : même découpage, cases à cocher, barre d'actions sur la sélection, Toutes les versions, Synchroniser et Appareils sur le web
-
 
 ## [2.36.1] — 2026-11-08
 
@@ -2773,8 +3641,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Engine: the account identifiers seen in your saves are listed (dates, games), and the ones that are clearly you (the same playthrough under two identifiers) are flagged; they can be given a name. The screens come with the new layout.
-
-**Web:** sans objet : moteur seulement ; l'écran Paramètres › Comptes arrive avec le nouveau découpage, télé et web ensemble
 
 
 ## [2.36.0] — 2026-11-08
@@ -2786,8 +3652,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Manage backups (TV and web): everything can be selected and sent to the trash — a whole item or copy by copy, even without a comparison — including full backups of games, apps, homebrew and ROMs. “By disk” can also move a copy to the trash.
 - “Stop backing up…” on the page of any item (game, app, homebrew, ROM) and multiple selection in the Library (“Ignored” view); ignored items no longer appear on Home.
 
-**Web:** fait : mêmes capacités sur le web (sélection, corbeille, ignorer depuis la fiche, mode Sélection dans la Bibliothèque, corbeille dans Par disque)
-
 
 ## [2.35.1] — 2026-11-08
 
@@ -2796,8 +3660,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Manage backups: an old identifier of your account (for example from before a console format) can be declared as yours; its copies are then treated as yours (duplicates offered for cleanup).
-
-**Web:** sans objet : réglage du moteur, enregistré pour l'utilisateur ; l'écran pour le modifier arrive avec le nouveau découpage (Paramètres › Comptes), télé et web ensemble
 
 
 ## [2.35.0] — 2026-11-08
@@ -2813,8 +3675,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Faster comparison: a copy that is byte-for-byte identical to one already read is no longer opened. An old save without a game ID (e.g. “Split Fiction” on the NAS) is linked to the right game instead of creating a second entry.
 - Comparison: backups made by the app are no longer copied or downloaded when their content has already been read (each file's fingerprint is in their manifest); temporary folders of an interrupted comparison are emptied at startup.
 
-**Web:** fait : « Ignorer ce jeu… », « Tout cocher / rien » et « Jeux ignorés » dans les Paramètres, comme sur la télé
-
 
 ## [2.34.0] — 2026-11-08
 
@@ -2828,8 +3688,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Copies from another account and protected copies are never offered for cleanup.
 
-**Web:** fait : mêmes écrans sur le web (vue par jeu, détail, aperçu, corbeille), boutons à la place des touches
-
 
 ## [2.33.0] — 2026-11-08
 
@@ -2839,8 +3697,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - Progress of copies: each new backup records the game's progress at the time of the copy; “Compare all” reads existing copies once (disks and NAS), never opening the save of the game being played.
 
-**Web:** sans objet : moteur seulement ; les écrans télé et web qui l'utilisent arrivent ensemble dans la version suivante
-
 
 ## [2.32.1] — 2026-11-08
 
@@ -2849,8 +3705,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Game progress: the actual playthrough comes before profile or settings saves, and the game's name is no longer repeated before the text.
-
-**Web:** sans objet : réglage du moteur (choix de la sauvegarde affichée), le web et la télé l'affichent pareil sans changement
 
 
 ## [2.32.0] — 2026-11-08
@@ -2862,8 +3716,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - Saves: next to each game, the progress the game writes in its save (mission, percentage, level, time) and the play time counted by the app from now on. Comparing copies uses it to tell which one goes furthest.
 - Manage backups: deleting moves copies to a trash (“PBC Backup/Corbeille”, same disk or NAS) for 30 days, from where they can be put back.
 
-**Web:** fait : avancée par jeu dans Sauvegardes et messages de corbeille dans Gérer les backups, comme sur la télé
-
 
 ## [2.31.1] — 2026-11-08
 
@@ -2873,8 +3725,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 
 - The web page language can no longer be changed by mistake by a test of the app run on a computer; the TV's release notes stay to be seen on the TV.
 
-**Web:** sans objet : correctif interne de l'app télé (les aperçus sur ordinateur n'écrivent plus la langue système ni « nouveautés vues ») ; le web en profite sans changement
-
 
 ## [2.31.0] — 2026-11-08
 
@@ -2883,8 +3733,6 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 ### Improved
 
 - Saves: the 6 views are on the TV as on the web (“Backup newer” was missing on the TV), same names and order. Web: the language follows the one chosen on the TV, spinner while the content is read, no more “Restore” on an incomplete version or for a non-PS5 account, USB disks silently re-read after a minute.
-
-**Web:** fait : rattrapage complet après audit des 31 changements télé depuis la 2.20.1 (Par disque, Gérer les backups, langue en direct, restauration, 6 vues)
 
 
 ## [2.30.9] — 2026-11-08
@@ -3808,296 +4656,407 @@ All user-facing changes to **PS5 Backup Center**, newest first. This is the same
 - The app crashed at startup on some consoles: fixed.
 
 
-[3.0.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v3.0.0
-[2.99.46]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.46
-[2.99.45]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.45
-[2.99.43]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.43
-[2.99.41]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.41
-[2.99.40]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.40
-[2.99.39]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.39
-[2.99.38]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.38
-[2.99.37]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.37
-[2.99.36]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.36
-[2.99.35]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.35
-[2.99.34]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.34
-[2.99.33]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.33
-[2.99.32]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.32
-[2.99.31]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.31
-[2.99.30]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.30
-[2.99.29]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.29
-[2.99.27]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.27
-[2.99.25]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.25
-[2.99.24]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.24
-[2.99.23]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.23
-[2.99.22]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.22
-[2.99.21]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.21
-[2.99.20]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.20
-[2.99.19]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.19
-[2.99.18]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.18
-[2.99.16]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.16
-[2.99.15]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.15
-[2.99.14]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.14
-[2.99.13]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.13
-[2.99.12]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.12
-[2.99.11]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.11
-[2.99.10]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.10
-[2.99.9]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.9
-[2.99.8]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.8
-[2.99.7]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.7
-[2.99.6]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.6
-[2.99.5]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.5
-[2.99.4]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.4
-[2.99.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.3
-[2.99.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.2
-[2.99.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.1
-[2.99.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.99.0
-[2.98.5]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.98.5
-[2.98.4]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.98.4
-[2.98.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.98.3
-[2.98.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.98.2
-[2.98.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.98.1
-[2.98.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.98.0
-[2.97.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.97.0
-[2.96.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.96.1
-[2.96.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.96.0
-[2.95.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.95.3
-[2.95.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.95.2
-[2.95.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.95.1
-[2.95.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.95.0
-[2.94.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.94.0
-[2.93.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.93.1
-[2.93.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.93.0
-[2.92.4]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.92.4
-[2.92.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.92.3
-[2.92.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.92.2
-[2.92.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.92.1
-[2.92.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.92.0
-[2.91.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.91.1
-[2.91.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.91.0
-[2.90.9]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.90.9
-[2.90.8]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.90.8
-[2.90.7]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.90.7
-[2.90.6]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.90.6
-[2.90.5]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.90.5
-[2.90.4]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.90.4
-[2.90.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.90.3
-[2.90.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.90.2
-[2.90.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.90.1
-[2.90.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.90.0
-[2.89.9]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.89.9
-[2.89.8]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.89.8
-[2.89.7]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.89.7
-[2.89.6]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.89.6
-[2.89.5]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.89.5
-[2.89.4]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.89.4
-[2.89.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.89.3
-[2.89.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.89.2
-[2.89.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.89.1
-[2.89.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.89.0
-[2.88.11]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.88.11
-[2.88.10]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.88.10
-[2.88.9]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.88.9
-[2.88.8]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.88.8
-[2.88.7]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.88.7
-[2.88.6]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.88.6
-[2.88.5]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.88.5
-[2.88.4]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.88.4
-[2.88.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.88.3
-[2.88.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.88.2
-[2.88.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.88.1
-[2.88.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.88.0
-[2.87.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.87.2
-[2.87.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.87.1
-[2.87.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.87.0
-[2.86.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.86.0
-[2.85.7]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.85.7
-[2.85.6]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.85.6
-[2.85.5]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.85.5
-[2.85.4]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.85.4
-[2.85.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.85.3
-[2.85.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.85.2
-[2.85.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.85.1
-[2.85.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.85.0
-[2.84.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.84.0
-[2.83.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.83.2
-[2.83.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.83.1
-[2.83.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.83.0
-[2.82.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.82.1
-[2.82.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.82.0
-[2.81.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.81.0
-[2.80.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.80.2
-[2.80.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.80.1
-[2.80.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.80.0
-[2.79.4]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.79.4
-[2.79.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.79.3
-[2.79.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.79.2
-[2.79.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.79.1
-[2.79.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.79.0
-[2.78.5]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.78.5
-[2.78.4]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.78.4
-[2.78.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.78.3
-[2.78.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.78.2
-[2.78.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.78.1
-[2.78.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.78.0
-[2.77.5]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.77.5
-[2.77.4]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.77.4
-[2.77.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.77.3
-[2.77.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.77.2
-[2.77.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.77.1
-[2.77.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.77.0
-[2.76.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.76.3
-[2.76.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.76.2
-[2.76.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.76.1
-[2.76.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.76.0
-[2.75.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.75.0
-[2.74.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.74.0
-[2.73.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.73.0
-[2.72.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.72.0
-[2.71.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.71.1
-[2.71.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.71.0
-[2.70.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.70.1
-[2.70.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.70.0
-[2.69.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.69.0
-[2.68.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.68.0
-[2.67.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.67.0
-[2.66.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.66.0
-[2.65.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.65.1
-[2.65.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.65.0
-[2.64.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.64.1
-[2.64.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.64.0
-[2.63.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.63.2
-[2.63.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.63.1
-[2.63.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.63.0
-[2.62.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.62.0
-[2.61.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.61.2
-[2.61.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.61.1
-[2.61.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.61.0
-[2.60.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.60.2
-[2.60.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.60.1
-[2.60.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.60.0
-[2.59.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.59.2
-[2.59.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.59.1
-[2.59.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.59.0
-[2.58.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.58.0
-[2.57.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.57.1
-[2.57.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.57.0
-[2.56.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.56.0
-[2.55.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.55.0
-[2.54.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.54.1
-[2.54.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.54.0
-[2.53.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.53.0
-[2.52.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.52.1
-[2.52.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.52.0
-[2.51.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.51.0
-[2.50.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.50.0
-[2.49.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.49.2
-[2.49.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.49.1
-[2.49.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.49.0
-[2.48.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.48.1
-[2.48.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.48.0
-[2.47.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.47.0
-[2.46.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.46.3
-[2.46.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.46.2
-[2.46.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.46.1
-[2.46.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.46.0
-[2.45.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.45.1
-[2.44.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.44.1
-[2.44.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.44.0
-[2.43.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.43.1
-[2.43.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.43.0
-[2.42.4]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.42.4
-[2.42.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.42.3
-[2.42.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.42.2
-[2.42.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.42.1
-[2.42.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.42.0
-[2.41.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.41.0
-[2.40.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.40.0
-[2.39.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.39.0
-[2.38.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.38.0
-[2.37.4]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.37.4
-[2.37.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.37.3
-[2.37.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.37.2
-[2.37.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.37.1
-[2.37.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.37.0
-[2.36.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.36.1
-[2.36.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.36.0
-[2.35.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.35.1
-[2.35.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.35.0
-[2.34.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.34.0
-[2.33.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.33.0
-[2.32.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.32.1
-[2.32.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.32.0
-[2.31.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.31.1
-[2.31.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.31.0
-[2.30.9]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.30.9
-[2.30.7]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.30.7
-[2.30.6]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.30.6
-[2.30.5]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.30.5
-[2.30.4]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.30.4
-[2.30.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.30.2
-[2.30.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.30.1
-[2.30.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.30.0
-[2.29.5]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.29.5
-[2.29.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.29.1
-[2.29.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.29.0
-[2.28.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.28.0
-[2.27.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.27.1
-[2.26.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.26.0
-[2.25.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.25.0
-[2.24.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.24.1
-[2.24.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.24.0
-[2.23.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.23.1
-[2.23.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.23.0
-[2.22.4]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.22.4
-[2.22.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.22.3
-[2.22.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.22.2
-[2.22.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.22.1
-[2.21.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.21.1
-[2.21.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.21.0
-[2.20.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.20.3
-[2.20.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.20.2
-[2.20.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.20.1
-[2.19.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.19.0
-[2.18.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.18.0
-[2.17.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.17.1
-[2.17.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.17.0
-[2.16.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.16.1
-[2.16.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.16.0
-[2.15.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.15.1
-[2.15.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.15.0
-[2.14.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.14.2
-[2.14.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.14.1
-[2.14.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.14.0
-[2.13.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.13.0
-[2.12.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.12.1
-[2.12.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.12.0
-[2.11.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.11.0
-[2.10.3]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.10.3
-[2.10.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.10.2
-[2.10.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.10.1
-[2.10.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.10.0
-[2.9.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.9.2
-[2.9.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.9.1
-[2.9.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.9.0
-[2.8.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.8.2
-[2.8.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.8.1
-[2.8.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.8.0
-[2.7.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.7.2
-[2.7.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.7.1
-[2.7.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.7.0
-[2.6.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.6.1
-[2.6.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.6.0
-[2.5.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.5.2
-[2.5.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.5.1
-[2.5.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.5.0
-[2.4.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.4.0
-[2.3.2]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.3.2
-[2.3.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.3.1
-[2.3.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.3.0
-[2.2.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.2.0
-[2.1.1]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.1.1
-[2.1.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.1.0
-[2.0.9]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.0.9
-[2.0.8]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.0.8
-[2.0.5]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.0.5
-[2.0.0]: https://github.com/ps5-center/ps5-backup-center/releases/tag/v2.0.0
+[3.2.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.2.0
+[3.1.76]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.76
+[3.1.75]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.75
+[3.1.74]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.74
+[3.1.73]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.73
+[3.1.72]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.72
+[3.1.71]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.71
+[3.1.70]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.70
+[3.1.69]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.69
+[3.1.68]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.68
+[3.1.67]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.67
+[3.1.66]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.66
+[3.1.65]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.65
+[3.1.64]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.64
+[3.1.63]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.63
+[3.1.62]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.62
+[3.1.61]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.61
+[3.1.60]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.60
+[3.1.59]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.59
+[3.1.58]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.58
+[3.1.57]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.57
+[3.1.56]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.56
+[3.1.55]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.55
+[3.1.54]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.54
+[3.1.53]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.53
+[3.1.52]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.52
+[3.1.51]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.51
+[3.1.50]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.50
+[3.1.49]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.49
+[3.1.48]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.48
+[3.1.47]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.47
+[3.1.46]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.46
+[3.1.45]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.45
+[3.1.44]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.44
+[3.1.43]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.43
+[3.1.42]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.42
+[3.1.41]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.41
+[3.1.40]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.40
+[3.1.39]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.39
+[3.1.38]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.38
+[3.1.37]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.37
+[3.1.36]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.36
+[3.1.35]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.35
+[3.1.34]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.34
+[3.1.33]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.33
+[3.1.32]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.32
+[3.1.31]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.31
+[3.1.30]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.30
+[3.1.29]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.29
+[3.1.28]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.28
+[3.1.27]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.27
+[3.1.26]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.26
+[3.1.25]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.25
+[3.1.24]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.24
+[3.1.23]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.23
+[3.1.22]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.22
+[3.1.21]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.21
+[3.1.20]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.20
+[3.1.19]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.19
+[3.1.18]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.18
+[3.1.17]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.17
+[3.1.16]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.16
+[3.1.15]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.15
+[3.1.14]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.14
+[3.1.13]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.13
+[3.1.12]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.12
+[3.1.11]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.11
+[3.1.10]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.10
+[3.1.9]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.9
+[3.1.8]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.8
+[3.1.7]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.7
+[3.1.6]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.6
+[3.1.5]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.5
+[3.1.4]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.4
+[3.1.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.3
+[3.1.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.2
+[3.1.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.1
+[3.1.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0
+[3.0.33]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.33
+[3.0.32]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.32
+[3.0.31]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.31
+[3.0.30]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.30
+[3.0.29]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.29
+[3.0.28]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.28
+[3.0.27]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.27
+[3.0.26]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.26
+[3.0.25]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.25
+[3.0.24]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.24
+[3.0.23]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.23
+[3.0.22]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.22
+[3.0.21]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.21
+[3.0.20]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.20
+[3.0.19]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.19
+[3.0.18]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.18
+[3.0.17]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.17
+[3.0.16]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.16
+[3.0.15]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.15
+[3.0.14]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.14
+[3.0.13]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.13
+[3.0.12]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.12
+[3.0.11]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.11
+[3.0.10]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.10
+[3.0.9]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.9
+[3.0.8]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.8
+[3.0.7]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.7
+[3.0.6]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.6
+[3.0.5]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.5
+[3.0.4]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.4
+[3.0.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.3
+[3.0.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.2
+[3.0.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.1
+[3.0.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.0.0
+[2.99.46]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.46
+[2.99.45]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.45
+[2.99.43]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.43
+[2.99.41]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.41
+[2.99.40]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.40
+[2.99.39]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.39
+[2.99.38]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.38
+[2.99.37]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.37
+[2.99.36]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.36
+[2.99.35]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.35
+[2.99.34]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.34
+[2.99.33]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.33
+[2.99.32]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.32
+[2.99.31]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.31
+[2.99.30]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.30
+[2.99.29]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.29
+[2.99.27]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.27
+[2.99.25]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.25
+[2.99.24]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.24
+[2.99.23]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.23
+[2.99.22]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.22
+[2.99.21]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.21
+[2.99.20]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.20
+[2.99.19]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.19
+[2.99.18]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.18
+[2.99.16]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.16
+[2.99.15]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.15
+[2.99.14]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.14
+[2.99.13]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.13
+[2.99.12]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.12
+[2.99.11]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.11
+[2.99.10]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.10
+[2.99.9]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.9
+[2.99.8]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.8
+[2.99.7]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.7
+[2.99.6]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.6
+[2.99.5]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.5
+[2.99.4]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.4
+[2.99.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.3
+[2.99.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.2
+[2.99.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.1
+[2.99.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.99.0
+[2.98.5]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.98.5
+[2.98.4]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.98.4
+[2.98.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.98.3
+[2.98.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.98.2
+[2.98.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.98.1
+[2.98.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.98.0
+[2.97.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.97.0
+[2.96.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.96.1
+[2.96.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.96.0
+[2.95.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.95.3
+[2.95.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.95.2
+[2.95.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.95.1
+[2.95.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.95.0
+[2.94.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.94.0
+[2.93.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.93.1
+[2.93.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.93.0
+[2.92.4]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.92.4
+[2.92.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.92.3
+[2.92.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.92.2
+[2.92.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.92.1
+[2.92.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.92.0
+[2.91.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.91.1
+[2.91.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.91.0
+[2.90.9]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.90.9
+[2.90.8]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.90.8
+[2.90.7]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.90.7
+[2.90.6]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.90.6
+[2.90.5]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.90.5
+[2.90.4]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.90.4
+[2.90.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.90.3
+[2.90.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.90.2
+[2.90.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.90.1
+[2.90.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.90.0
+[2.89.9]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.89.9
+[2.89.8]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.89.8
+[2.89.7]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.89.7
+[2.89.6]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.89.6
+[2.89.5]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.89.5
+[2.89.4]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.89.4
+[2.89.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.89.3
+[2.89.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.89.2
+[2.89.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.89.1
+[2.89.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.89.0
+[2.88.11]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.88.11
+[2.88.10]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.88.10
+[2.88.9]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.88.9
+[2.88.8]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.88.8
+[2.88.7]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.88.7
+[2.88.6]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.88.6
+[2.88.5]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.88.5
+[2.88.4]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.88.4
+[2.88.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.88.3
+[2.88.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.88.2
+[2.88.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.88.1
+[2.88.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.88.0
+[2.87.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.87.2
+[2.87.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.87.1
+[2.87.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.87.0
+[2.86.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.86.0
+[2.85.7]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.85.7
+[2.85.6]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.85.6
+[2.85.5]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.85.5
+[2.85.4]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.85.4
+[2.85.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.85.3
+[2.85.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.85.2
+[2.85.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.85.1
+[2.85.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.85.0
+[2.84.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.84.0
+[2.83.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.83.2
+[2.83.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.83.1
+[2.83.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.83.0
+[2.82.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.82.1
+[2.82.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.82.0
+[2.81.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.81.0
+[2.80.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.80.2
+[2.80.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.80.1
+[2.80.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.80.0
+[2.79.4]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.79.4
+[2.79.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.79.3
+[2.79.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.79.2
+[2.79.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.79.1
+[2.79.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.79.0
+[2.78.5]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.78.5
+[2.78.4]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.78.4
+[2.78.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.78.3
+[2.78.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.78.2
+[2.78.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.78.1
+[2.78.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.78.0
+[2.77.5]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.77.5
+[2.77.4]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.77.4
+[2.77.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.77.3
+[2.77.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.77.2
+[2.77.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.77.1
+[2.77.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.77.0
+[2.76.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.76.3
+[2.76.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.76.2
+[2.76.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.76.1
+[2.76.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.76.0
+[2.75.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.75.0
+[2.74.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.74.0
+[2.73.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.73.0
+[2.72.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.72.0
+[2.71.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.71.1
+[2.71.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.71.0
+[2.70.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.70.1
+[2.70.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.70.0
+[2.69.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.69.0
+[2.68.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.68.0
+[2.67.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.67.0
+[2.66.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.66.0
+[2.65.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.65.1
+[2.65.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.65.0
+[2.64.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.64.1
+[2.64.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.64.0
+[2.63.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.63.2
+[2.63.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.63.1
+[2.63.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.63.0
+[2.62.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.62.0
+[2.61.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.61.2
+[2.61.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.61.1
+[2.61.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.61.0
+[2.60.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.60.2
+[2.60.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.60.1
+[2.60.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.60.0
+[2.59.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.59.2
+[2.59.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.59.1
+[2.59.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.59.0
+[2.58.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.58.0
+[2.57.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.57.1
+[2.57.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.57.0
+[2.56.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.56.0
+[2.55.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.55.0
+[2.54.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.54.1
+[2.54.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.54.0
+[2.53.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.53.0
+[2.52.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.52.1
+[2.52.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.52.0
+[2.51.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.51.0
+[2.50.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.50.0
+[2.49.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.49.2
+[2.49.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.49.1
+[2.49.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.49.0
+[2.48.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.48.1
+[2.48.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.48.0
+[2.47.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.47.0
+[2.46.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.46.3
+[2.46.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.46.2
+[2.46.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.46.1
+[2.46.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.46.0
+[2.45.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.45.1
+[2.44.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.44.1
+[2.44.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.44.0
+[2.43.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.43.1
+[2.43.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.43.0
+[2.42.4]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.42.4
+[2.42.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.42.3
+[2.42.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.42.2
+[2.42.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.42.1
+[2.42.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.42.0
+[2.41.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.41.0
+[2.40.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.40.0
+[2.39.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.39.0
+[2.38.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.38.0
+[2.37.4]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.37.4
+[2.37.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.37.3
+[2.37.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.37.2
+[2.37.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.37.1
+[2.37.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.37.0
+[2.36.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.36.1
+[2.36.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.36.0
+[2.35.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.35.1
+[2.35.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.35.0
+[2.34.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.34.0
+[2.33.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.33.0
+[2.32.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.32.1
+[2.32.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.32.0
+[2.31.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.31.1
+[2.31.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.31.0
+[2.30.9]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.30.9
+[2.30.7]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.30.7
+[2.30.6]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.30.6
+[2.30.5]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.30.5
+[2.30.4]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.30.4
+[2.30.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.30.2
+[2.30.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.30.1
+[2.30.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.30.0
+[2.29.5]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.29.5
+[2.29.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.29.1
+[2.29.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.29.0
+[2.28.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.28.0
+[2.27.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.27.1
+[2.26.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.26.0
+[2.25.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.25.0
+[2.24.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.24.1
+[2.24.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.24.0
+[2.23.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.23.1
+[2.23.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.23.0
+[2.22.4]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.22.4
+[2.22.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.22.3
+[2.22.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.22.2
+[2.22.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.22.1
+[2.21.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.21.1
+[2.21.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.21.0
+[2.20.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.20.3
+[2.20.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.20.2
+[2.20.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.20.1
+[2.19.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.19.0
+[2.18.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.18.0
+[2.17.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.17.1
+[2.17.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.17.0
+[2.16.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.16.1
+[2.16.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.16.0
+[2.15.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.15.1
+[2.15.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.15.0
+[2.14.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.14.2
+[2.14.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.14.1
+[2.14.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.14.0
+[2.13.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.13.0
+[2.12.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.12.1
+[2.12.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.12.0
+[2.11.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.11.0
+[2.10.3]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.10.3
+[2.10.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.10.2
+[2.10.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.10.1
+[2.10.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.10.0
+[2.9.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.9.2
+[2.9.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.9.1
+[2.9.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.9.0
+[2.8.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.8.2
+[2.8.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.8.1
+[2.8.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.8.0
+[2.7.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.7.2
+[2.7.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.7.1
+[2.7.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.7.0
+[2.6.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.6.1
+[2.6.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.6.0
+[2.5.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.5.2
+[2.5.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.5.1
+[2.5.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.5.0
+[2.4.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.4.0
+[2.3.2]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.3.2
+[2.3.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.3.1
+[2.3.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.3.0
+[2.2.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.2.0
+[2.1.1]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.1.1
+[2.1.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.1.0
+[2.0.9]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.0.9
+[2.0.8]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.0.8
+[2.0.5]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.0.5
+[2.0.0]: https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v2.0.0

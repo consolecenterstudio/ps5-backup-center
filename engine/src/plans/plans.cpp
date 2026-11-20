@@ -21,6 +21,7 @@ Json Plan::to_json() const {
     j.set("minute_of_day", static_cast<std::int64_t>(minute_of_day));
     j.set("weekdays", static_cast<std::uint64_t>(weekdays));
     j.set("once_at", once_at);
+    if (retry_at) j.set("retry_at", retry_at);
     Json it = Json::array();
     for (const auto& k : items) it.push(k);
     j.set("items", it);
@@ -46,6 +47,7 @@ Plan Plan::from_json(const Json& j) {
     p.minute_of_day = static_cast<int>(std::clamp<std::int64_t>(j["minute_of_day"].as_int(8 * 60), 0, 24 * 60 - 1));
     p.weekdays = static_cast<unsigned>(j["weekdays"].as_int(0)) & 127u;
     p.once_at = j["once_at"].as_int();
+    p.retry_at = j["retry_at"].as_int();
     for (const auto& k : j["items"].items()) p.items.push_back(k.as_string());
     p.rule = j["rule"].as_string();
     p.rule_arg = j["rule_arg"].as_string();
@@ -112,17 +114,24 @@ bool Store::remove(const std::string& id) {
     return list_.size() != n && save();
 }
 
+void Store::postpone(const std::string& id, std::int64_t when) {
+    std::lock_guard<std::mutex> l(mu_);
+    for (auto& p : list_) if (p.id == id) p.retry_at = when;  // next_run n'est pas touché : le plan reste dû
+    save();
+}
+
 void Store::mark_run(const std::string& id, std::int64_t when, const std::string& result, std::int64_t off) {
     std::lock_guard<std::mutex> l(mu_);
     for (auto& p : list_)
-        if (p.id == id) { p.last_run = when; p.last_result = result; p.next_run = next_run(p, when, off); }
+        if (p.id == id) { p.last_run = when; p.last_result = result; p.next_run = next_run(p, when, off); p.retry_at = 0; }
     save();
 }
 
 std::vector<Plan> Store::due(std::int64_t now) const {
     std::lock_guard<std::mutex> l(mu_);
     std::vector<Plan> out;
-    for (const auto& p : list_) if (p.enabled && p.next_run && p.next_run <= now) out.push_back(p);
+    // Un plan remis à plus tard (retry_at) reste dû, mais n'est repris qu'à l'heure dite.
+    for (const auto& p : list_) if (p.enabled && p.next_run && p.next_run <= now && (!p.retry_at || p.retry_at <= now)) out.push_back(p);
     return out;
 }
 

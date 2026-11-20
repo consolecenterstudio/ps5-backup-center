@@ -95,6 +95,7 @@ std::string Ui::sy_nas_name(const Place& pl) const {
         if (p.protocol == "gdrive") return std::string("Google Drive");
         if (p.protocol == "onedrive") return std::string("OneDrive");
         if (p.protocol == "dropbox") return std::string("Dropbox");
+        if (p.protocol == "mega") return std::string("MEGA");
         if (p.protocol == "s3") return std::string("S3");
         return p.protocol == "webdav" ? std::string("WebDAV") : p.protocol == "smb" ? std::string("SMB") : std::string("FTP");
     };
@@ -116,7 +117,7 @@ std::string Ui::sy_fam(const SyDev& d) const {
     if (d.kind == "switch") return "switch";
     if (d.kind != "nas") return "ps5:" + d.id;  // chaque autre PS5 reste seule
     for (const auto& p : snap_->places)
-        if (p.id == d.id && (p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox")) return "cloud";
+        if (p.id == d.id && (cloud_proto(p.protocol))) return "cloud";
     return "nas";
 }
 
@@ -263,7 +264,14 @@ void Ui::sy_run(const SyDev& d, int action) {
         if (!chosen) { sy_open_pick(d.id, d.name); return; }
         if (!need) { toast(tr("Tout est déjà au même niveau.")); return; }
         if (sync_copies_status_["state"].as_string() == "running") { toast(tr("Une mise à niveau est déjà en cours.")); return; }
-        sy_start(d.id, d.name);
+        int up = 0, down = 0;
+        for (const auto& t : (*pl)["titles"].items()) if (sy_needs(t)) { up += t["push"].as_int() > 0; down += t["pull"].as_int() > 0; }
+        const std::string id = d.id, name = d.name;
+        open_actions(trf("Mettre à niveau avec %s ?", name.c_str()),
+                     {{tr("Mettre à niveau"), [this, id, name] { sy_start(id, name); }},
+                      {tr("Choisir les jeux…"), [this, id, name] { sy_open_pick(id, name); }},
+                      {tr("Annuler"), [] {}}});
+        popup_note_ = trf("%d jeu(x) : %d vers %s, %d vers cette PS5. Rien n'est jamais recopié deux fois.", need, up, name.c_str(), down);
         return;
     }
     if (action == 1) { sy_open_pick(d.id, d.name); return; }
@@ -425,6 +433,8 @@ void Ui::input_synchro(std::uint32_t k) {
             return;
         }
         if (!sn_games_ && (k & (key::right | key::cross))) { sn_zone_ = 1; sn_target_ = 0; }
+        if ((k & key::options) && !sync_acked().empty())  // carte de l'Accueil masquée (« Pas maintenant ») : la réafficher
+            open_actions(tr("Synchro"), {{tr("Réafficher la carte Synchro sur l'Accueil"), [this] { sync_ack(false); }}});
         return;
     }
     if (k & key::circle) { sn_zone_ = 0; return; }
@@ -452,8 +462,9 @@ void Ui::draw_synchro(Surface& s) {
     load_sync_plans();  // relu ici aussi : un changement de jeux choisis se voit tout de suite
     if (sy_pick_) { draw_synchro_pick(s, x, w); return; }
     {
-        const int tw = s.text(font_, margin, 112, tr("Synchro"), title, color::text);
-        s.text(font_, margin + tw + 40, 146, tr("Vos appareils au même niveau, sans jamais rien recopier deux fois."), small, color::muted, w - tw - 40);
+        draw_page_head(s, tr("Synchro"), tr("Vos appareils au même niveau, sans jamais rien recopier deux fois."));
+        if (!sync_acked().empty())  // « Pas maintenant » sur l'Accueil : le dire ici, avec la façon d'y revenir
+            s.text(font_, margin, 184, tr("Carte de l'Accueil masquée : elle reviendra s'il y a du nouveau · Options : la réafficher"), small, color::accent, w);
     }
     const auto devs = sy_devices();
     if (devs.empty()) {
@@ -473,23 +484,17 @@ void Ui::draw_synchro(Surface& s) {
     if (dfirst > 0) s.text(font_, x + lw / 2 - 10, top - 34, "↑", small, color::muted);
     for (std::size_t i = static_cast<std::size_t>(dfirst); i < devs.size() && static_cast<int>(i) < dfirst + fit; ++i, y += ch + 16) {
         const bool sel = static_cast<int>(i) == sn_card_, focus = sel && sn_zone_ == 0 && !sn_games_;
-        if (focus) for (int g = 3; g >= 1; --g) s.rect(x - g * 5, y - g * 5, lw + g * 10, ch + g * 10, rgb(80, 150, 255, 20), 24 + g * 5);
-        s.rect(x, y, lw, ch, sel ? color::panel2 : color::panel, 22);
-        s.outline(x, y, lw, ch, focus ? color::accent : sel ? color::accent2 : color::line, 22, focus ? 4 : 2);
         const auto& dv = devs[i];
         int dev = dv.kind == "switch" ? dev_switch : dv.kind == "nas" ? dev_nas : dev_internal;
         if (dv.kind == "group") dev = dv.id == "switch" ? dev_switch : dv.id == "cloud" ? dev_cloud : dev_nas;
-        if (dv.kind == "nas") for (const auto& p : snap_->places) if (p.id == dv.id && (p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox")) {
+        if (dv.kind == "nas") for (const auto& p : snap_->places) if (p.id == dv.id && (cloud_proto(p.protocol))) {
             std::string svc = p.service;  // connu dès le démarrage
             if (svc.empty()) for (const auto& r : remotes_all_.items()) if (r["id"].as_string() == p.id) svc = r["config"]["service"].as_string();
             dev = cloud_dev(p.protocol, svc);
         }
-        int tx = x + 22;
-        if (devices_[dev].valid()) { s.image(devices_[dev], x + 14, y + 14, 84, 84); tx = x + 112; }
-        s.text(font_, tx, y + 16, dv.name, body, color::text, x + lw - tx - 14);
         std::string sub;
         std::uint32_t tone = color::muted;
-        if (dv.kind == "group") { sub = trf("%d cibles · Croix pour ouvrir", dv.count); tone = color::accent; }
+        if (dv.kind == "group") { sub = dv.id == "cloud" ? tr("Voir les services ›") : tr("Voir les appareils ›"); tone = color::accent; }  // le nuage : des services  // comme Appareils ; le nombre en étiquette
         else if (dv.kind == "switch") sub = tr("Switch · avec Eden");
         else if (dv.kind == "nas" && !sy_plan_for(dv.id)) sub = tr("NAS · lecture…");
         else if (const Json* p = sy_plan_for(dv.id)) {
@@ -498,15 +503,17 @@ void Ui::draw_synchro(Surface& s) {
             sub = !chosen ? std::string(tr("aucun jeu choisi")) : need ? trf("%d à mettre à jour", need) : std::string(tr("au même niveau"));
             tone = !chosen ? color::muted : need ? color::warn : color::ok;
         } else sub = tr("lecture…");
-        s.text(font_, tx, y + 62, sub, small, tone, x + lw - tx - 14);
+        // La carte commune (même dessin que l'onglet Appareils).
+        DevCard card;
+        card.dev = dev; card.name = dv.name; card.line = sub; card.line_col = tone;
+        if (dv.kind == "group") card.tag = trf("%d ›", dv.count);
+        device_card(s, card, x, y, lw, ch, focus, sel);
     }
     {   // Jeux entiers : ce n'est pas de la synchro, c'est Transferts (copier, compresser, envoyer) — la carte y mène
         if (dfirst + fit < nd) s.text(font_, x + lw / 2 - 10, y - 14, "↓", small, color::muted);
         const int gyy = std::max(y + 8, top + 3 * (ch + 16) + 8), gh2 = 150;
         const bool f = sn_zone_ == 0 && sn_games_;
-        if (f) for (int g = 3; g >= 1; --g) s.rect(x - g * 5, gyy - g * 5, lw + g * 10, gh2 + g * 10, rgb(80, 150, 255, 20), 24 + g * 5);
-        s.rect(x, gyy, lw, gh2, color::panel, 22);
-        s.outline(x, gyy, lw, gh2, f ? color::accent : color::line, 22, f ? 4 : 1);
+        card_frame(s, x, gyy, lw, gh2, f, false, true);  // carte légère, comme « + Ajouter… » : elle mène ailleurs
         s.text(font_, x + 22, gyy + 16, tr("Jeux entiers ›"), body, color::text, lw - 44);
         para(s, font_, x + 22, gyy + 58, tr("Copier, compresser, envoyer un jeu : c'est l'onglet Transferts."), small, color::muted, lw - 44, 3, 28);
     }
@@ -519,7 +526,7 @@ void Ui::draw_synchro(Surface& s) {
         std::string list;
         for (const auto& a : sy_devices_all()) if (sy_fam(a) == d.id) list += (list.empty() ? "" : " · ") + a.name;
         s.text(font_, rx + 40, hy + 110, list, body, color::muted, rw - 80);
-        s.text(font_, rx + 40, hy + 160, tr("Croix : voir les appareils et choisir celui à synchroniser"), body, color::accent, rw - 80);
+        s.text(font_, rx + 40, hy + 160, d.id == "cloud" ? tr("Voir les services et choisir celui à synchroniser ›") : tr("Voir les appareils et choisir celui à synchroniser ›"), body, color::accent, rw - 80);
         draw_footer(s, {{0, tr("Ouvrir")}, {-1, tr("Haut / bas")}, {-1, tr("L1 / R1  onglets")}});
         return;
     }
@@ -533,7 +540,7 @@ void Ui::draw_synchro(Surface& s) {
         s.text(font_, rx + 54, hy + 52 + iw + 6, tr("Cette PS5"), small, color::muted);
         s.text(font_, rx + 30 + iw + 12, hy + 82, "↔", large, color::accent);
         int dev2 = d.kind == "switch" ? dev_switch : d.kind == "nas" ? dev_nas : dev_internal;
-        if (d.kind == "nas") for (const auto& p : snap_->places) if (p.id == d.id && (p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox")) {
+        if (d.kind == "nas") for (const auto& p : snap_->places) if (p.id == d.id && (cloud_proto(p.protocol))) {
             std::string svc = p.service;  // connu dès le démarrage
             if (svc.empty()) for (const auto& r : remotes_all_.items()) if (r["id"].as_string() == p.id) svc = r["config"]["service"].as_string();
             dev2 = cloud_dev(p.protocol, svc);
@@ -773,6 +780,25 @@ void Ui::draw_synchro(Surface& s) {
     else draw_footer(s, {{0, sn_target_ == 1 ? tr("Choisir les jeux") : tr("Valider")}, {-1, tr("Flèches : sections")}, {1, tr("Retour")}});
 }
 
+// Synchro automatique des parties (maquette docs/maquettes/synchro-auto.html) : le libellé du réglage.
+std::string Ui::parties_auto_label(const std::string& a) const {
+    return a == "close" ? tr("À la fermeture d'un jeu") : a == "close_night" ? tr("À la fermeture et chaque nuit à 4 h") : tr("Non");
+}
+
+// Dernière synchro automatique, pour l'Accueil et Synchro : « Taxi Chaos 2 → PS5-01 · il y a 5 min » (vide si rien).
+std::string Ui::parties_auto_line(const Json& last, const std::string& name) const {
+    const std::int64_t at = last["at"].as_int();
+    if (!at) return {};
+    const std::int64_t age = std::max<std::int64_t>(0, static_cast<std::int64_t>(std::time(nullptr)) - at);
+    const std::string ago = age < 3600 ? trf("il y a %d min", static_cast<int>(age / 60)) : age < 86400 ? trf("il y a %d h", static_cast<int>(age / 3600)) : day_text(at);
+    if (!last["error"].as_string().empty()) return trf("Synchro automatique vers %s : %s", name.c_str(), last["error"].as_string().c_str()) + " · " + ago;
+    std::string what;
+    const auto& ts = last["titles"];
+    if (ts.size() == 1) what = ts.items()[0].as_string();
+    else what = trf("%d jeu(x)", static_cast<int>(ts.size()));
+    return trf("Mis à niveau automatiquement : %s ↔ %s", what.c_str(), name.c_str()) + " · " + ago;
+}
+
 const Json* Ui::parties_plan_for(const std::string& peer) const {
     for (const auto& [n, pl] : parties_plans_) if (pl["peer"].as_string() == peer) return &pl;
     return nullptr;
@@ -898,7 +924,28 @@ void Ui::input_synchro_parties(std::uint32_t k) {
         sy_pick_plan_.set("titles", titles);
         prefs(b);
     }
-    if ((k & key::options) && n) {  // tout choisir / tout retirer
+    if ((k & key::options) && sy_section_ == 0 && sy_pick_plan_.is_object() && !sy_pick_plan_.has("error")) {  // parties : tout / rien, et l'automatique
+        bool all = n > 0;
+        for (const auto* t : rows) all = all && (*t)["followed"].as_bool();
+        std::vector<std::pair<std::string, std::function<void()>>> acts;
+        if (n) acts.push_back({all ? tr("Tout retirer") : tr("Tout choisir"), [prefs, this, all] { Json b = Json::object(); b.set("peer", sy_pick_peer_); b.set("follow_all", !all); prefs(b); }});
+        acts.push_back({trf("Automatique : %s…", parties_auto_label(sy_pick_plan_["auto"].as_string()).c_str()), [prefs, this] {
+            std::vector<std::pair<std::string, std::function<void()>>> ch;
+            const std::string cur = sy_pick_plan_["auto"].as_string();
+            for (const char* a : {"off", "close", "close_night"}) {
+                const std::string v = a;
+                ch.push_back({(cur == v || (cur.empty() && v == "off") ? "✓ " : "") + parties_auto_label(v), [prefs, this, v] {
+                    Json b = Json::object(); b.set("peer", sy_pick_peer_); b.set("auto", v); prefs(b);
+                    toast(trf("Automatique : %s", parties_auto_label(v).c_str()));
+                }});
+            }
+            ch.push_back({tr("Annuler"), [] {}});
+            open_actions(trf("Automatique · %s", sy_pick_name_.c_str()), std::move(ch));
+            popup_note_ = tr("À la fermeture d'un jeu suivi, la partie qu'on vient de jouer part 1 min après. La nuit : tous les jeux suivis, dans les deux sens, si aucun n'est ouvert. La partie remplacée est toujours sauvegardée avant ; un conflit attend votre choix.");
+        }});
+        acts.push_back({tr("Annuler"), [] {}});
+        open_actions(tr("Options"), std::move(acts));
+    } else if ((k & key::options) && n) {  // tout choisir / tout retirer
         bool all = true;
         for (const auto* t : rows) all = all && (*t)["followed"].as_bool();
         Json b = Json::object();
@@ -992,7 +1039,7 @@ void Ui::sy_dlc_details(const Json& t) {
     std::vector<std::pair<std::string, std::function<void()>>> acts;
     acts.push_back({tr("OK"), [] {}});
     open_actions(t["title"].as_string(), std::move(acts));
-    popup_note_ = note + " " + (t["kind"].as_string() == "switch" ? tr("Triangle : compléter.") : tr("Jeux PS5 / PS4 : leurs DLC s'installeront par l'installeur (prochaine étape)."));
+    popup_note_ = note + " " + (t["kind"].as_string() == "switch" ? tr("Compléter : depuis la liste (bouton principal).") : tr("Jeux PS5 / PS4 : leurs DLC s'installeront par l'installeur (prochaine étape)."));
 }
 
 // Triangle : compléter ici ou là-bas (Switch : simples fichiers ; PS5 : par l'installeur, plus tard).
@@ -1158,6 +1205,10 @@ void Ui::draw_synchro_parties(Surface& s, int x, int w) {
         const int lw = s.text(font_, x, 250, line, small, color::accent);
         s.text(font_, x + lw + 24, 250, tr("L2 : changer de compte"), small, color::muted);
     }
+    if (!apps && sy_section_ == 0 && pl.is_object() && !pl.has("error")) {  // synchro automatique de cette cible (Options)
+        const std::string a = trf("Automatique : %s", parties_auto_label(pl["auto"].as_string()).c_str());
+        s.text(font_, x + w - Surface::measure(a, small), 250, a, small, pl["auto"].as_string() == "off" || pl["auto"].as_string().empty() ? color::muted : color::ok);
+    }
     {   // filtres (Carré)
         int nch = 0, nneed = 0, nconf = 0, nup = 0, ndown = 0;
         for (const auto& t : pl["titles"].items()) {
@@ -1242,7 +1293,7 @@ void Ui::draw_synchro_parties(Surface& s, int x, int w) {
         toggle(s, x + w - 26 - 88, yy + 30, on);
     }
     if (apps) draw_footer(s, {{0, tr("Choisir / retirer")}, {1, tr("Retour à Synchro")}, {3, need ? tr("Mettre à niveau…") : tr("Rien à mettre à niveau")}, {2, tr("Filtre")}, {-1, tr("L2 : mode")}});
-    else draw_footer(s, {{0, tr("Choisir / retirer")}, {1, tr("Retour à Synchro")}, {3, need ? tr("Mettre à niveau…") : tr("Rien à mettre à niveau")}, {2, tr("Filtre")}, {-1, tr("Options : tout / rien")}});
+    else draw_footer(s, {{0, tr("Choisir / retirer")}, {1, tr("Retour à Synchro")}, {3, need ? tr("Mettre à niveau…") : tr("Rien à mettre à niveau")}, {2, tr("Filtre")}, {-1, sy_section_ == 0 ? tr("Options : tout / rien, automatique") : tr("Options : tout / rien")}});
 }
 
 // « Choisir les jeux » : un interrupteur par jeu, l'état des deux côtés, et le jeu entier une seule fois s'il manque.

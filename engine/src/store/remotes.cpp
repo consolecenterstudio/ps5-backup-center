@@ -9,6 +9,35 @@
 
 namespace pbc::store {
 
+std::string share_service(const std::string& url) {
+    MegaLink l;
+    if (parse_mega_link(url, l)) return "mega";
+    return link_service(url);
+}
+
+std::unique_ptr<Store> share_store(const FtpConfig& cfg, std::string& err) {
+    if (cfg.expires && cfg.expires <= now_unix()) { err = "partage expiré"; return nullptr; }
+    const std::string svc = share_service(cfg.password);
+    if (svc == "mega") return mega_share(cfg.password, err);
+    if (!svc.empty()) return link_share(cfg.password, err);
+    err = "lien de partage non reconnu";
+    return nullptr;
+}
+
+bool share_probe(const std::string& url, Json& out, std::string& err) {
+    const std::string svc = share_service(url);
+    if (svc == "mega") return mega_share_probe(url, out, err);
+    if (!svc.empty()) return link_share_probe(url, out, err);
+    err = "lien de partage non reconnu : MEGA, Google Drive, Dropbox ou OneDrive";
+    return false;
+}
+
+void share_forget(const std::string& url) {
+    const std::string svc = share_service(url);
+    if (svc == "mega") mega_share_forget(url);
+    else if (!svc.empty()) link_share_forget(url);
+}
+
 namespace {
 // SMB : un partage (NAS, PC) ou une Switch réglée en SMB ; sinon FTP.
 bool uses_smb(const Remote& r) { return r.type == "smb" || (r.type == "switch" && r.ftp.proto == "smb"); }
@@ -20,6 +49,8 @@ std::unique_ptr<Store> connect(const std::string& type, const FtpConfig& cfg, st
     if (type == "gdrive") return gdrive(cfg, err);
     if (type == "onedrive") return onedrive(cfg, err);
     if (type == "dropbox") return dropbox(cfg, err);
+    if (type == "mega") return mega_store(cfg, err);
+    if (type == "share") return share_store(cfg, err);
     if (type == "smb" || (type == "switch" && cfg.proto == "smb")) return smb(cfg, err);
     return ftp(cfg, err);
 }
@@ -62,12 +93,18 @@ std::string Remote::tagged() const {
     if (type == "gdrive") return name + " (Google Drive)";
     if (type == "onedrive") return name + " (OneDrive)";
     if (type == "dropbox") return name + " (Dropbox)";
+    if (type == "mega") return name + " (MEGA)";
+    if (type == "share") return name + (ftp.host == "mega" ? " (MEGA)" : ftp.host == "gdrive" ? " (Google Drive)" : ftp.host == "dropbox" ? " (Dropbox)" : ftp.host == "onedrive" ? " (OneDrive)" : "");
     return name + (type == "webdav" ? " (WebDAV)" : type == "smb" ? " (SMB)" : " (FTP)");
 }
 
 std::string Remote::address() const {
+    if (type == "share") {  // jamais la clé du lien (après « # ») : c'est elle qui ouvre le partage
+        const auto hash = ftp.password.find('#');
+        return hash == std::string::npos ? ftp.password : ftp.password.substr(0, hash);
+    }
     if (type == "s3") return "s3://" + ftp.bucket + (ftp.root.empty() ? "/" : ftp.root);
-    if (type == "gdrive" || type == "onedrive" || type == "dropbox") return type + "://" + ftp.bucket + (ftp.root.empty() ? "/" : ftp.root);
+    if (type == "gdrive" || type == "onedrive" || type == "dropbox" || type == "mega") return type + "://" + ftp.bucket + (ftp.root.empty() ? "/" : ftp.root);
     if (type == "webdav") return std::string(ftp.port == 80 || ftp.port == 5005 ? "http://" : "https://") + ftp.host + ":" + std::to_string(ftp.port) + (ftp.root.empty() ? "/" : ftp.root);
     if (type == "smb" || (type == "switch" && ftp.proto == "smb")) return "smb://" + ftp.host + (ftp.port && ftp.port != 445 ? ":" + std::to_string(ftp.port) : std::string()) + (ftp.root.empty() ? "/" : ftp.root);
     return "ftp://" + ftp.host + ":" + std::to_string(ftp.port) + (ftp.root.empty() ? "/" : ftp.root);
@@ -79,6 +116,7 @@ void Remotes::load() {
     std::string text;
     Json j;
     if (fs::read(path_, text) && Json::parse(text, j)) for (const auto& r : j.items()) list_.push_back(Remote::from_json(r));
+    if (std::erase_if(list_, [](const Remote& r) { return r.expired(); })) save();  // partages arrivés à échéance
 }
 
 bool Remotes::save() const {
@@ -87,11 +125,25 @@ bool Remotes::save() const {
     return fs::write_atomic(path_, a.dump(true) + "\n");
 }
 
-std::vector<Remote> Remotes::list() const { std::lock_guard<std::mutex> l(mu_); return list_; }
+std::vector<Remote> Remotes::list() const {
+    std::lock_guard<std::mutex> l(mu_);
+    std::vector<Remote> out;
+    for (const auto& r : list_) if (!r.expired()) out.push_back(r);
+    return out;
+}
+
+std::vector<Remote> Remotes::purge_expired() {
+    std::lock_guard<std::mutex> l(mu_);
+    std::vector<Remote> gone;
+    for (const auto& r : list_) if (r.expired()) gone.push_back(r);
+    if (!gone.empty()) { std::erase_if(list_, [](const Remote& r) { return r.expired(); }); save(); }
+    for (const auto& r : gone) share_forget(r.ftp.password);
+    return gone;
+}
 
 bool Remotes::find(const std::string& id, Remote& out) const {
     std::lock_guard<std::mutex> l(mu_);
-    for (const auto& r : list_) if (r.id == id) { out = r; return true; }
+    for (const auto& r : list_) if (r.id == id && !r.expired()) { out = r; return true; }
     return false;
 }
 
@@ -99,6 +151,11 @@ bool Remotes::test(const Remote& given, std::string& err) {
     Remote r = given;
     if (r.type == "s3" && r.ftp.service != "other" && r.ftp.service != "r2") r.ftp.host = s3_endpoint(r.ftp);  // Amazon, Backblaze : d'après la région
     if (r.type == "gdrive" || r.type == "onedrive" || r.type == "dropbox") r.ftp.host = r.type;  // pas d'adresse : le service
+    if (r.type == "mega") { r.ftp.host = "mega"; r.ftp.bucket = r.ftp.user; }  // le compte = son e-mail
+    if (r.type == "share") {  // lien de partage : lecture seule, on vérifie juste qu'il s'ouvre
+        Json info;
+        return share_probe(r.ftp.password, info, err);
+    }
     if (r.type == "switch") {  // source de sauvegardes : on vérifie juste le dossier JKSV (FTP ou SMB)
         if (r.ftp.host.empty()) { err = "adresse manquante"; return false; }
         auto st = connect(r.type, r.ftp, err);
@@ -107,7 +164,7 @@ bool Remotes::test(const Remote& given, std::string& err) {
         if (!st->list("/JKSV", l)) { err = "dossier /JKSV introuvable : lancez JKSV et faites une première sauvegarde"; return false; }
         return true;
     }
-    if (r.type != "ftp" && r.type != "smb" && r.type != "webdav" && r.type != "s3" && r.type != "gdrive" && r.type != "onedrive" && r.type != "dropbox") { err = "type d'appareil inconnu"; return false; }
+    if (r.type != "ftp" && r.type != "smb" && r.type != "webdav" && r.type != "s3" && r.type != "gdrive" && r.type != "onedrive" && r.type != "dropbox" && r.type != "mega") { err = "type d'appareil inconnu"; return false; }
     if (r.ftp.host.empty()) { err = "adresse manquante"; return false; }
     auto st = connect(r.type, r.ftp, err);
     if (!st) return false;
@@ -128,7 +185,19 @@ bool Remotes::add(Remote r, std::string& id, std::string& err) {
     if (r.type == "webdav" && r.ftp.port == 21) r.ftp.port = 5006;  // WebDAV Server de Synology en https
     if (r.type == "s3" && r.ftp.service != "other" && r.ftp.service != "r2") r.ftp.host = s3_endpoint(r.ftp);  // Amazon, Backblaze : d'après la région
     if (r.type == "gdrive" || r.type == "onedrive" || r.type == "dropbox") r.ftp.host = r.type;
-    if (r.name.empty() || r.name == "anonymous") r.name = r.type == "s3" || (r.type == "gdrive" || r.type == "onedrive" || r.type == "dropbox") ? r.ftp.bucket : r.ftp.host;
+    if (r.type == "mega") { r.ftp.host = "mega"; r.ftp.bucket = r.ftp.user; }
+    if (r.type == "share") {
+        r.ftp.host = share_service(r.ftp.password);
+        r.ftp.root = "/";
+        r.use = "backups";  // lecture seule : jamais une cible de synchro
+        if (r.ftp.host.empty()) { Json i; share_probe(r.ftp.password, i, err); return false; }
+        Json info;
+        if (!share_probe(r.ftp.password, info, err)) return false;
+        r.ftp.password = info["link"].as_string().empty() ? r.ftp.password : info["link"].as_string();  // forme unique du lien
+        for (const auto& x : list()) if (x.type == "share" && x.ftp.password == r.ftp.password) { err = "ce lien est déjà ajouté : « " + x.name + " »"; return false; }
+        if (r.name.empty()) r.name = info["name"].as_string().empty() ? std::string("Partage") : info["name"].as_string();
+    }
+    if (r.name.empty() || r.name == "anonymous") r.name = r.type == "mega" ? std::string("MEGA") : r.type == "s3" || (r.type == "gdrive" || r.type == "onedrive" || r.type == "dropbox") ? r.ftp.bucket : r.ftp.host;
     // Deux synchros dans le même dossier se marcheraient dessus : refusé, l'écran dit lequel (« sync_taken:NAS (FTP) »).
     if (const std::string other = sync_taken(r); !other.empty()) { err = "sync_taken:" + other; return false; }
     if (r.type == "webdav" && !webdav_trust(r.ftp, err)) return false;  // certificat maison du NAS : retenu
@@ -148,6 +217,17 @@ bool Remotes::update(const std::string& id, Remote r, std::string& err) {
     if (r.ftp.password.empty()) r.ftp.password = old.ftp.password;
     if (r.type == "s3" && r.ftp.service != "other" && r.ftp.service != "r2") r.ftp.host = s3_endpoint(r.ftp);
     if (r.type == "gdrive" || r.type == "onedrive" || r.type == "dropbox") { r.ftp.host = r.type; if (r.ftp.bucket.empty()) r.ftp.bucket = old.ftp.bucket; }
+    if (r.type == "share") {  // on ne change que le nom et la durée
+        const std::int64_t expires = r.ftp.expires;
+        const std::string name = r.name;
+        r = old;
+        r.name = name;
+        r.ftp.expires = expires;
+        std::lock_guard<std::mutex> l(mu_);
+        for (auto& x : list_) if (x.id == id) x = r;
+        return save();
+    }
+    if (r.type == "mega") { r.ftp.host = "mega"; if (r.ftp.user.empty()) r.ftp.user = old.ftp.user; r.ftp.bucket = r.ftp.user; }
     if (r.ftp.host.empty()) { err = "adresse manquante"; return false; }
     r.id = id;
     if (const std::string other = sync_taken(r); !other.empty()) { err = "sync_taken:" + other; return false; }
@@ -205,7 +285,9 @@ std::string Remotes::sync_taken(const Remote& r) const {
 std::unique_ptr<Store> Remotes::open(const std::string& id, std::string& err) const {
     Remote r;
     if (!find(id, r)) { err = "appareil inconnu"; return nullptr; }
-    return connect(r.type, r.ftp, err);
+    FtpConfig c = r.ftp;
+    c.account = r.id;  // stable, contrairement au jeton de connexion (Microsoft le renouvelle)
+    return connect(r.type, c, err);
 }
 
 void Remotes::rotate_secret(const std::string& old_secret, const std::string& new_secret) {

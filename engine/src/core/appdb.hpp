@@ -9,8 +9,11 @@ namespace pbc::appdb {
 
 struct Info {
     std::string title;
-    long category = -1;   // CATEGORY_TYPE : 0 = jeu, 65536 = application ; -1 = inconnu
-    bool is_app() const { return category > 0; }
+    long category = -1;   // CATEGORY_TYPE : 0 = jeu PS5, 61440 = jeu PS4, 65536 = application ; -1 = inconnu
+    long app_type = -1;   // APP_TYPE : 1 = jeu (PS5 et PS4), 5 = application (homebrews, YouTube…), 0 = outil système ; -1 = inconnu
+    // Un jeu si APP_TYPE = 1 (vu sur la PS5-02 : Detroit, jeu PS4 sur disque, CATEGORY_TYPE 61440, était pris pour une appli) ;
+    // sans APP_TYPE, l'ancienne lecture (CATEGORY_TYPE au-dessus de 0, sauf celle des jeux PS4).
+    bool is_app() const { return app_type >= 0 ? app_type != 1 : category > 0 && category != 61440; }
 };
 
 // Titre → informations. Vide si la base est absente ou illisible.

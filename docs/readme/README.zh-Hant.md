@@ -4,6 +4,17 @@
 
 [English](../../README.md) · [Français](README.fr.md) · [Français (Canada)](README.fr-CA.md) · [Español](README.es.md) · [Español (Latinoamérica)](README.es-419.md) · [Português (Brasil)](README.pt-BR.md) · [Português (Portugal)](README.pt-PT.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Nederlands](README.nl.md) · [Polski](README.pl.md) · [Türkçe](README.tr.md) · [Русский](README.ru.md) · [简体中文](README.zh-Hans.md) · [繁體中文](README.zh-Hant.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Tiếng Việt](README.vi.md) · [العربية](README.ar.md)
 
+## 3.2.0
+
+- 在「下載」中，「+ 新增連結」也接受磁力連結或 .torrent 檔案：選擇儲存的磁碟（「設定 › 網路」中的磁碟排在最前），接著查看進度（來源、速度、剩餘時間），並可暫停、繼續或移除（電視與網頁）。
+- 下載 › 我的連結：主機給出的所有連結（BitTorrent、主機 .zip、MEGA、OneDrive），附 QR 碼、位址和停止方式。MEGA 和 OneDrive 連結也保存在這裡。
+- 計畫：目標位置已有的存檔或遊戲（內容相同，無論由哪台 PS5 複製）不再重複複製，結果顯示「已是最新」。判斷時不會重新讀取任何內容。
+- 下載 ›「ORBIT 和 BLACKBOX」：Orbit 和 BlackBox 下載到主機上的內容（狀態、磁碟、大小、找不到檔案）及其暫存檔（保留的壓縮檔、正在下載、殘留），從它們那邊讀取，不做任何更改。
+- 遊戲工具、.pkg 套件和 下載 › Orbit 和 BlackBox 中新增「安裝…」：就地掛載（放入所在磁碟的遊戲資料夾，不複製，由 ShadowMount 掛載），或安裝到其他磁碟或另一台 PS5（驗證後的複製，原檔保留或刪除）。
+- Kraken .pkg 的「安裝… › 就地掛載」：向主機登記遊戲，並直接從套件執行，不解壓任何內容——已安裝 Kraken Mount 時由它完成，否則由我們的內建版本完成（在我們的引擎中完成 Kraken Mount 的工作，ampr-emu-ng、pgo_stub 和 dlc_emu 由我們自行編譯；需要 kstuff）。已由 ShadowMount 接管或已由主機安裝的遊戲不會被更動。第一版，有待試用。
+
+Dropbox 正式環境審核尚未完成。PS5 之間的自動同步及跨主機安裝為初版功能，主機測試仍待完成。
+
 <p align="center">
   <img src="../assets/screenshots/en-oled-home.png" alt="PS5 Backup Center — 主畫面" width="88%">
 </p>
@@ -14,7 +25,7 @@
 
 **下載、安裝及傳輸遊戲。** 從區域網路中已配對的 PS5 接收遊戲。透過電視或瀏覽器，在 PS5、USB 磁碟、NAS 與雲端儲存空間之間備份、比較、同步及還原存檔。管理 PS5 應用程式、DLC，以及 Switch 與相容模擬器的存檔。
 
-[新功能 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+[新功能 3.2.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.2.0)
 
 **你的遊戲收藏。你的遊戲進度。你的備份。**
 

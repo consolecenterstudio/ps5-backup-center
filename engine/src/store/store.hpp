@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "core/fs.hpp"
+#include "store/kept.hpp"
 
 namespace pbc::store {
 
@@ -20,6 +21,8 @@ struct Writer {
     virtual void abort() = 0;
     // Taille finale annoncée avant d'écrire (OneDrive l'exige pour un gros fichier) ; sans effet ailleurs.
     virtual void size_hint(std::uint64_t) {}
+    // Arrêt en cours de fichier : garder ce qui est déjà écrit pour reprendre plus tard (vrai si gardé ; sinon abandon).
+    virtual bool keep() { abort(); return false; }
 };
 
 struct Reader {
@@ -49,6 +52,18 @@ public:
     virtual bool remove(const std::string& path) = 0;
     // Renommer / déplacer sur le même appareil (sans copie). Faux si l'appareil ne sait pas le faire.
     virtual bool rename(const std::string&, const std::string&) { return false; }
+    // Reprendre un fichier commencé et gardé (Writer::keep) : écrit à la suite, `have` = octets déjà là. nullptr : rien à reprendre.
+    virtual std::unique_ptr<Writer> resume(const std::string&, std::uint64_t& have, std::string&) { have = 0; return nullptr; }
+    // Lire le début déjà gardé d'un fichier commencé (pour l'empreinte de la copie reprise).
+    virtual std::unique_ptr<Reader> open_partial(const std::string&, std::string& err) { err = "pas de reprise ici"; return nullptr; }
+    // Envoi arrêté gardé chez le service (nuage : session d'envoi) : taille acceptée, état de l'empreinte de ce début
+    // et empreinte de sa fin, sans rien relire depuis l'appareil. Faux s'il n'y a rien de gardé.
+    virtual bool kept(const std::string&, Kept&) { return false; }
+    // Envoi arrêté abandonné (annulation) : le .part est retiré, la session d'envoi refermée chez le service.
+    virtual void drop_partial(const std::string& path) { remove(path + ".part"); }
+    // Partager ma copie : lien du service (« toute personne qui a le lien », en lecture) vers ce fichier ou dossier ;
+    // off : retirer ce lien. Faux si le service ne sait pas le faire ici.
+    virtual bool share_link(const std::string&, bool, std::string&, std::string& err) { err = "pas de lien de partage pour cet appareil"; return false; }
 };
 
 // Disque de la console : chemins console (fs::host appliqué en interne).

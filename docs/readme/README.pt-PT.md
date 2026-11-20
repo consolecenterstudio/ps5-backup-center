@@ -4,6 +4,17 @@
 
 [English](../../README.md) · [Français](README.fr.md) · [Français (Canada)](README.fr-CA.md) · [Español](README.es.md) · [Español (Latinoamérica)](README.es-419.md) · [Português (Brasil)](README.pt-BR.md) · [Português (Portugal)](README.pt-PT.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Nederlands](README.nl.md) · [Polski](README.pl.md) · [Türkçe](README.tr.md) · [Русский](README.ru.md) · [简体中文](README.zh-Hans.md) · [繁體中文](README.zh-Hant.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Tiếng Việt](README.vi.md) · [العربية](README.ar.md)
 
+## 3.2.0
+
+- Em Transferências recebidas, «+ Adicionar uma ligação» também aceita uma ligação magnet ou um ficheiro .torrent: escolhe o disco onde guardar (o de Definições › Rede aparece primeiro), depois acompanha o progresso (fontes, velocidade, tempo restante) e pausa, retoma ou retira (TV e web).
+- Transferências › As minhas ligações: todas as ligações dadas pela consola (BitTorrent, .zip da consola, MEGA, OneDrive), com código QR, endereço e forma de as parar. As ligações MEGA e OneDrive ficam lá guardadas.
+- Planos: um jogo guardado ou um jogo que já está no destino (mesmo conteúdo, copiado por qualquer PS5) deixa de ser copiado de novo; o resumo diz «já atualizado». Nada é relido para o saber.
+- Transferências › «ORBIT E BLACKBOX»: o que o Orbit e o BlackBox transferiram para a consola (estado, disco, tamanho, ficheiro não encontrado) e os ficheiros temporários deles (arquivo mantido, transferência em curso, resto), lidos do lado deles sem alterar nada.
+- «Instalar…» nas ferramentas de um jogo, em Pacotes .pkg e em Transferências › Orbit e BlackBox: montá-lo onde está (colocado na pasta de jogos do disco, sem cópia, montado pelo ShadowMount), ou instalá-lo noutro disco ou noutra PS5 (cópia verificada, original mantido ou retirado).
+- «Instalar… › Montar onde está» de um .pkg Kraken: o jogo é declarado à consola e é executado a partir do pacote, sem descomprimir nada — pelo Kraken Mount se estiver instalado; caso contrário, pela nossa versão integrada (o trabalho do Kraken Mount no nosso motor, com ampr-emu-ng, pgo_stub e dlc_emu compilados por nós; requer kstuff). Um jogo já tomado pelo ShadowMount ou instalado pela consola não é tocado. Primeira versão, para experimentar.
+
+A aprovação de produção do Dropbox está pendente. A sincronização automática entre PS5 e a instalação noutra consola são funcionalidades iniciais com testes pendentes.
+
 <p align="center">
   <img src="../assets/screenshots/en-oled-home.png" alt="PS5 Backup Center — Ecrã inicial" width="88%">
 </p>
@@ -14,7 +25,7 @@
 
 **Descarrega, instala e transfere os teus jogos.** Recebe jogos de uma PS5 emparelhada na rede local. Faz cópias de segurança, compara, sincroniza e restaura dados guardados entre PS5, discos USB, NAS e serviços na nuvem, na TV ou no navegador. Gere aplicações e DLC da PS5 e dados guardados da Switch e de emuladores compatíveis.
 
-[Novidades 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+[Novidades 3.2.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.2.0)
 
 **A sua coleção. As suas partidas. As suas cópias de segurança.**
 

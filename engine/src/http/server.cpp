@@ -2,6 +2,7 @@
 #include "http/server.hpp"
 #include "core/http_client.hpp"
 
+#include <cctype>
 #include <chrono>
 #include <condition_variable>
 #include <functional>
@@ -26,6 +27,7 @@
 #include "core/util.hpp"
 #include "accounts/accounts.hpp"
 #include "engine.hpp"
+#include "link/link.hpp"
 #include "http/web_assets.hpp"
 #include "images/images.hpp"
 #include "core/image.hpp"
@@ -44,6 +46,16 @@ struct Request {
     std::uint64_t stream_length = 0; // taille totale annoncée
     std::string param(std::string_view name) const;
 };
+
+std::string url_encode(std::string_view s) {  // chemin d'adresse : lettres, chiffres et -._~ gardés, le reste en %XX
+    static const char* hex = "0123456789ABCDEF";
+    std::string o;
+    for (unsigned char c : s) {
+        if (std::isalnum(c) || c == '-' || c == '.' || c == '_' || c == '~') o += static_cast<char>(c);
+        else { o += '%'; o += hex[c >> 4]; o += hex[c & 15]; }
+    }
+    return o;
+}
 
 std::string url_decode(std::string_view s) {
     std::string out;
@@ -154,7 +166,7 @@ bool read_request(int fd, Request& r) {
                 pos = e + 2;
             }
             // Réception d'un fichier d'une autre console : flux jusqu'à 4 Go, lu par le gestionnaire (jamais en mémoire).
-            if (r.method == "PUT" && (r.path == "/api/v2/link/inbox" || r.path == "/api/v2/link/fs/chunk") && content_length <= (4ull << 30)) {
+            if (r.method == "PUT" && (r.path == "/api/v2/link/inbox" || r.path == "/api/v2/link/fs/chunk" || r.path == "/api/v2/upload/chunk") && content_length <= (4ull << 30)) {
                 r.stream = true;
                 r.stream_length = content_length;
                 r.body = buf.substr(header_end + 4);
@@ -329,11 +341,37 @@ void HttpServer::handle(int fd, bool local) {
     } peak_note;
     peak_note.what = r.method + " " + r.path;
 
+    // Partager ma copie : /s/<jeton>/<nom>.zip, libre (le jeton, temporaire, ne donne que cette copie, en lecture).
+    if (r.method == "GET" && r.path.rfind("/s/", 0) == 0) {
+        std::string tok = r.path.substr(3);
+        if (const auto sl = tok.find('/'); sl != std::string::npos) tok.resize(sl);
+        Engine::ShareZip z;
+        std::string err;
+        if (tok.empty() || !e.share_zip(tok, z, err)) {
+            respond(fd, 404, "text/plain; charset=utf-8", "PS5 Backup Center : " + err + "\n(link expired or stopped)\n");
+            return;
+        }
+        std::string fname;
+        for (char c : z.name) fname += (c == '"' || static_cast<unsigned char>(c) >= 128) ? '_' : c;
+        const std::string head = "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: " + std::to_string(z.size) +
+                                 "\r\nContent-Disposition: attachment; filename=\"" + fname + "\"; filename*=UTF-8''" + url_encode(z.name) +
+                                 "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
+        t_status = 200; t_bytes = z.size;
+        t_sent = send_all(fd, head.data(), head.size()) && z.write([fd](const char* p, std::size_t n) { return send_all(fd, p, n); });
+        return;
+    }
     // Pages web (libres : elles ne contiennent aucune donnée ; les données passent par l'API).
     if (r.method == "GET" && r.path.rfind("/api/", 0) != 0) {
         const std::string want = r.path == "/" ? "/index.html" : r.path;
         for (unsigned i = 0; i < web::asset_count; ++i)
             if (want == web::assets[i].path) {
+#if !defined(PBCK_PS5)
+                // Mac seulement (essais du web) : la page lue dans son dossier, sans recompiler le moteur.
+                if (const char* dir = std::getenv("PBC_WEB_DIR"); dir && want.find("..") == std::string::npos) {
+                    std::string data;
+                    if (fs::read(std::string(dir) + want, data, 32u << 20)) { respond(fd, 200, web::assets[i].type, data); return; }
+                }
+#endif
                 respond(fd, 200, web::assets[i].type, std::string(reinterpret_cast<const char*>(web::assets[i].data), web::assets[i].size));
                 return;
             }
@@ -343,6 +381,9 @@ void HttpServer::handle(int fd, bool local) {
     // Accès libre : état du moteur (version, santé) et appairage par code. Tout le reste exige un jeton.
     if (r.method == "GET" && r.path == "/api/v2/status") {
         Json st = e.status();
+#if !defined(PBCK_PS5)
+        if (const char* v = std::getenv("PBC_DEMO_VERSION")) st.set("version", v);  // captures de démonstration sur le Mac
+#endif
         st.set("inflight", inflight_json());
         st.set("clients", clients_.load());
         json(fd, 200, st);
@@ -466,6 +507,14 @@ void HttpServer::handle(int fd, bool local) {
         json(fd, 201, j);
         return;
     }
+    // POST /api/v2/shares/probe {url} : ce que contient un lien de partage collé (service, dossier ou fichier, nombre)
+    if (r.method == "POST" && r.path == "/api/v2/shares/probe") {
+        std::string err;
+        const Json j = e.probe_share(body, err);
+        if (!err.empty()) { error(fd, 409, err); return; }
+        json(fd, 200, j);
+        return;
+    }
     // POST /api/v2/remotes/test-config {mêmes réglages} : tester avant d'enregistrer (rien n'est gardé)
     if (r.method == "POST" && r.path == "/api/v2/remotes/test-config") {
         std::string err;
@@ -519,7 +568,7 @@ void HttpServer::handle(int fd, bool local) {
         error(fd, 404, "action inconnue");
         return;
     }
-    if (r.method == "GET" && r.path == "/api/v2/saves/overview") { images::note_interactive(); json(fd, 200, e.saves_overview()); return; }
+    if (r.method == "GET" && r.path == "/api/v2/saves/overview") { images::note_interactive(); json(fd, 200, e.saves_overview_view()); return; }
     if (r.method == "GET" && r.path == "/api/v2/playtime") { json(fd, 200, e.playtime()); return; }  // notre compteur, par jeu
     // Versions d'une sauvegarde déjà comparées par leur contenu (cache de la tâche « inspect_save »).
     if (r.method == "GET" && r.path == "/api/v2/saves/inspect") { json(fd, 200, e.save_inspections(r.param("title_id"), r.param("user_id"))); return; }
@@ -542,7 +591,7 @@ void HttpServer::handle(int fd, bool local) {
         return;
     }
     if (r.method == "GET" && r.path == "/api/v2/places") { json(fd, 200, e.places_json()); return; }
-    if (r.method == "GET" && r.path == "/api/v2/items") { json(fd, 200, e.items_json(r.param("kind"), r.param("place"))); return; }
+    if (r.method == "GET" && r.path == "/api/v2/items") { json(fd, 200, e.items_view(r.param("kind"), r.param("place"))); return; }
     if (r.method == "POST" && r.path == "/api/v2/scan") { e.request_scan(); json(fd, 202, Json::object()); return; }
     if (r.method == "GET" && r.path == "/api/v2/cover" && !r.param("size").empty()) {
         const int max = std::max(64, std::min(512, std::atoi(r.param("size").c_str())));
@@ -627,6 +676,158 @@ void HttpServer::handle(int fd, bool local) {
         e.set_settings(Settings::from_json(merged));
         if (e.settings().update_channel != channel_before && e.settings().update_auto_check) e.updater().check_auto(0);  // nouveau canal : regarder tout de suite
         json(fd, 200, e.settings().to_json());
+        return;
+    }
+    // BitTorrent (Téléchargements) : la liste, ajouter un lien magnet ou un .torrent, pause / reprise / retirer.
+    if (r.method == "GET" && r.path == "/api/v2/torrents") {
+        Json out = Json::object();
+        bt::Session* b = e.torrents();
+        out.set("available", b && b->available());
+        out.set("port", static_cast<std::int64_t>(b ? b->port() : 0));
+        out.set("torrents", b ? b->list() : Json::array());
+        out.set("creating", b ? b->creating() : Json::array());  // « Créer un lien » : les calculs en cours
+        json(fd, 200, out);
+        return;
+    }
+    if (r.path == "/api/v2/public-address" && (r.method == "GET" || r.method == "POST")) { json(fd, 200, e.public_address(body["refresh"].as_bool() || r.param("refresh") == "1")); return; }
+    if (r.method == "GET" && r.path == "/api/v2/mega-keys") {  // diagnostic, lecture seule : {remote} d'un compte MEGA
+        std::string err;
+        const Json out = e.mega_keys(r.param("remote"), err);
+        if (!err.empty()) { Json x = out.is_object() ? out : Json::object(); x.set("error", err); json(fd, 409, x); return; }
+        json(fd, 200, out);
+        return;
+    }
+    if (r.method == "GET" && r.path == "/api/v2/shares/out") { json(fd, 200, e.shares_out()); return; }
+    if (r.method == "GET" && r.path == "/api/v2/links") { json(fd, 200, e.links()); return; }  // « Mes liens » : tous les liens donnés
+    if (r.method == "POST" && r.path == "/api/v2/shares/out") {  // Partager ma copie : {place, bundle, kind, hours, title}
+        std::string err;
+        const Json j = e.share_create(body, err);
+        if (!j.is_object()) { error(fd, 409, err); return; }
+        json(fd, 201, j);
+        return;
+    }
+    if (r.method == "POST" && r.path == "/api/v2/shares/out/stop") {  // {token} (.zip) ou {kind, id} (bt, mega, service)
+        std::string err;
+        if (!body["kind"].as_string().empty() && body["kind"].as_string() != "local") {
+            if (!e.link_stop(body, err)) { error(fd, 409, err.empty() ? "lien inconnu" : err); return; }
+            json(fd, 200, Json::object());
+            return;
+        }
+        if (!e.share_stop(body["token"].as_string())) { error(fd, 404, "lien inconnu"); return; }
+        json(fd, 200, Json::object());
+        return;
+    }
+    if (r.method == "POST" && r.path == "/api/v2/torrents/create") {  // {path} : créer un lien ; {cancel: job} : l'annuler
+        bt::Session* b = e.torrents();
+        if (!b || !b->available()) { error(fd, 409, "BitTorrent indisponible"); return; }
+        std::string err;
+        if (!body["cancel"].as_string().empty()) {
+            if (!b->cancel_create(body["cancel"].as_string(), err)) { error(fd, 404, err); return; }
+            json(fd, 200, Json::object());
+            return;
+        }
+        const std::string job = b->create(body["path"].as_string(), err);
+        if (job.empty()) { error(fd, 409, err); return; }
+        Json j = Json::object();
+        j.set("job", job);
+        json(fd, 201, j);
+        return;
+    }
+    if (r.method == "GET" && r.path.rfind("/api/v2/torrents/", 0) == 0 && r.path.size() > 25 && r.path.substr(r.path.size() - 8) == "/torrent") {
+        bt::Session* b = e.torrents();  // /api/v2/torrents/<id>/torrent : le fichier .torrent
+        std::string name;
+        const std::string data = b ? b->torrent_file(r.path.substr(17, r.path.size() - 25), name) : std::string();
+        if (data.empty()) { error(fd, 404, "fichier .torrent indisponible (liste des fichiers pas encore connue)"); return; }
+        respond(fd, 200, "application/x-bittorrent", data);
+        return;
+    }
+    if (r.method == "POST" && r.path == "/api/v2/torrents") {  // {source: "magnet:…" ou chemin d'un .torrent sur la console}
+        bt::Session* b = e.torrents();
+        std::string err;
+        const std::string id = b ? b->add(body["source"].as_string(), body["save"].as_string(), err) : std::string();
+        if (id.empty()) { error(fd, 409, err.empty() ? "BitTorrent indisponible" : err); return; }
+        Json j = Json::object();
+        j.set("id", id);
+        json(fd, 201, j);
+        return;
+    }
+    if (r.method == "GET" && r.path.rfind("/api/v2/torrents/", 0) == 0) {  // /api/v2/torrents/<id> : la fiche
+        const Json t = e.torrent_link(r.path.substr(17));
+        if (t.is_null()) { error(fd, 404, "torrent introuvable"); return; }
+        json(fd, 200, t);
+        return;
+    }
+    if (r.method == "POST" && r.path.rfind("/api/v2/torrents/", 0) == 0) {  // /api/v2/torrents/<id>/pause|resume|remove|force|…
+        const std::string rest = r.path.substr(17);
+        const auto slash = rest.find('/');
+        bt::Session* b = e.torrents();
+        if (!b || slash == std::string::npos) { error(fd, 404, "introuvable"); return; }
+        const std::string id = rest.substr(0, slash), what = rest.substr(slash + 1);
+        std::string err;
+        if (what == "export") {  // enregistrer le .torrent à côté des fichiers (dans leur dossier)
+            std::string name;
+            const std::string data = b->torrent_file(id, name);
+            const Json t = b->detail(id);
+            if (data.empty() || t.is_null()) { error(fd, 409, "fichier .torrent indisponible (liste des fichiers pas encore connue)"); return; }
+            std::string save = t["save"].as_string();
+            const std::string hp = fs::host("");
+            if (!hp.empty() && save.rfind(hp, 0) == 0) save = save.substr(hp.size());  // banc de test : chemin vu de la console
+            for (char& c : name) if (c == '/' || c == '\\') c = '_';
+            const std::string path = (save.empty() || save == "/" ? std::string() : save) + "/" + name + ".torrent";
+            if (!fs::write_atomic(fs::host(path), data)) { error(fd, 409, "écriture impossible : " + path); return; }
+            Json j = Json::object();
+            j.set("path", path);
+            json(fd, 200, j);
+            return;
+        }
+        const bool ok = what == "pause" ? b->pause(id, err) : what == "resume" ? b->resume(id, err)
+                      : what == "remove" ? b->remove(id, body["files"].as_bool(false), err) : b->act(id, what, body, err);
+        if (!ok) { error(fd, 409, err); return; }
+        json(fd, 200, Json::object());
+        return;
+    }
+    if (r.method == "GET" && r.path == "/api/v2/network/test") {  // Paramètres › Réseau › Tester les ports (depuis cette console)
+        // Chaque port TCP : on s'y connecte sur notre propre adresse du réseau local (ce que voit un autre appareil, au
+        // pare-feu de la console près). UDP 52371 : la découverte tourne-t-elle. BitTorrent : pas encore dans le moteur.
+        auto tcp_open = [](const std::string& ip, int port) {
+            const int s2 = ::socket(AF_INET, SOCK_STREAM, 0);
+            if (s2 < 0) return false;
+            ::fcntl(s2, F_SETFL, ::fcntl(s2, F_GETFL, 0) | O_NONBLOCK);
+            sockaddr_in a{};
+            a.sin_family = AF_INET;
+            a.sin_port = htons(static_cast<std::uint16_t>(port));
+            ::inet_pton(AF_INET, ip.c_str(), &a.sin_addr);
+            bool ok = ::connect(s2, reinterpret_cast<sockaddr*>(&a), sizeof a) == 0;
+            if (!ok && errno == EINPROGRESS) {
+                pollfd p{s2, POLLOUT, 0};
+                int err = 0;
+                socklen_t el = sizeof err;
+                ok = ::poll(&p, 1, 1500) > 0 && ::getsockopt(s2, SOL_SOCKET, SO_ERROR, &err, &el) == 0 && err == 0;
+            }
+            ::close(s2);
+            return ok;
+        };
+        const Settings st = e.settings();
+        std::string ip = link::local_ipv4();
+        if (ip.empty()) ip = "127.0.0.1";
+        Json out = Json::object();
+        out.set("address", ip);
+        Json ports = Json::array();
+        auto add = [&](const char* what, const char* proto, int port, const char* state) {
+            Json x = Json::object();
+            x.set("what", what); x.set("proto", proto); x.set("port", static_cast<std::int64_t>(port)); x.set("state", state);
+            ports.push(x);
+        };
+        add("web", "TCP", 52370, tcp_open(ip, 52370) ? "open" : "closed");
+        add("discovery", "UDP", 52371, e.link() ? "open" : "closed");
+        add("wan", "TCP", st.wan_port, !st.wan_enabled ? "off" : tcp_open(ip, st.wan_port) ? "open" : "closed");
+        {
+            const int bp = e.torrents() ? e.torrents()->port() : 0;
+            const char* proto = st.bt_proto == "tcp" ? "TCP" : st.bt_proto == "udp" ? "UDP" : "TCP+UDP";
+            add("bittorrent", proto, bp ? bp : st.bt_port_from, !e.torrents() || !e.torrents()->available() ? "not_yet" : !bp ? "closed" : tcp_open(ip, bp) ? "open" : "closed");
+        }
+        out.set("ports", ports);
+        json(fd, 200, out);
         return;
     }
     if (r.method == "GET" && r.path == "/api/v2/changelog") { json(fd, 200, e.updater().changelog()); return; }
@@ -751,7 +952,9 @@ void HttpServer::handle(int fd, bool local) {
         // simples ; le détail reste dans la liste complète (web) et dans GET /api/v2/saves/inspect.
         const bool brief = r.param("brief") == "1";
         Json a = Json::array();
+        const auto hidden = e.install_children();  // copies et conversions d'une installation : sa tâche les montre
         for (const auto& t : e.queue().list()) {
+            if (hidden.count(t.id)) continue;
             Json x = t.to_json();
             if (brief && x["report"].is_object() && x["report"].dump().size() > 32768) {
                 Json small = Json::object();
@@ -784,6 +987,8 @@ void HttpServer::handle(int fd, bool local) {
             x.set("report", rep);
             a.push(std::move(x));
         }
+        const Json jobs = e.install_jobs();  // installations par étapes (gardée : jamais de boucle sur un temporaire)
+        for (const auto& j : jobs.items()) a.push(j);
         {   // désinstallation en cours ou dernière faite : une tâche comme les autres (Tâches, Accueil)
             const Json u = e.uninstall_status();
             if (u["state"].is_string()) {
@@ -853,6 +1058,38 @@ void HttpServer::handle(int fd, bool local) {
         return;
     }
     // Autre PS5 = destination de backup : morceau d'un fichier écrit dans <dossier PBC Backup du disque>/<rel>.part
+    // Envoi depuis le navigateur du PC : un morceau (64 Mo) écrit à sa place dans « <fichier>.part », lu en flux (jamais
+    // en mémoire) ; GET upload/status donne la taille déjà reçue (reprise) ; POST upload/done range et installe.
+    if (r.method == "PUT" && r.path == "/api/v2/upload/chunk") {
+        std::string path, err;
+        if (!r.stream || !e.upload_path(r.param("place"), r.param("name"), path, err)) { error(fd, 400, err.empty() ? "envoi invalide" : err); return; }
+        const std::uint64_t offset = std::strtoull(r.param("offset").c_str(), nullptr, 10);
+        fs::mkdirs(std::string(fs::dirname(fs::host(path))));
+        fs::Entry have;
+        const std::uint64_t cur = fs::stat(fs::host(path + ".part"), have) ? have.size : 0;
+        if (offset > cur) { error(fd, 409, "morceau hors d'ordre : reprenez l'envoi"); return; }
+        FILE* f = std::fopen(fs::host(path + ".part").c_str(), offset ? "r+b" : "wb");
+        if (!f) { error(fd, 500, "écriture impossible"); return; }
+        bool ok = ::fseeko(f, static_cast<off_t>(offset), SEEK_SET) == 0;
+        std::uint64_t got = 0;
+        auto put = [&](const char* p, std::size_t n) { ok = ok && std::fwrite(p, 1, n, f) == n; got += n; };
+        put(r.body.data(), std::min<std::size_t>(r.body.size(), r.stream_length));
+        static thread_local char ubuf[262144];
+        while (ok && got < r.stream_length) {
+            pollfd p{fd, POLLIN, 0};
+            if (::poll(&p, 1, 30000) <= 0) { ok = false; break; }
+            const ssize_t n = ::recv(fd, ubuf, static_cast<std::size_t>(std::min<std::uint64_t>(sizeof ubuf, r.stream_length - got)), 0);
+            if (n <= 0) { ok = false; break; }
+            put(ubuf, static_cast<std::size_t>(n));
+        }
+        ok = ok && std::fflush(f) == 0;
+        std::fclose(f);
+        if (!ok || got != r.stream_length) { error(fd, 409, "morceau incomplet"); return; }
+        Json j = Json::object();
+        j.set("size", static_cast<std::int64_t>(offset + got));
+        json(fd, 200, j);
+        return;
+    }
     if (r.method == "PUT" && r.path == "/api/v2/link/fs/chunk") {
         std::string path, err;
         if (!r.stream || !e.peer_fs_path(r.param("place"), r.param("rel"), path, err)) { error(fd, 400, err.empty() ? "chemin invalide" : err); return; }
@@ -981,6 +1218,14 @@ void HttpServer::handle(int fd, bool local) {
         return;
     }
     if (r.method == "GET" && r.path == "/api/v2/games/uninstall") { json(fd, 200, e.uninstall_status()); return; }
+    if (r.method == "GET" && r.path == "/api/v2/games/uninstall-info") { json(fd, 200, e.uninstall_info(r.param("title_id"))); return; }
+    if (r.method == "GET" && r.path == "/api/v2/link/peer-uninstall-info") {  // la même chose pour un jeu d'une PS5 jumelée
+        Json out;
+        std::string err;
+        if (!e.link() || !e.link()->call(r.param("instance"), "GET", "/api/v2/games/uninstall-info?title_id=" + r.param("title_id"), Json(), out, err)) { error(fd, 409, err.empty() ? "autre PS5 injoignable" : err); return; }
+        json(fd, 200, out);
+        return;
+    }
     if (r.method == "POST" && r.path == "/api/v2/link/peer-uninstall") {  // désinstaller un jeu sur une PS5 jumelée (locale ou à distance)
         Json out, req = Json::object();
         std::string err;
@@ -1113,7 +1358,115 @@ void HttpServer::handle(int fd, bool local) {
     // Applis : versions installées ici (lues par l'autre PS5), plan, départ ; réglages : /sync/parties/prefs avec section « apps ».
     if (r.method == "GET" && r.path == "/api/v2/apps/versions") { json(fd, 200, e.apps_versions()); return; }
     if (r.method == "GET" && r.path == "/api/v2/dlc/list") { json(fd, 200, e.dlc_list()); return; }
+    if (r.method == "POST" && (r.path == "/api/v2/apps-downloads/move" || r.path == "/api/v2/apps-downloads/free")) {  // Orbit / BlackBox : ranger
+        std::string err;
+        const std::string id = r.path.back() == 'e' && r.path.substr(r.path.size() - 4) == "move" ? e.apps_dl_move(body, err) : e.apps_dl_free(body, err);
+        if (id.empty()) { error(fd, 409, err); return; }
+        Json j = Json::object();
+        j.set("task", id);
+        json(fd, 202, j);
+        return;
+    }
+    if (r.method == "POST" && r.path == "/api/v2/packages/send") {  // Transferts › Paquets .pkg : vers un NAS, le nuage, une autre PS5
+        std::string err;
+        const std::string id = e.package_send(body, err);
+        if (id.empty()) { error(fd, 409, err); return; }
+        Json j = Json::object();
+        j.set("task", id);
+        json(fd, 202, j);
+        return;
+    }
+    if (r.method == "POST" && r.path == "/api/v2/packages/delete") {  // Transferts › Paquets .pkg
+        std::string err;
+        if (!e.package_delete(body, err)) { error(fd, 409, err); return; }
+        json(fd, 200, Json::object());
+        return;
+    }
+    if (r.method == "GET" && r.path == "/api/v2/arrivals") { json(fd, 200, e.arrivals(r.param("fresh") == "1")); return; }  // Orbit / BlackBox, étape 3
+    if (r.method == "POST" && r.path == "/api/v2/packages/install") {  // « Installer… › Installer par la console »
+        std::string err;
+        const Json j = e.package_install(body, err);
+        if (!err.empty()) { error(fd, 409, err); return; }
+        json(fd, 200, j);
+        return;
+    }
+    if (r.method == "GET" && r.path == "/api/v2/kraken") { json(fd, 200, e.kraken_titles()); return; }  // nos jeux lancés depuis leur .pkg
+    if (r.method == "GET" && r.path == "/api/v2/mounting") { json(fd, 200, e.mounting()); return; }  // Paramètres › Montage des jeux
+    // Paramètres › Outils de la console : payloads installés et en marche ; lancer, arrêter, ouvrir une appli outil.
+    if (r.method == "GET" && r.path == "/api/v2/tools") { json(fd, 200, e.tools_json()); return; }
+    // Installer par étapes : les façons possibles (format, étapes, temps, place), annuler une installation.
+    if (r.method == "POST" && r.path == "/api/v2/install/options") { json(fd, 200, e.install_options(body)); return; }
+    if (r.method == "POST" && r.path == "/api/v2/installs/cancel") {
+        std::string err;
+        if (!e.install_cancel(body["id"].as_string(), err)) { error(fd, 409, err); return; }
+        json(fd, 200, Json::object());
+        return;
+    }
+    // Bibliothèques de jeux non installés : les dossiers déclarés, leurs jeux (l'index), ajouter, retirer, relire.
+    if (r.method == "GET" && r.path == "/api/v2/gamelibs") { json(fd, 200, e.gamelib_list()); return; }
+    if (r.method == "GET" && r.path == "/api/v2/gamelibs/games") { json(fd, 200, e.gamelib_games()); return; }
+    if (r.method == "POST" && (r.path == "/api/v2/gamelibs/add" || r.path == "/api/v2/gamelibs/remove")) {
+        std::string err;
+        const std::string place = body["place"].as_string(), path = body["path"].as_string();
+        const bool ok = r.path == "/api/v2/gamelibs/add" ? e.gamelib_add(place, path, err) : e.gamelib_remove(place, path, err);
+        if (!ok) { error(fd, 409, err); return; }
+        json(fd, 200, e.gamelib_list());
+        return;
+    }
+    if (r.method == "POST" && r.path == "/api/v2/gamelibs/rescan") { e.gamelib_rescan(body["place"].as_string(), body["path"].as_string()); json(fd, 200, e.gamelib_list()); return; }
+    if (r.method == "POST" && (r.path == "/api/v2/tools/start" || r.path == "/api/v2/tools/stop" || r.path == "/api/v2/tools/open")) {
+        std::string err;
+        const Json j = r.path == "/api/v2/tools/start" ? e.tool_start(body["key"].as_string(), err)
+                     : r.path == "/api/v2/tools/stop" ? e.tool_stop(body["pid"].as_int(), body["name"].as_string(), err)
+                                                      : e.tool_open_app(body["title_id"].as_string(), err);
+        if (j.is_null()) { error(fd, 409, err.empty() ? std::string("refusé") : err); return; }
+        json(fd, 200, j);
+        return;
+    }
+    if (r.method == "GET" && r.path == "/api/v2/upload/status") {
+        std::string path, err;
+        if (!e.upload_path(r.param("place"), r.param("name"), path, err)) { error(fd, 400, err); return; }
+        fs::Entry st;
+        Json j = Json::object();
+        j.set("size", static_cast<std::int64_t>(fs::stat(fs::host(path + ".part"), st) ? st.size : 0));
+        j.set("exists", fs::exists(fs::host(path)));
+        json(fd, 200, j);
+        return;
+    }
+    if (r.method == "POST" && r.path == "/api/v2/upload/done") {
+        std::string err;
+        const Json j = e.upload_done(body, err);
+        if (j.is_null()) { error(fd, 409, err.empty() ? std::string("refusé") : err); return; }
+        json(fd, 200, j);
+        return;
+    }
+    if (r.method == "POST" && r.path == "/api/v2/install/from") {  // « Installer… » d'un jeu sur le NAS, le nuage, l'autre PS5
+        std::string err;
+        const std::string id = e.install_from(body, err);
+        if (id.empty()) { error(fd, 409, err.empty() ? std::string("refusé") : err); return; }
+        Json j = Json::object();
+        j.set("task", id);
+        json(fd, 202, j);
+        return;
+    }
+    if (r.method == "POST" && r.path == "/api/v2/install/here") {  // « Installer… › Le monter là où il est »
+        std::string err;
+        const Json j = e.install_here(body, err);
+        if (!err.empty()) { error(fd, 409, err); return; }
+        json(fd, 200, j);
+        return;
+    }
+    if (r.method == "POST" && r.path == "/api/v2/arrivals/later") { e.arrivals_later(); json(fd, 200, Json::object()); return; }
+    if (r.method == "POST" && r.path == "/api/v2/arrivals/backup") {
+        std::string err;
+        const Json j = e.arrivals_backup(body, err);
+        if (!err.empty()) { error(fd, 409, err); return; }
+        json(fd, 202, j);
+        return;
+    }
+    if (r.method == "GET" && r.path == "/api/v2/apps-downloads") { json(fd, 200, e.apps_downloads(r.param("fresh") == "1")); return; }  // Orbit / BlackBox
     if (r.method == "GET" && r.path == "/api/v2/dlc/library") { json(fd, 200, e.pkg_library(r.param("fresh") == "1")); return; }
+    if (r.method == "GET" && r.path == "/api/v2/diag/mounts") { json(fd, 200, images::mounts_json(r.param("prefix"))); return; }  // lecture seule
     if (r.method == "POST" && r.path == "/api/v2/diag/tv") {  // l'appli télé signale une réponse inutilisable
         e.note_local_request("ERREUR " + body["what"].as_string() + " : " + body["error"].as_string().substr(0, 160));
         json(fd, 200, Json::object());
@@ -1227,6 +1580,8 @@ void HttpServer::handle(int fd, bool local) {
         json(fd, 200, j);
         return;
     }
+    if (r.method == "POST" && r.path == "/api/v2/link/plan-note") { json(fd, 200, e.plan_note(body)); return; }  // une autre PS5 commence / finit un plan
+    if (r.method == "GET" && r.path == "/api/v2/plans/dest-key") { Json j = Json::object(); const std::string k = e.dest_key(r.param("place")); std::string who; j.set("key", k); j.set("busy", e.dest_busy(k, who) ? who : std::string()); json(fd, 200, j); return; }  // diagnostic
     if (r.method == "POST" && r.path == "/api/v2/backups/peer-changed") { e.peer_changed(); json(fd, 200, Json::object()); return; }  // l'autre PS5 a changé ses copies
     if (r.method == "POST" && r.path == "/api/v2/backups/compare-all") {
         std::string err;
@@ -1239,6 +1594,13 @@ void HttpServer::handle(int fd, bool local) {
     if (r.method == "GET" && r.path == "/api/v2/trash") {
         std::string err;
         const Json j = e.trash_list(r.param("place"), err);
+        if (!err.empty()) { error(fd, 409, err); return; }
+        json(fd, 200, j);
+        return;
+    }
+    if (r.method == "POST" && r.path == "/api/v2/trash/delete") {
+        std::string err;
+        const Json j = e.trash_delete(body, err);
         if (!err.empty()) { error(fd, 409, err); return; }
         json(fd, 200, j);
         return;
@@ -1286,6 +1648,7 @@ void HttpServer::handle(int fd, bool local) {
     if (r.method == "POST" && r.path == "/api/v2/tasks/clear") {  // « Vider la liste » (terminées, échecs ou annulées)
         int removed = 0, kept = 0;
         if (!e.queue().clear(body["state"].as_string(), removed, kept)) { error(fd, 400, "état inconnu"); return; }
+        removed += e.install_jobs_clear(body["state"].as_string());  // installations par étapes terminées
         Json out = Json::object();
         out.set("removed", removed);
         out.set("kept", kept);
@@ -1315,6 +1678,12 @@ void HttpServer::handle(int fd, bool local) {
             std::string err;
             if (!e.queue().cleanup_files(id, err)) { error(fd, 409, err); return; }
             json(fd, 202, Json::object());
+            return;
+        }
+        if (id.rfind("inst-", 0) == 0 && action == "cancel") {  // une installation par étapes : sa tâche en cours s'arrête, ce qui a été copié est retiré
+            std::string err;
+            if (!e.install_cancel(id, err)) { error(fd, 409, err); return; }
+            json(fd, 200, Json::object());
             return;
         }
         bool ok = action == "pause" ? e.queue().pause(id) : action == "resume" ? e.queue().resume(id)

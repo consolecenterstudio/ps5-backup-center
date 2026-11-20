@@ -1,3 +1,4 @@
+#include <cmath>
 #include "ui.hpp"
 #include "ui_util.hpp"
 #include "audio.hpp"
@@ -7,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <set>
 
 namespace app {
 
@@ -15,7 +17,7 @@ using namespace ui_util;
 
 namespace {
 
-const char* tab_names[] = {N_("Accueil"), N_("Bibliothèque"), N_("Parties"), N_("Sauvegardes"), N_("Synchro"), N_("Transferts"), N_("Appareils"), N_("Tâches"), N_("Paramètres")};
+const char* tab_names[] = {N_("Accueil"), N_("Bibliothèque"), N_("Parties"), N_("Sauvegardes"), N_("Synchro"), N_("Transferts"), N_("Téléchargements"), N_("Appareils"), N_("Tâches"), N_("Paramètres")};
 
 const char* kind_keys[] = {"", "game_ps5", "game_ps4", "app", "rom", ""};
 constexpr int kind_count = 6;  // Tout, PS5, PS4, Applications, ROM, Ignorés
@@ -31,8 +33,8 @@ const PlanPreset plan_presets[] = {
 // Sections des Paramètres, dans l'ordre affiché (« Nouveautés » en premier, comme BlackBox).
 // Textes de support.json (liste en ligne) traduits à l'affichage
 [[maybe_unused]] const char* support_names[] = {N_("Offrir un cadeau"), N_("cartes cadeaux, abonnements, matériel"), N_("carte, PayPal")};
-enum Section { sec_news, sec_general, sec_sources, sec_ignored, sec_accounts, sec_devices, sec_updates, sec_diag, sec_report, sec_goals, sec_support, sec_thanks, section_count };
-const char* section_names[] = {N_("Nouveautés"), N_("Général"), N_("Sources et émulateurs"), N_("Éléments ignorés"), N_("Utilisateurs"), N_("Appareils"), N_("Mises à jour et démarrage"), N_("Diagnostic et à propos"), N_("Signaler un problème"), N_("Projets à financer"), N_("Soutenir le projet"), N_("Remerciements")};
+enum Section { sec_news, sec_general, sec_sources, sec_ignored, sec_accounts, sec_devices, sec_storage, sec_network, sec_updates, sec_diag, sec_report, sec_goals, sec_support, sec_thanks, section_count };
+const char* section_names[] = {N_("Nouveautés"), N_("Général"), N_("Sources et émulateurs"), N_("Éléments ignorés"), N_("Utilisateurs"), N_("Appareils"), N_("Où ranger"), N_("Réseau"), N_("Mises à jour et démarrage"), N_("Diagnostic et à propos"), N_("Signaler un problème"), N_("Projets à financer"), N_("Soutenir le projet"), N_("Remerciements")};
 // Texte de recherche : minuscules, sans accents (é → e, ç → c…), pour « pokemon » = « Pokémon ».
 std::string fold(const std::string& in) {
     static const char* from[] = {"à", "â", "ä", "á", "ã", "é", "è", "ê", "ë", "î", "ï", "í", "ô", "ö", "ó", "õ", "ù", "û", "ü", "ú", "ç", "ñ",
@@ -147,12 +149,17 @@ bool Ui::update(const InputState& in, std::uint64_t now) {
     if (model_.serial() != seen_serial_) {
         seen_serial_ = model_.serial();
         snap_ = model_.snapshot();
+        if (wh_ask_set_ >= 0 && snap_->ask_where == (wh_ask_set_ == 1)) wh_ask_set_ = -1;  // le moteur a relu le réglage
+        if (send_place_pending_ && snap_->send_place == send_place_set_) send_place_pending_ = false;
         if (!snap_->theme.empty() && snap_->theme != theme_seen_ && now - theme_local_at_ > 3000) { theme_seen_ = snap_->theme; theme::set(theme_seen_); save_theme_copy(); }
         if (snap_->settings_loaded && now - sound_local_at_ > 3000) { sound_ui_ = snap_->sound_ui; music_ = snap_->music; volume_ = snap_->volume; audio::configure(sound_ui_, music_, volume_); }
         int done = 0;  // une tâche vient de se terminer (sauvegarde, restauration, copie…) : petit arpège
         for (const auto& t : snap_->tasks) done += t.state == "done";
         if (snap_->connected && tasks_done_ >= 0 && done > tasks_done_) audio::play(audio::Sound::success);
         tasks_done_ = snap_->connected ? done : -1;
+        // À chaque ouverture de l'appli (donc aussi quand on la ferme et la rouvre) : la console redemande son adresse
+        // publique (liens de partage « Internet », comme les passerelles de jeu à distance).
+        if (snap_->connected && !pub_asked_) { pub_asked_ = true; refresh_public_address(false); }
         if (snap_->settings_loaded) {
             // Langue changée depuis le web (ou au démarrage) : seulement quand la valeur du moteur change, pour ne pas
             // revenir en arrière juste après un choix fait sur la télé, avant que le moteur ne l'ait relu.
@@ -412,12 +419,25 @@ bool Ui::update(const InputState& in, std::uint64_t now) {
     key_sound(k);
     if (k & key::touchpad) {  // pavé tactile : retour à l'Accueil, d'où qu'on soit (rien n'est annulé en cours de route)
         if (!kb_open_ && !hold_open_ && !mg_deleting_) {
-            whats_new_.clear(); popup_ = false; sheet_ = false; rsheet_ = false; br_open_ = false; pe_open_ = false; pp_open_ = false; em_open_ = false; ed_open_ = false; cl_open_ = false;
-            mg_preview_ = false; mg_ign_open_ = false; mg_tidy_open_ = false; sy_pick_ = false; loupe_ = false;
-            tab_ = home; home_zone_ = 0;
+            close_overlays();
+            tab_ = home; home_zone_ = 0; set_back_tab_ = -1;
             return true;
         }
     }
+    if ((k & key::r3) && !kb_open_ && !hold_open_ && !mg_deleting_) {  // R3 : Paramètres, d'où qu'on soit (Rond y ramène)
+        close_overlays();
+        if (tab_ != settings) { set_back_tab_ = static_cast<int>(tab_); tab_ = settings; set_zone_ = 0; }
+        bar_ = false;
+        return true;
+    }
+    if ((k & key::l3) && !kb_open_ && !hold_open_ && !mg_deleting_) {  // L3 : tous les menus (encore L3 : fermer)
+        if (menus_open_) { menus_open_ = false; return true; }
+        close_overlays();
+        menus_open_ = true;
+        menus_sel_ = static_cast<int>(tab_);
+        return true;
+    }
+    if (menus_open_) { input_menus(k); return true; }
     if (!whats_new_.empty()) { if (k & (key::cross | key::circle)) whats_new_.clear(); return true; }
     if (kb_open_) { input_keyboard(k); return true; }
     if (br_open_) { input_browser(k); return true; }
@@ -426,6 +446,10 @@ bool Ui::update(const InputState& in, std::uint64_t now) {
     if (em_open_) { input_emulator(k); return true; }
     if (cl_open_) { input_cloud_link(k); return true; }
     if (ed_open_) { input_editor(k); return true; }
+    if (mag_open_ && !popup_) { input_magnet(k); return true; }
+    if (sh_open_ && !popup_) { input_share(k); return true; }
+    if (wh_open_ && !popup_) { input_where(k); return true; }
+    if (td_open_ && !popup_) { input_torrent_detail(k); return true; }
     if (popup_) { input_popup(k); return true; }
     if (guide_) { if (k & (key::cross | key::circle)) guide_ = false; return true; }
     if (countdown_until_ && (k & (key::cross | key::circle))) { countdown_until_ = 0; toast(tr("Redémarrage annulé")); return true; }
@@ -462,6 +486,7 @@ bool Ui::update(const InputState& in, std::uint64_t now) {
         return true;
     }
     if ((k & key::r1) && tab_ == tasks) { heart_ = true; bar_ = false; return true; }
+    if (k & (key::l1 | key::r1)) set_back_tab_ = -1;  // on a changé d'onglet soi-même : Rond ne ramène plus ailleurs
     if ((k & key::l1) && tab_ == settings) { loupe_ = true; tab_ = tasks; bar_ = false; return true; }
     if (k & key::l1) { tab_ = static_cast<Tab>((tab_ + tab_count - 1) % tab_count); bar_ = false; return true; }
     if (k & key::r1) { tab_ = static_cast<Tab>((tab_ + 1) % tab_count); bar_ = false; return true; }
@@ -473,6 +498,7 @@ bool Ui::update(const InputState& in, std::uint64_t now) {
         case backups: input_backups_tab(k); break;
         case synchro: input_synchro(k); break;
         case transfers: input_transfers(k); break;
+        case downloads: input_downloads(k); break;
         case tasks: input_tasks(k); break;
         case settings: input_settings(k); break;
         default: break;
@@ -496,7 +522,7 @@ void Ui::input_library(std::uint32_t k) {
         if (was >= kind_count && lib_filter_ < kind_count) lib_kind_before_ = kind_;  // on revient dans les types
         if ((k & (key::left | key::right)) && lib_filter_ < kind_count && kind_ != lib_filter_) { kind_ = lib_filter_; grid_ = grid_top_ = 0; }
         if (was < kind_count && lib_filter_ >= kind_count && kind_ != lib_kind_before_) { kind_ = lib_kind_before_; grid_ = grid_top_ = 0; }
-        if (k & (key::down | key::circle)) { lib_zone_ = 1; lib_kind_before_ = kind_; }
+        if (k & key::down) { lib_zone_ = 1; lib_kind_before_ = kind_; }
         if (k & key::cross) {
             if (lib_filter_ < kind_count) { kind_ = lib_filter_; lib_kind_before_ = kind_; lib_zone_ = 1; }
             // Émulateur / emplacement : chaque appui passe au suivant, directement dans la rangée (sans fenêtre).
@@ -516,6 +542,8 @@ void Ui::input_library(std::uint32_t k) {
     // Rangées (comme l'Accueil) : Gauche / Droite dans la rangée, Haut / Bas d'une rangée à l'autre.
     const auto shelves = library_shelves();
     (void)items;
+    if ((k & key::circle) && !lib_marks_.empty()) { lib_marks_.clear(); toast(tr("Tout est décoché")); return; }  // ○ : d'abord tout décocher
+    if (k & key::circle) { lib_zone_ = 0; return; }  // ○ : remonter aux filtres (comme l'Accueil et Sauvegardes)
     if (shelves.empty()) { if (k & key::up) lib_zone_ = 0; }
     else {
         lib_cols_.resize(shelves.size(), 0);
@@ -525,7 +553,7 @@ void Ui::input_library(std::uint32_t k) {
         if (k & key::left) col = std::max(0, col - 1);
         if (k & key::right) col = std::min(n - 1, col + 1);
         if (k & key::r2) col = std::min(n - 1, col + 7);
-        if ((k & key::l2) && col < n) {  // marquer / démarquer (ici : « Ignorer » ; autre PS5 : actions groupées)
+        if ((k & key::l2) && col < n && shelves[static_cast<std::size_t>(lib_row_)].gl_first < 0) {  // marquer / démarquer (ici : « Ignorer » ; autre PS5 : actions groupées)
             const std::string& key2 = shelves[static_cast<std::size_t>(lib_row_)].items[static_cast<std::size_t>(col)]->key;
             if (!lib_marks_.erase(key2)) lib_marks_.insert(key2);
         }
@@ -536,8 +564,11 @@ void Ui::input_library(std::uint32_t k) {
         if ((k & key::cross) && col < n && !lib_peer_.empty()) {
             const Json* m = remote_meta_of(shelves[static_cast<std::size_t>(lib_row_)].items[static_cast<std::size_t>(col)]);
             if (m) open_remote_sheet(lib_peer_, lib_peer_name_, *m, lib_peer_online_);
+        } else if ((k & key::cross) && col < n && shelves[static_cast<std::size_t>(lib_row_)].gl_first >= 0) {  // « À installer »
+            const std::size_t idx = static_cast<std::size_t>(shelves[static_cast<std::size_t>(lib_row_)].gl_first + col);
+            if (idx < lib_gl_refs_.size()) open_gamelib_game(gamelib_["games"][lib_gl_refs_[idx]]);
         } else if ((k & key::cross) && col < n) {
-            sheet_ = true; sheet_key_ = shelves[static_cast<std::size_t>(lib_row_)].items[static_cast<std::size_t>(col)]->key; sheet_focus_ = 0; unchecked_.clear(); dest_ = 0;
+            sheet_ = true; sheet_key_ = shelves[static_cast<std::size_t>(lib_row_)].items[static_cast<std::size_t>(col)]->key; sheet_focus_ = sheet_go; unchecked_.clear(); dest_ = 0; sheet_place_.clear();
         }
     }
     if ((k & key::options) && !lib_peer_.empty() && !lib_marks_.empty()) {  // autre console, jeux cochés : une action pour tous
@@ -591,6 +622,10 @@ void Ui::input_library(std::uint32_t k) {
             const int c = lib_cols_[static_cast<std::size_t>(lib_row_)];
             if (c < static_cast<int>(sh.items.size())) { const Json* m = remote_meta_of(sh.items[static_cast<std::size_t>(c)]); if (m) open_remote_sheet(lib_peer_, lib_peer_name_, *m, lib_peer_online_); }
         }
+    } else if ((k & key::options) && lib_marks_.empty() && !shelves.empty() && lib_zone_ == 1 && shelves[static_cast<std::size_t>(lib_row_)].gl_first >= 0) {
+        const auto& sh = shelves[static_cast<std::size_t>(lib_row_)];  // « À installer » : Options = Croix
+        const std::size_t idx = static_cast<std::size_t>(sh.gl_first + lib_cols_[static_cast<std::size_t>(lib_row_)]);
+        if (idx < lib_gl_refs_.size()) open_gamelib_game(gamelib_["games"][lib_gl_refs_[idx]]);
     } else if (k & key::options) {  // menu d'actions : sur les éléments cochés, sinon sur celui sous le curseur
         const Item* focus = nullptr;
         if (!shelves.empty()) {
@@ -607,16 +642,27 @@ void Ui::input_library(std::uint32_t k) {
                 if (t.empty()) { toast(tr("Les éléments marqués sont déjà ignorés")); return; }
                 open_ignore(std::move(t), -1);
             }});
+            const int nmark = static_cast<int>(lib_marks_.size());
+            acts.insert(acts.begin(), {trf("Envoyer vers… (%d)", nmark), [this, nmark] {
+                std::vector<std::string> keys(lib_marks_.begin(), lib_marks_.end());
+                auto go = [this, keys](const std::string& id) { send_marked_to(keys, id); };
+                const std::string def = send_place();
+                if (def.empty()) {  // pas de défaut pour l'envoi : toujours demander
+                    open_where(trf("Envoyer %d élément(s) vers…", nmark), tr("Copiés puis vérifiés, comme une sauvegarde. Rien n'est retiré de la console."), snap_->default_place, 2, go);
+                    return;
+                }
+                ask_where_then(trf("Envoyer %d élément(s) vers…", nmark), tr("Copiés puis vérifiés, comme une sauvegarde. Rien n'est retiré de la console."), def, 2, go);
+            }});
             acts.push_back({tr("Tout décocher"), [this] { lib_marks_.clear(); }});
         } else if (focus) {
             const std::string key2 = focus->key, tid = focus->title_id, title2 = focus->title;
             const bool ign = focus->ignored;
-            acts.push_back({tr("Toutes les versions"), [this, key2, tid, title2] { open_versions("", tid, title2, key2); }});
+            acts.push_back({tr("Détails"), [this, key2, tid, title2] { open_versions("", tid, title2, key2); }});
             acts.push_back({tr("Comparer"), [this, key2, tid] { open_compare(tid, key2); }});
             if (ign) acts.push_back({tr("Sauvegarder de nouveau"), [this, key2] { for (const auto& it : snap_->items) if (it.key == key2) { set_ignored(it, false); break; } }});
             else acts.push_back({tr("Ignorer…"), [this, key2, tid, title2] { open_ignore({{tid.empty() ? "key" : "title_id", tid.empty() ? key2 : tid, title2}}, -1); }});
             if (has_console_save(tid)) acts.push_back({tr("Supprimer la partie de la console…"), [this, tid, title2] { delete_console_save(tid, title2); }});
-            acts.push_back({tr("Tout cocher"), [this] { for (const auto& sh : library_shelves()) for (const Item* it : sh.items) lib_marks_.insert(it->key); }});
+            acts.push_back({tr("Tout cocher"), [this] { for (const auto& sh : library_shelves()) if (sh.gl_first < 0) for (const Item* it : sh.items) lib_marks_.insert(it->key); }});
             // Désinstaller (jeu ou appli installés ici ; jamais Backup Center ; pas une sauvegarde seule).
             if ((focus->kind == "game_ps5" || focus->kind == "game_ps4" || focus->kind == "app") && focus->key.rfind("save:", 0) != 0 &&
                 tid.size() == 9 && tid != "PPSA99950" && (tid.rfind("PPSA", 0) == 0 || tid.rfind("CUSA", 0) == 0)) {
@@ -718,10 +764,9 @@ void Ui::input_keyboard(std::uint32_t k) {
 }
 
 void Ui::draw_keyboard(Surface& s) {
-    const int w = 1100, h = 520, x = (1920 - w) / 2, y = 1080 - h - 90;
-    s.rect(x + 10, y + 14, w, h, rgb(0, 0, 0, 120), 30);
-    s.rect(x, y, w, h, rgb(18, 34, 58), 30);
-    s.outline(x, y, w, h, rgb(124, 196, 255, 90), 30, 2);
+    const int w = 1100, h = 520, x = (1920 - w) / 2, y = 1080 - h - 64 - 40;
+    window_frame(s, x, y, w, h + 64, 64);
+    help_in(x, y, w, h + 64);  // l'aide de la fenêtre, en bas dans le cadre
     s.text(font_, x + 40, y + 26, kb_title_, body, color::muted);
     // Champ de texte avec un curseur.
     s.rect(x + 40, y + 66, w - 80, 64, rgb(4, 12, 24, 220), 16);
@@ -758,6 +803,7 @@ void Ui::draw_keyboard(Surface& s) {
 }
 
 void Ui::open_popup(int kind, std::string title, std::vector<std::string> options, int selected) {
+    popup_kind_.clear();
     popup_ = kind;
     popup_title_ = std::move(title);
     popup_note_.clear();
@@ -770,7 +816,17 @@ void Ui::input_popup(std::uint32_t k) {
     const int n = static_cast<int>(popup_items_.size());
     if (k & key::up) popup_sel_ = (popup_sel_ + n - 1) % n;
     if (k & key::down) popup_sel_ = (popup_sel_ + 1) % n;
-    if (k & key::circle) { popup_ = 0; return; }
+    if (k & key::circle) {  // ○ : la fenêtre d'avant si celle-ci a été ouverte depuis un menu, sinon on referme
+        if (!popup_back_.empty()) {
+            PopupState b = std::move(popup_back_.back());
+            popup_back_.pop_back();
+            popup_ = b.kind; popup_sel_ = b.sel; popup_title_ = std::move(b.title); popup_note_ = std::move(b.note);
+            popup_items_ = std::move(b.items); popup_subs_ = std::move(b.subs); popup_kind_ = std::move(b.kinds); act_fns_ = std::move(b.fns);
+            return;
+        }
+        popup_ = 0;
+        return;
+    }
     if (!(k & key::cross)) return;
     if (popup_ == 1) { app_ = popup_sel_; lib_zone_ = 1; grid_ = grid_top_ = 0; }
     else if (popup_ == 2) { place_ = popup_sel_; lib_zone_ = 1; grid_ = grid_top_ = 0; }
@@ -822,13 +878,19 @@ void Ui::input_popup(std::uint32_t k) {
         return;
     }
     else if (popup_ == 11) {  // menu d'actions (Options)
+        PopupState here{popup_, popup_sel_, popup_title_, popup_note_, popup_items_, popup_subs_, popup_kind_, act_fns_};
         popup_ = 0;
         if (popup_sel_ < static_cast<int>(act_fns_.size())) { auto f = act_fns_[static_cast<std::size_t>(popup_sel_)]; f(); }
+        // L'action a ouvert une autre fenêtre : celle-ci est gardée pour que ○ y ramène. Sinon la chaîne est finie.
+        const bool cancel_row = here.sel < static_cast<int>(here.kinds.size()) && here.kinds[static_cast<std::size_t>(here.sel)] == 2;
+        if (popup_ && !cancel_row) popup_back_.push_back(std::move(here)); else if (!popup_) popup_back_.clear();
         return;
     }
     else if (popup_ == 6) {  // menu du jeu (Sauvegardes)
         const bool has_save = rs_entry_["console"].is_object();
+        const bool detail = popup_sel_ == static_cast<int>(popup_items_.size()) - 1;  // dernière ligne : le détail
         popup_ = 0;
+        if (detail) { open_versions(rs_entry_["account"].as_string(), rs_entry_["title_id"].as_string(), rs_entry_["title"].as_string(), rs_entry_["item"].as_string()); return; }
         if (has_save && popup_sel_ == 0) {
             save_entries({rs_index_});
             return;
@@ -946,16 +1008,25 @@ void Ui::draw_popup(Surface& s) {
     }
     const int note_h = note.empty() ? 0 : static_cast<int>(note.size()) * 36 + 16;
     const bool timer = reopen_popup_ && reopen_deadline_;  // « rouvrir l'appli » : minuteur et barre
-    const int h = 150 + note_h + shown * 64 + (timer ? 56 : 0), x = (1920 - w) / 2, y = (1080 - h) / 2;
-    s.rect(x, y, w, h, color::panel, 28);
-    s.outline(x, y, w, h, color::line, 28, 2);
+    int seps = 0;  // un trait avant le groupe « efface », un autre avant « Annuler / Fermer »
+    for (std::size_t i = 1; i < popup_kind_.size(); ++i) if (popup_kind_[i] != popup_kind_[i - 1]) ++seps;
+    const int h = 150 + note_h + shown * 64 + (timer ? 56 : 0) + 44 + seps * 14, x = (1920 - w) / 2, y = (1080 - h) / 2;
+    // Cadre commun (charte §4.6) : panneau arrondi, ombre douce, aide dans la fenêtre.
+    window_frame(s, x, y, w, h);
     s.text(font_, x + 40, y + 30, popup_title_, large, color::text, w - 80);
     for (std::size_t i = 0; i < note.size(); ++i) s.text(font_, x + 40, y + 96 + static_cast<int>(i) * 36, note[i], small, color::muted, w - 80);
     const int first = std::max(0, std::min(popup_sel_ - shown / 2, n - shown));
+    int gap = 0;
     for (int i = 0; i < shown; ++i) {
-        const int idx = first + i, yy = y + 104 + note_h + i * 64;
-        if (idx == popup_sel_) { s.rect(x + 24, yy, w - 48, 54, color::panel2, 27); s.outline(x + 20, yy - 4, w - 40, 62, color::accent, 31, 3); }
-        s.text(font_, x + 52, yy + 11, popup_items_[static_cast<std::size_t>(idx)], body, idx == popup_sel_ ? color::text : color::muted, w - 104);
+        const int idx = first + i;
+        const int kd = static_cast<std::size_t>(idx) < popup_kind_.size() ? popup_kind_[static_cast<std::size_t>(idx)] : 0;
+        if (i > 0 && static_cast<std::size_t>(idx) < popup_kind_.size() && kd != popup_kind_[static_cast<std::size_t>(idx - 1)]) {
+            gap += 14;
+            s.rect(x + 40, y + 104 + note_h + i * 64 + gap - 10, w - 80, 2, color::line, 1);  // trait de séparation
+        }
+        const int yy = y + 104 + note_h + i * 64 + gap;
+        if (idx == popup_sel_) { s.rect(x + 24, yy, w - 48, 54, color::panel2, 27); s.outline(x + 20, yy - 4, w - 40, 62, kd == 1 ? color::bad : color::accent, 31, 3); }
+        s.text(font_, x + 52, yy + 11, popup_items_[static_cast<std::size_t>(idx)], body, kd == 1 ? color::bad : idx == popup_sel_ ? color::text : color::muted, w - 104);
         if (static_cast<std::size_t>(idx) < popup_subs_.size() && !popup_subs_[static_cast<std::size_t>(idx)].empty()) {
             const int lx = x + 52 + Surface::measure(popup_items_[static_cast<std::size_t>(idx)], body) + 24;
             s.text(font_, lx, yy + 17, popup_subs_[static_cast<std::size_t>(idx)], small, color::muted, x + w - 40 - lx);
@@ -964,13 +1035,19 @@ void Ui::draw_popup(Surface& s) {
     if (timer) {
         const std::uint64_t left = reopen_deadline_ > now_ ? reopen_deadline_ - now_ : 0;
         const int bw = w - 80, fill = static_cast<int>(static_cast<double>(left) / 15000.0 * bw);
-        s.text(font_, x + 40, y + h - 60, reopen_kind_ == 1 ? trf("Relance automatique du moteur dans %d s", static_cast<int>(left / 1000 + 1))
+        // Au-dessus de l'aide de la fenêtre (trait à h - 64), jamais dessus.
+        s.text(font_, x + 40, y + h - 64 - 58, reopen_kind_ == 1 ? trf("Relance automatique du moteur dans %d s", static_cast<int>(left / 1000 + 1))
                                                             : trf("Réouverture automatique dans %d s", static_cast<int>(left / 1000 + 1)), small, color::warn, bw);
-        s.rect(x + 40, y + h - 26, bw, 8, color::line, 4);
-        s.rect(x + 40, y + h - 26, std::max(8, fill), 8, color::warn, 4);
+        s.rect(x + 40, y + h - 64 - 20, bw, 8, color::line, 4);
+        s.rect(x + 40, y + h - 64 - 20, std::max(8, fill), 8, color::warn, 4);
     }
-    s.rect(0, 990, 1920, 90, color::bg);  // la barre du bas de la liste remplace celle de l'écran
-    draw_footer(s, {{0, tr("Choisir")}, {1, tr("Fermer")}});
+    // L'aide dans la fenêtre, en bas : ✕ Choisir · ○ Fermer.
+    s.rect(x + 24, y + h - 64, w - 48, 2, color::line, 1);
+    icon(s, 0, x + 40, y + h - 46, color::muted);
+    const int cw = s.text(font_, x + 76, y + h - 48, tr("Choisir"), small, color::muted);
+    icon(s, 1, x + 76 + cw + 40, y + h - 46, color::muted);
+    s.text(font_, x + 112 + cw + 40, y + h - 48, tr("Fermer"), small, color::muted);
+    s.rect(0, 990, 1920, 90, color::bg);  // l'aide de l'écran du dessous s'efface : celle de la fenêtre suffit
 }
 
 void Ui::input_sheet(std::uint32_t k) {
@@ -978,33 +1055,36 @@ void Ui::input_sheet(std::uint32_t k) {
     for (const auto& x : snap_->items) if (x.key == sheet_key_) it = &x;
     if (!it || (k & key::circle)) { sheet_ = false; return; }
     const int comps = static_cast<int>(it->components.size());
-    // Ordre de focus : composants, destination, Sauvegarder, Fermer, puis « Plans… » et « Parcourir ».
-    // Deuxième rangée : Plans…, Parcourir, Toutes les versions, Ne plus sauvegarder… (comps + 3 à comps + 6).
-    // Haut / Bas : composants un par un ; dans les boutons, la ligne au-dessus / en dessous, au bouton le plus proche
-    // (les boutons passent à la ligne quand la place manque : on n'en saute aucun).
-    auto btn = [&](int f) -> const SheetBtn* { for (const auto& b : sheet_btns_) if (b.focus == f) return &b; return nullptr; };
-    auto nearest = [&](int line, int cx) {
-        int best = -1, d = 1 << 30;
-        for (const auto& b : sheet_btns_) if (b.line == line && std::abs(b.cx - cx) < d) { d = std::abs(b.cx - cx); best = b.focus; }
-        return best;
-    };
-    const SheetBtn* cur = btn(sheet_focus_);
-    if (k & key::up) {
-        if (!cur) sheet_focus_ = std::max(0, sheet_focus_ - 1);
-        else if (cur->line == 0) sheet_focus_ = comps > 0 ? comps - 1 : sheet_focus_;
-        else { const int f = nearest(cur->line - 1, cur->cx); if (f >= 0) sheet_focus_ = f; }
-    } else if (k & key::down) {
-        if (!cur) sheet_focus_ = std::min(comps, sheet_focus_ + 1);
-        else { const int f = nearest(cur->line + 1, cur->cx); if (f >= 0) sheet_focus_ = f; }
-    } else if (cur && (k & (key::left | key::right))) {  // gauche / droite : le voisin sur la même ligne, puis la ligne d'à côté
-        int i = 0;
-        for (std::size_t j = 0; j < sheet_btns_.size(); ++j) if (sheet_btns_[j].focus == sheet_focus_) i = static_cast<int>(j);
-        const int n = static_cast<int>(sheet_btns_.size());
-        i = (k & key::left) ? std::max(0, i - 1) : std::min(n - 1, i + 1);
-        sheet_focus_ = sheet_btns_[static_cast<std::size_t>(i)].focus;
+    if (sheet_focus_ == sheet_go) sheet_focus_ = comps + 1;
+    // Deux colonnes (sheet_btns_, dans l'ordre affiché) : à gauche la sauvegarde (les cases, puis « Sauvegarder » et ce qui
+    // s'y rapporte), à droite ce qu'on fait du jeu. Haut / bas : dans la colonne ; gauche / droite : la ligne la plus
+    // proche de l'autre colonne. Carré : la destination.
+    int at = -1;
+    for (std::size_t j = 0; j < sheet_btns_.size(); ++j) if (sheet_btns_[j].focus == sheet_focus_) at = static_cast<int>(j);
+    if (at >= 0 && (k & (key::up | key::down | key::left | key::right))) {
+        const SheetBtn& cur = sheet_btns_[static_cast<std::size_t>(at)];
+        const SheetBtn* best = nullptr;
+        if (k & (key::up | key::down)) {  // la suivante ou la précédente de la même colonne
+            const int step = (k & key::up) ? -1 : 1;
+            for (int j = at + step; j >= 0 && j < static_cast<int>(sheet_btns_.size()); j += step)
+                if (sheet_btns_[static_cast<std::size_t>(j)].cx == cur.cx) { best = &sheet_btns_[static_cast<std::size_t>(j)]; break; }
+        } else {
+            const int col = (k & key::left) ? 0 : 1;
+            if (cur.cx != col)
+                for (const auto& b : sheet_btns_)
+                    if (b.cx == col && (!best || std::abs(b.line - cur.line) < std::abs(best->line - cur.line))) best = &b;
+        }
+        if (best) sheet_focus_ = best->focus;
+        return;
     }
-    if ((k & key::cross) && sheet_focus_ == comps + 10) { const std::string tid = it->title_id, key = it->key; sheet_ = false; open_compare(tid, key); return; }  // Sauvegardes › Comparer et trier, sur ce jeu
+    if (k & (key::up | key::down | key::left | key::right)) return;
+    if ((k & key::cross) && sheet_focus_ == comps + 11) {  // Installer… : le monter là où il est, ou ailleurs
+        img_item_ = it->key;
+        run_image_tool("install");
+        return;
+    }
     if ((k & key::cross) && sheet_focus_ == comps + 8) { open_image_tools(*it); return; }
+    if ((k & key::cross) && sheet_focus_ == comps + 10) { share_from_sheet(*it); return; }
     if ((k & key::cross) && sheet_focus_ == comps + 9) { delete_console_save(it->title_id, it->title); return; }
     if ((k & key::cross) && sheet_focus_ == comps + 7) {  // envoyer ce jeu à une PS5 jumelée et l'y installer
         std::vector<std::pair<std::string, std::function<void()>>> acts;
@@ -1066,25 +1146,14 @@ void Ui::input_sheet(std::uint32_t k) {
         br_view_ = true;
         return;
     }
-    // Destination : automatique, ou n'importe quel emplacement détecté (interne, USB, NAS / FTP…).
-    const auto& places = snap_->places;
-    if (sheet_focus_ == comps && (k & key::cross)) {
-        std::vector<std::string> opts{tr("Automatique (premier disque USB, sinon interne)")};
-        dest_places_.clear();
-        int sel = 0;
-        for (std::size_t i = 0; i < places.size(); ++i) {
-            const auto& p = places[i];
-            if (p.type == "switch" || p.use == "sync") continue;  // Switch : une source ; NAS « Synchro seulement » : pas une destination de backup
-            dest_places_.push_back(static_cast<int>(i));
-            if (dest_ == static_cast<int>(i) + 1) sel = static_cast<int>(dest_places_.size());
-            opts.push_back(p.label + (p.type == "ftp" ? std::string("  ·  ") + ((p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox") ? tr("nuage") : tr("réseau")) : "  ·  " + trf("%s libres", size_text(p.free).c_str())));
-        }
-        open_popup(3, tr("Où sauvegarder ?"), opts, sel);
+    // Destination : la fenêtre « Où ranger ? » (le défaut des sauvegardes en premier).
+    if (k & key::square) {  // Carré : choisir l'endroit (sous « Sauvegarder ») dans la fenêtre « Où ranger ? »
+        open_where(trf("Sauvegarder « %s » où ?", it->title.c_str()), tr("Le défaut des sauvegardes est proposé en premier (Paramètres › Où ranger)."),
+                   sheet_place_.empty() ? snap_->default_place : sheet_place_, 0, [this](const std::string& id) { sheet_place_ = id; });
         return;
     }
     if (!(k & key::cross)) return;
     if (sheet_focus_ < comps) { if (!unchecked_.erase(sheet_focus_)) unchecked_.insert(sheet_focus_); return; }
-    if (sheet_focus_ == comps + 2) { sheet_ = false; return; }
     if (sheet_focus_ == comps + 1) {
         if (static_cast<int>(unchecked_.size()) == comps) { toast(tr("Choisissez au moins un élément à sauvegarder")); return; }
         std::string parts = "[";
@@ -1094,10 +1163,14 @@ void Ui::input_sheet(std::uint32_t k) {
             for (const auto& p : chosen) { if (parts.size() > 1) parts += ","; parts += json_str(p); }
         }
         parts += "]";
-        const std::string place = dest_ <= 0 || dest_ > static_cast<int>(places.size()) ? "auto" : places[static_cast<std::size_t>(dest_ - 1)].id;
-        model_.command("POST", "/api/v2/tasks", "{\"type\":\"backup\",\"item\":" + json_str(it->key) + ",\"parts\":" + parts + ",\"place\":" + json_str(place) + "}",
-                       [this](const std::string& err, const std::string&) { if (err.empty()) post_toast(tr("Sauvegarde ajoutée aux tâches")); });
-        sheet_ = false;
+        const std::string key2 = it->key;
+        auto go = [this, key2, parts](const std::string& place) {
+            model_.command("POST", "/api/v2/tasks", "{\"type\":\"backup\",\"item\":" + json_str(key2) + ",\"parts\":" + parts + ",\"place\":" + json_str(place) + "}",
+                           [this](const std::string& err, const std::string&) { post_toast(err.empty() ? tr("Sauvegarde ajoutée aux tâches") : err); });
+            sheet_ = false;
+        };
+        if (!sheet_place_.empty()) { go(sheet_place_); return; }  // déjà choisi par Carré
+        ask_where_then(trf("Sauvegarder « %s » où ?", it->title.c_str()), tr("Le défaut des sauvegardes est proposé en premier (Paramètres › Où ranger)."), snap_->default_place, 0, go);
     }
 }
 
@@ -1252,45 +1325,46 @@ void Ui::input_tasks(std::uint32_t k) {
     const int n = static_cast<int>(list.size());
     if (k & key::up) { tasks_row_ = std::max(0, tasks_row_ - 1); tasks_action_ = 0; }
     if (k & key::down) { tasks_row_ = std::min(std::max(0, n - 1), tasks_row_ + 1); tasks_action_ = 0; }
-    if (k & key::left) tasks_action_ = std::max(0, tasks_action_ - 1);
-    if (k & key::right) tasks_action_ = std::min(1, tasks_action_ + 1);
-    if ((k & key::triangle) && tasks_group_ >= 1 && tasks_group_ <= 3 && n > 0) { clear_tasks(tasks_group_); return; }
-    if ((k & key::l2) && tasks_row_ < n) {  // L2 : cocher (tâches finies seulement)
-        const Task& t = *list[static_cast<std::size_t>(tasks_row_)];
-        if (in_group(t.state, 0)) { toast(tr("Une tâche en cours ne se coche pas")); return; }
-        if (!tasks_sel_.erase(t.id)) tasks_sel_.insert(t.id);
+    // Règle des touches : ✕ = Détails, △ = pause / reprendre, Options = menu (arrêter avec confirmation, retirer, vider…).
+    const Task* cur = tasks_row_ < n ? list[static_cast<std::size_t>(tasks_row_)] : nullptr;
+    if ((k & key::l2) && cur) {  // L2 : cocher (tâches finies seulement)
+        if (in_group(cur->state, 0)) { toast(tr("Une tâche en cours ne se coche pas")); return; }
+        if (!tasks_sel_.erase(cur->id)) tasks_sel_.insert(cur->id);
         return;
     }
     if ((k & key::options) && !tasks_sel_.empty()) { tasks_selection_menu(); return; }
-    if ((k & key::options) && tasks_row_ < n) {  // Options : retirer cette tâche de la liste (terminée, en échec ou annulée)
-        const Task& t = *list[static_cast<std::size_t>(tasks_row_)];
-        if (t.state == "done" || t.state == "failed" || t.state == "cancelled") {
-            const std::string id = t.id;
-            open_actions(tr("Retirer cette tâche de la liste ?"), {
-                {tr("Retirer"), [this, id] { model_.command("POST", "/api/v2/tasks/" + id + "/remove", "{}", [this](const std::string& e, const std::string&) { post_toast(e.empty() ? std::string(tr("Retirée de la liste")) : e); }); }},
-                {tr("Annuler"), [] {}},
-            });
-            popup_note_ = tr("Seulement la liste : rien n'est retiré des disques.");
+    if (k & key::options) {
+        std::vector<std::pair<std::string, std::function<void()>>> acts;
+        if (cur) {
+            const Task t = *cur;
+            if ((t.type == "files_copy" || t.type == "files_move") && (t.state == "cancelled" || t.state == "failed")) acts.push_back({tr("Que faire de cette copie ?…"), [this, t] { files_task_menu(t); }});
+            if (t.state == "running" && t.phase == "verify") acts.push_back({tr("Vérification…"), [this, t] { verify_menu(t); }});
+            if (t.type == "link_send" && t.report["foreground"]["title_id"].is_string())
+                acts.push_back({trf("Fermer « %s » là-bas", t.report["foreground"]["title"].as_string().c_str()), [this, t] { confirm_close_remote(t.report["instance"].as_string(), t.report["peer"].as_string(), t.report["foreground"]); }});
+            if (t.state == "running" || t.state == "queued" || t.state == "paused")
+                acts.push_back({tr("Arrêter la tâche…"), [this, t] {
+                    open_actions(trf("Arrêter « %s » ?", t.title.c_str()), {
+                        {tr("Oui, arrêter la tâche"), [this, t] { model_.command("POST", "/api/v2/tasks/" + t.id + "/cancel", "{}"); post_toast(tr("Tâche arrêtée")); }},
+                        {tr("Non, continuer"), [] {}},
+                    });
+                    popup_note_ = tr("Ce qui est déjà copié reste vérifié ; la tâche pourra être relancée.");
+                }});
+            if (t.state == "done" || t.state == "failed" || t.state == "cancelled")
+                acts.push_back({tr("Retirer de la liste"), [this, t] {
+                    model_.command("POST", "/api/v2/tasks/" + t.id + "/remove", "{}", [this](const std::string& e, const std::string&) { post_toast(e.empty() ? std::string(tr("Retirée de la liste")) : e); });
+                }});
+            acts.push_back({tr("Détails"), [this, t] { task_details(t); }});
         }
+        if (tasks_group_ >= 1 && tasks_group_ <= 3 && n > 0) { const int g = tasks_group_; acts.push_back({tr("Vider la liste…"), [this, g] { clear_tasks(g); }}); }
+        if (!acts.empty()) open_actions(cur ? cur->title : std::string(tr("Tâches")), std::move(acts));
         return;
     }
-    if ((k & key::cross) && tasks_row_ < n) {
-        const Task& t = *list[static_cast<std::size_t>(tasks_row_)];
-        if ((t.type == "files_copy" || t.type == "files_move") && (t.state == "cancelled" || t.state == "failed")) { files_task_menu(t); return; }
-        const char* actions[2] = {nullptr, nullptr};
-        if (t.state == "running" || t.state == "queued") { actions[0] = "pause"; actions[1] = "cancel"; }
-        else if (t.state == "paused") { actions[0] = "resume"; actions[1] = "cancel"; }
-        else if (t.state == "failed") { actions[0] = "resume"; actions[1] = "details"; }
-        else if (t.type == "link_send" && t.report["foreground"]["title_id"].is_string()) {
-            confirm_close_remote(t.report["instance"].as_string(), t.report["peer"].as_string(), t.report["foreground"]);
-            return;
-        }
-        else { actions[0] = "details"; actions[1] = "remove"; }
-        const char* a = actions[std::min(tasks_action_, actions[1] ? 1 : 0)];
-        if (a && std::string(a) == "details") { task_details(t); return; }
-        if (a && std::string(a) == "cancel" && t.state == "running" && t.phase == "verify") { verify_menu(t); return; }  // arrêter la vérification seule
-        if (a) model_.command("POST", "/api/v2/tasks/" + t.id + "/" + a, "{}");
+    if ((k & key::triangle) && cur) {  // pause / reprendre (une tâche en échec : la reprendre)
+        const char* a = cur->state == "running" || cur->state == "queued" ? "pause" : cur->state == "paused" || cur->state == "failed" ? "resume" : nullptr;
+        if (a) model_.command("POST", "/api/v2/tasks/" + cur->id + "/" + a, "{}");
+        return;
     }
+    if ((k & key::cross) && cur) { task_details(*cur); return; }
 }
 
 // Tâches cochées : retirer de la liste, mettre à la corbeille les sauvegardes qu'elles ont faites, tout (dé)cocher.
@@ -1385,11 +1459,14 @@ void Ui::input_plans(std::uint32_t k) {
 void Ui::input_settings(std::uint32_t k) {
     if (support_big_) { if (k & (key::circle | key::cross)) support_big_ = false; return; }  // code QR agrandi : n'importe quel retour le ferme
     if (set_zone_ == 0) {
+        if ((k & key::circle) && set_back_tab_ >= 0) { tab_ = static_cast<Tab>(set_back_tab_); set_back_tab_ = -1; return; }  // venu par R3 : retour où on était
         if (k & key::up) set_section_ = std::max(0, set_section_ - 1);
         if (k & key::down) set_section_ = std::min(section_count - 1, set_section_ + 1);
         if (k & (key::right | key::cross)) { set_zone_ = 1; set_row_ = 0; }
         return;
     }
+    if (set_section_ == sec_network) { input_network(k); return; }
+    if (set_section_ == sec_storage) { input_storage(k); return; }
     // Paramètres › Général : 0 langue (Croix), 1 thème, 2 à 4 son (gauche / droite ou Croix).
     if (set_section_ == sec_general && (k & (key::up | key::down))) { set_row_ = std::clamp(set_row_ + (k & key::up ? -1 : 1), 0, 4); return; }
     if (set_section_ == sec_general && set_row_ >= 2 && (k & (key::left | key::right | key::cross))) { change_sound(set_row_ - 1, k & key::left ? -1 : 1); return; }
@@ -1499,7 +1576,8 @@ void Ui::input_settings(std::uint32_t k) {
         if (k & key::up) set_row_ = std::max(0, set_row_ - 1);
         if (k & key::down) set_row_ = std::min(std::max(0, static_cast<int>(news_.size()) - 1), set_row_ + 1);
     }
-    if (set_section_ == sec_devices && (k & key::cross)) { tab_ = destinations; set_zone_ = 0; return; }  // réglages des appareils : onglet Appareils
+    if (set_section_ == sec_devices && (k & key::cross)) { tab_ = destinations; set_zone_ = 0; return; }
+    if (set_section_ == sec_network) { input_network(k); return; }  // réglages des appareils : onglet Appareils
     if (set_section_ == sec_goals) { if (k & key::left) set_zone_ = 0; return; }
     if (set_section_ == sec_report) {  // trois cartes : Croix agrandit le code
         if (k & key::left) { if (set_row_ == 0) set_zone_ = 0; else set_row_ = set_row_ - 1; return; }
@@ -1583,6 +1661,9 @@ std::vector<int> Ui::update_actions() const {
     a.push_back(6);  // installer automatiquement
     a.push_back(10);  // canal : stable ou bêta
     a.push_back(5);
+    a.push_back(11);  // montage des jeux (ShadowMountPlus, Kraken Mount ou le nôtre)
+    a.push_back(12);  // outils de la console (payloads : lancer, arrêter)
+    a.push_back(13);  // bibliothèques de jeux non installés (dossiers déclarés)
     if (!u.previous.empty() && u.state != "downloading" && u.state != "installing" && u.state != "checking") a.push_back(8);  // revenir à la version d'avant
     a.push_back(9);  // versions disponibles (dépôt de versions)
     a.push_back(7);  // alimentation de la console  // démarrage du moteur (chargeurs, démarrer avec la console)
@@ -1605,6 +1686,9 @@ void Ui::run_update_action(int action) {
                            [this](const std::string& e, const std::string&) { post_toast(e.empty() ? tr("Réglage enregistré") : e); });
             break;
         case 5: open_launch_menu(); break;
+        case 11: open_mounting_menu(); break;
+        case 12: open_tools_menu(); break;
+        case 13: open_gamelibs(); break;
         case 7: open_power_menu(); break;
         case 9: open_versions_menu(); break;
         case 8: {
@@ -1641,6 +1725,133 @@ void Ui::run_update_action(int action) {
 
 // Démarrage du moteur (web : même écran) : quand le moteur ne tourne pas, l'appli le fait démarrer par le premier
 // chargeur présent, dans l'ordre choisi ici ; « Démarrer avec la console » le fait lancer par Payload Manager.
+// Montage des jeux (web : même carte) : les outils installés sont détectés et utilisés par défaut ; pour les .pkg Kraken,
+// notre moteur prend le relais quand Kraken Mount n'est pas là (docs/maquettes/montage-outils.html).
+void Ui::open_mounting_menu() {
+    model_.command("GET", "/api/v2/mounting", "", [this](const std::string& e, const std::string& body) {
+        Json st;
+        if (!e.empty() || !Json::parse(body, st) || !st.is_object()) { post_toast(e.empty() ? std::string(tr("Réponse illisible")) : e); return; }
+        post_ui([this, st] {
+            auto state = [](const Json& t) {
+                return std::string(t["running"].as_bool() ? tr("détecté, en marche") : t["installed"].as_bool() ? tr("installé, arrêté") : tr("absent"));
+            };
+            const Json& ours = st["ours"];
+            const std::string versions = trf("Kraken Mount %s, ampr-emu-ng %s, pgo_stub %s, dlc_emu %s", ours["kraken_mount"].as_string().c_str(),
+                                             ours["ampr_emu_ng"].as_string().c_str(), ours["pgo_stub"].as_string().c_str(), ours["dlc_emu"].as_string().c_str())
+                                         + ", ShadowMountPlus " + ours["shadowmountplus"].as_string();
+            std::vector<std::pair<std::string, std::function<void()>>> c;
+            c.push_back({trf("Images et dossiers : ShadowMountPlus %s", state(st["shadowmount"]).c_str()), [this, st] {
+                toast(st["images_uses"].as_string() == "ours" ? tr("Les images et les dossiers sont montés par notre version intégrée (ShadowMountPlus 1.7)")
+                                                              : tr("Les images et les dossiers sont montés par le ShadowMountPlus installé"));
+            }});
+            {
+                const std::string icur = st["img_mount"].as_string(), iuses = st["images_uses"].as_string();
+                const std::pair<const char*, std::string> imodes[] = {  // pas de « toujours le nôtre » : on n'arrête jamais le sien
+                    {"auto", trf("Images : automatique — ShadowMountPlus s'il tourne, sinon le nôtre (ici : %s)", iuses == "theirs" ? "ShadowMountPlus" : tr("le nôtre"))},
+                    {"theirs", tr("Images : toujours le ShadowMountPlus installé")},
+                };
+                for (const auto& [v, label] : imodes) {
+                    const std::string id = v;
+                    c.push_back({(icur == id ? "✓ " : "") + label, [this, id] {
+                        model_.command("POST", "/api/v2/settings", "{\"img_mount\":\"" + id + "\"}", [this](const std::string& e2, const std::string&) {
+                            post_toast(e2.empty() ? std::string(tr("Réglage enregistré")) : e2);
+                            if (e2.empty()) post_ui([this] { open_mounting_menu(); });
+                        });
+                    }});
+                }
+            }
+            c.push_back({trf("Paquets .pkg : Kraken Mount %s", state(st["krakenmount"]).c_str()), [this, versions] {
+                toast(trf("Notre version intégrée : %s", versions.c_str()));
+            }});
+            const std::string cur = st["pkg_mount"].as_string(), uses = st["pkg_uses"].as_string();
+            const std::pair<const char*, std::string> modes[] = {
+                {"auto", trf("Automatique : Kraken Mount s'il tourne, sinon le nôtre (ici : %s)", uses == "theirs" ? "Kraken Mount" : tr("le nôtre"))},
+                {"theirs", tr("Toujours Kraken Mount installé")},
+                {"ours", tr("Toujours le nôtre (Kraken Mount doit être arrêté)")},
+            };
+            for (const auto& [v, label] : modes) {
+                const std::string id = v;
+                c.push_back({(cur == id ? "✓ " : "") + label, [this, id] {
+                    model_.command("POST", "/api/v2/settings", "{\"pkg_mount\":\"" + id + "\"}", [this](const std::string& e2, const std::string&) {
+                        post_toast(e2.empty() ? std::string(tr("Réglage enregistré")) : e2);
+                        if (e2.empty()) post_ui([this] { open_mounting_menu(); });
+                    });
+                }});
+            }
+            c.push_back({tr("Outils de la console…"), [this] { open_tools_menu(); }});  // démarrer ShadowMountPlus, Kraken Mount…
+            c.push_back({tr("Fermer"), [] {}});
+            open_actions(tr("Montage des jeux"), std::move(c));
+            popup_note_ = trf("Par défaut, on se sert des outils installés ; sans eux, nos versions intégrées prennent le relais (%s). Jamais les deux à la fois ; un jeu ouvert n'est jamais touché.", versions.c_str());
+        });
+    });
+}
+
+// Outils de la console (web : même carte ; docs/maquettes/lanceur-outils.html) : les payloads de Payload Manager (démarrer
+// s'ils sont arrêtés), ceux qui tournent (arrêter, sauf les protégés : kstuff, notre moteur), les applis outils (ouvrir).
+// Chaque lancement ou arrêt est confirmé ; la liste est relue après.
+void Ui::open_tools_menu() {
+    model_.command("GET", "/api/v2/tools", "", [this](const std::string& e, const std::string& body) {
+        Json st;
+        if (!e.empty() || !Json::parse(body, st) || !st.is_object()) { post_toast(e.empty() ? std::string(tr("Réponse illisible")) : e); return; }
+        post_ui([this, st] {
+            std::vector<std::pair<std::string, std::function<void()>>> c;
+            auto confirm = [this](const std::string& title, const std::string& note, const std::string& path, const std::string& body) {
+                open_actions(title, {
+                    {tr("Oui"), [this, path, body] {
+                        model_.command("POST", path, body, [this](const std::string& e2, const std::string&) {
+                            post_toast(e2.empty() ? std::string(tr("C'est fait")) : e2);
+                            if (e2.empty()) post_ui([this] { open_tools_menu(); });
+                        });
+                    }},
+                    {tr("Annuler"), [] {}}});
+                popup_note_ = note;
+            };
+            std::set<std::int64_t> shown;  // pid déjà listés avec leur payload
+            for (const auto& p : st["payloads"].items()) {
+                const std::string key = p["key"].as_string(), file = p["file"].as_string();
+                const std::int64_t pid = p["pid"].as_int();
+                if (p["pid"].as_int() > 0) shown.insert(p["pid"].as_int());
+                const std::string auto_s = p["autoload"].as_bool() ? std::string(" · ") + tr("au démarrage de la console") : std::string();
+                if (p["protected"].as_bool()) { c.push_back({trf("%s — protégé", p["name"].as_string().c_str()) + auto_s, [this] { toast(tr("Indispensable : il ne se lance ni ne s'arrête d'ici")); }}); continue; }
+                if (pid > 0) {
+                    const std::string proc = p["proc"].as_string().empty() ? file : p["proc"].as_string();
+                    Json b = Json::object(); b.set("pid", pid); b.set("name", proc);
+                    c.push_back({trf("Arrêter %s (en marche)", p["name"].as_string().c_str()) + auto_s, [confirm, file, b] {
+                        confirm(trf("Arrêter %s ?", file.c_str()), file == "shadowmountplus.elf" ? tr("Il s'arrête à sa façon (fichier STOP) : il démonte proprement les jeux avant. Notre ShadowMount intégré prend le relais.")
+                                                                                                  : tr("Le processus est arrêté tout de suite ; ce qu'il faisait est interrompu."), "/api/v2/tools/stop", b.dump());
+                    }});
+                } else {
+                    Json b = Json::object(); b.set("key", key);
+                    c.push_back({trf("Démarrer %s", p["name"].as_string().c_str()) + auto_s, [confirm, file, b] {
+                        confirm(trf("Démarrer %s ?", file.c_str()), file == "shadowmountplus.elf" ? tr("Le programme installé dans Payload Manager, lancé par notre moteur. Notre ShadowMount intégré s'arrête d'abord (jamais les deux).")
+                                                                                                   : tr("Le programme installé dans Payload Manager, lancé par notre moteur. Jamais pendant une partie."), "/api/v2/tools/start", b.dump());
+                    }});
+                }
+            }
+            for (const auto& p : st["processes"].items()) {  // en marche, hors liste de Payload Manager
+                const std::string name = p["name"].as_string();
+                if (shown.count(p["pid"].as_int())) continue;
+                if (p["protected"].as_bool()) { c.push_back({trf("%s — protégé", name.c_str()), [this] { toast(tr("Indispensable : il ne se lance ni ne s'arrête d'ici")); }}); continue; }
+                Json b = Json::object(); b.set("pid", p["pid"]); b.set("name", name);
+                c.push_back({trf("Arrêter %s (pid %d)", name.c_str(), static_cast<int>(p["pid"].as_int())), [confirm, name, b] {
+                    confirm(trf("Arrêter %s ?", name.c_str()), tr("Le processus est arrêté tout de suite ; ce qu'il faisait est interrompu."), "/api/v2/tools/stop", b.dump());
+                }});
+            }
+            for (const auto& a : st["apps"].items()) {
+                Json b = Json::object(); b.set("title_id", a["title_id"]);
+                const std::string title = a["title"].as_string();
+                c.push_back({trf("Ouvrir %s", title.c_str()), [this, b] {
+                    model_.command("POST", "/api/v2/tools/open", b.dump(), [this](const std::string& e2, const std::string&) { if (!e2.empty()) post_toast(e2); });
+                }});
+            }
+            if (c.empty()) c.push_back({tr("Aucun outil trouvé (Payload Manager absent)"), [] {}});
+            c.push_back({tr("Fermer"), [] {}});
+            open_actions(tr("Outils de la console"), std::move(c));
+            popup_note_ = tr("Les outils installés (Payload Manager et ses payloads), lancés ou arrêtés d'ici, sans rien modifier chez eux. Jamais pendant une partie ; kstuff et notre moteur sont protégés.");
+        });
+    });
+}
+
 void Ui::open_launch_menu() {
     model_.command("GET", "/api/v2/launch", "", [this](const std::string& e, const std::string& body) {
         Json st;
@@ -1769,21 +1980,49 @@ bool Ui::engine_choice_needed() const {
     return !snap_->ever_connected || (lost_at_ && now_ - lost_at_ > 30000);
 }
 
-int Ui::home_hint_width() const { return tab_ == home ? 0 : 52 + Surface::measure(tr("Accueil"), body) + 36; }
-int Ui::quit_hint_width() const { return 36 + Surface::measure(tr("Maintenir 2 s : quitter"), body) + home_hint_width(); }
+// Aide de droite, sur deux lignes alignées à droite (elle laisse la place à celle de gauche) :
+//   L3 Menus · R3 Paramètres
+//   [pavé] Accueil · ○ Maintenir 2 s : quitter
+namespace {
+int key_hint_w(const char* label) { return 50 + Surface::measure(label, small) + 28; }
+}  // namespace
+int Ui::home_hint_width() const { return tab_ == home ? 0 : 50 + Surface::measure(tr("Accueil"), small) + 28; }
+int Ui::quit_hint_width() const {
+    const int top = key_hint_w(tr("Menus")) + (tab_ == settings ? 0 : key_hint_w(tr("Paramètres")));
+    const int bottom = home_hint_width() + 32 + Surface::measure(tr("Maintenir 2 s : quitter"), small);
+    return std::max(top, bottom);
+}
 
 // Rond maintenu 2 s quitte l'app depuis n'importe quelle vue : l'aide est toujours en bas à droite.
 void Ui::draw_quit_hint(Surface& s) {
-    int x = 1920 - margin - quit_hint_width();
-    const int y = 1012;
-    if (tab_ != home) {  // le pavé tactile dessiné (rectangle arrondi), puis « Accueil »
-        s.rect(x, y + 2, 40, 24, rgb(255, 255, 255, 30), 8);
-        s.outline(x, y + 2, 40, 24, color::muted, 8, 2);
-        s.text(font_, x + 52, y - 2, tr("Accueil"), body, color::muted);
-        x += home_hint_width();
+    const int r = 1920 - margin, y1 = 998, y2 = 1040;
+    auto keycap = [&](int x, int y, const char* k) {
+        s.rect(x, y + 1, 40, 26, rgb(255, 255, 255, 30), 8);
+        s.outline(x, y + 1, 40, 26, color::muted, 8, 2);
+        s.text(font_, x + 5, y, k, small, color::muted);
+    };
+    {   // L3 : la barre du haut sur deux rangées ; R3 : Paramètres, d'où qu'on soit
+        int w = key_hint_w(tr("Menus")) + (tab_ == settings ? 0 : key_hint_w(tr("Paramètres"))) - 28;
+        int x = r - w;
+        keycap(x, y1, "L3");
+        s.text(font_, x + 50, y1, tr("Menus"), small, color::muted);
+        x += key_hint_w(tr("Menus"));
+        if (tab_ != settings) {
+            keycap(x, y1, "R3");
+            s.text(font_, x + 50, y1, tr("Paramètres"), small, color::muted);
+        }
     }
-    icon(s, 1, x, y, color::muted);
-    s.text(font_, x + 36, y - 2, tr("Maintenir 2 s : quitter"), body, color::muted);
+    {
+        int x = r - (home_hint_width() + 32 + Surface::measure(tr("Maintenir 2 s : quitter"), small));
+        if (tab_ != home) {  // le pavé tactile dessiné (rectangle arrondi), puis « Accueil »
+            s.rect(x, y2 + 3, 40, 24, rgb(255, 255, 255, 30), 8);
+            s.outline(x, y2 + 3, 40, 24, color::muted, 8, 2);
+            s.text(font_, x + 50, y2, tr("Accueil"), small, color::muted);
+            x += home_hint_width();
+        }
+        icon(s, 1, x, y2 + 2, color::muted);
+        s.text(font_, x + 32, y2, tr("Maintenir 2 s : quitter"), small, color::muted);
+    }
 }
 
 void Ui::load_disk(const std::string& place) {
@@ -1824,33 +2063,111 @@ void Ui::draw_footer(Surface& s, std::initializer_list<std::pair<int, const char
     // « Maintenir Rond : quitter » est dessiné à part, en bas à droite de chaque vue (draw_quit_hint).
     const std::string_view q1 = tr("Maintenir : quitter"), q2 = tr("Maintenir 2 s : quitter");
     const int right = 1920 - margin - quit_hint_width() - 48;
-    std::vector<std::pair<int, const char*>> items;
-    for (const auto& h : hints) if (h.second && *h.second && h.second != q1 && h.second != q2) items.push_back(h);
-    // Aucune aide n'est jamais coupée : la taille normale si tout tient, sinon plus petit, sinon sur deux lignes.
+    // Une aide « L2 : cocher », « R2 : … », « Options : … » : la touche est dessinée (petit bouton), puis le verbe seul.
+    struct Hint { int which; std::string key, text; };
+    std::vector<Hint> items;
+    std::string opt_word;  // « Options » dans la langue choisie (ce qui précède « : » dans « Options : actions »)
+    {
+        std::string o = tr("Options : actions");
+        std::size_t c = o.find(':');
+        if (c == std::string::npos) c = o.find("\xEF\xBC\x9A");  // deux-points pleine chasse (chinois, japonais)
+        if (c != std::string::npos) { opt_word = o.substr(0, c); while (!opt_word.empty() && opt_word.back() == ' ') opt_word.pop_back(); }
+    }
+    auto strip = [](std::string t, std::size_t n) {
+        t = t.substr(n);
+        while (!t.empty() && (t[0] == ' ' || t[0] == ':')) t.erase(0, 1);
+        if (t.rfind("\xEF\xBC\x9A", 0) == 0) t.erase(0, 3);
+        return t;
+    };
+    for (const auto& h : hints) {
+        if (!h.second || !*h.second || h.second == q1 || h.second == q2) continue;
+        Hint it{h.first, "", h.second};
+        if (h.first < 0) {
+            const std::string& t = it.text;
+            for (const char* k : {"L1 / R1", "L2 / R2", "L2", "R2", "L1", "R1"})
+                if (t.rfind(k, 0) == 0 && t.size() > std::strlen(k) && (t[std::strlen(k)] == ' ' || t[std::strlen(k)] == ':' || t.compare(std::strlen(k), 3, "\xEF\xBC\x9A") == 0)) { it.key = k; it.text = strip(t, std::strlen(k)); break; }
+            if (it.key.empty() && !opt_word.empty() && t.rfind(opt_word, 0) == 0 && t.size() > opt_word.size() && (t[opt_word.size()] == ' ' || t[opt_word.size()] == ':' || t.compare(opt_word.size(), 3, "\xEF\xBC\x9A") == 0)) {
+                it.key = "OPTIONS"; it.text = tr("Actions");  // charte §3 : ≡ ouvre toujours toutes les actions
+            }
+            if (!it.key.empty() && !it.text.empty() && it.text[0] >= 'a' && it.text[0] <= 'z') it.text[0] = static_cast<char>(it.text[0] - 32);  // « L2 Cocher »
+        }
+        items.push_back(it);
+    }
+    // □ dit directement la vue suivante (charte §3) : « Voir : Avec doublons » → « Avec doublons ».
+    {
+        const std::string fmt = tr("Voir : %s");
+        const std::size_t at = fmt.find("%s");
+        const std::string pre = at == std::string::npos ? std::string() : fmt.substr(0, at);
+        for (auto& it : items)
+            if (it.which == 2 && !pre.empty() && it.text.size() > pre.size() && it.text.compare(0, pre.size(), pre) == 0) it.text = it.text.substr(pre.size());
+    }
+    // Ordre fixe (charte §3) : ✕ · △ · □ · L2 · R2 · ≡ · aides de déplacement · L1 / R1 · ○.
+    auto rank = [](const Hint& h) {
+        if (h.which == 0) return 0;
+        if (h.which == 3) return 1;
+        if (h.which == 2) return 2;
+        if (h.key == "L2" || h.key == "L2 / R2") return 3;
+        if (h.key == "R2") return 4;
+        if (h.key == "OPTIONS") return 5;
+        if (h.which == 1) return 8;
+        if (h.key.empty() && h.which < 0) return 6;
+        return 7;
+    };
+    std::stable_sort(items.begin(), items.end(), [&](const Hint& a, const Hint& b) { return rank(a) < rank(b); });
+    auto key_w = [&](const Hint& h) { return h.which >= 0 ? 36 : h.key == "OPTIONS" ? 40 + 10 : h.key.empty() ? 0 : Surface::measure(h.key, small) + 22 + 10; };
+    // Aucune aide n'est jamais coupée : la taille normale si tout tient, sinon plus petit, sinon deux lignes équilibrées.
     auto width = [&](FontSize f, std::size_t from, std::size_t to) {
         int w = 0;
-        for (std::size_t i = from; i < to; ++i) w += (items[i].first >= 0 ? 36 : 0) + Surface::measure(items[i].second, f) + (f == body ? 48 : 32);
+        for (std::size_t i = from; i < to; ++i) w += key_w(items[i]) + Surface::measure(items[i].text, f) + (f == body ? 34 : 26);
         return w;
     };
-    const int avail = right - margin;
-    FontSize f = body;
+    const Box box = footer_box_;
+    footer_box_ = {};
+    const int lx = box.w ? box.x + 40 : margin;
+    const int avail = box.w ? box.w - 80 : right - margin;
+    if (box.w) s.rect(box.x + 24, box.y + box.h - 64, box.w - 48, 2, color::line, 1);
+    FontSize f = small;  // charte §3 : la même taille sur tous les écrans (comme le bloc de droite)
     std::size_t split = items.size();
-    if (width(body, 0, items.size()) > avail) {
-        f = small;
+    {
         if (width(small, 0, items.size()) > avail) {
-            split = items.size();
-            while (split > 1 && width(small, 0, split) > avail) --split;
+            int best = 1 << 30;  // la coupure qui rend les deux lignes les plus égales (et qui tiennent)
+            for (std::size_t k = 1; k < items.size(); ++k) {
+                const int a = width(small, 0, k), b = width(small, k, items.size());
+                if (a > avail || b > avail) continue;  // la deuxième ligne non plus ne passe pas sous l'aide de droite
+                const int m = std::max(a, b);
+                if (m < best) { best = m; split = k; }
+            }
+            if (split >= items.size()) split = items.size() / 2;
         }
     }
     auto line = [&](std::size_t from, std::size_t to, int y) {
-        int x = margin;
+        int x = lx;
         for (std::size_t i = from; i < to; ++i) {
-            if (items[i].first >= 0) { icon(s, items[i].first, x, y, color::muted); x += 36; }
-            x += s.text(font_, x, y - 2, items[i].second, f, color::muted) + (f == body ? 48 : 32);
+            const Hint& h = items[i];
+            if (h.which >= 0) { icon(s, h.which, x, y, color::muted); x += 36; }
+            else if (h.key == "OPTIONS") {  // la touche Options : ses trois traits, comme sur la manette (pas le mot)
+                s.rect(x, y - 2, 40, 32, rgb(12, 27, 46), 9);
+                s.outline(x, y - 2, 40, 32, rgb(255, 255, 255, 70), 9, 1);
+                for (int b = 0; b < 3; ++b) s.rect(x + 11, y + 5 + b * 7, 18, 3, color::text, 1);
+                x += 40 + 10;
+            }
+            else if (!h.key.empty()) {  // la touche, dessinée comme un petit bouton gris
+                const int kw = Surface::measure(h.key, small) + 22;
+                s.rect(x, y - 2, kw, 32, rgb(12, 27, 46), 9);
+                s.outline(x, y - 2, kw, 32, rgb(255, 255, 255, 70), 9, 1);
+                s.text(font_, x + 11, y - 1, h.key, small, color::text);
+                x += kw + 10;
+            }
+            x += s.text(font_, x, y - 2, h.text, f, color::muted) + (f == body ? 34 : 26);
         }
     };
-    if (split >= items.size()) line(0, items.size(), f == body ? 1012 : 1016);
-    else { line(0, split, 984); line(split, items.size(), 1030); }
+    if (box.w) {  // dans la fenêtre : une ligne sous le trait (deux si elle ne tient pas)
+        if (split >= items.size()) line(0, items.size(), box.y + box.h - 44);
+        else { line(0, split, box.y + box.h - 52); line(split, items.size(), box.y + box.h - 18); }
+        return;
+    }
+    if (split >= items.size()) line(0, items.size(), f == body ? 1012 : 1018);
+    else { line(0, split, 998); line(split, items.size(), 1040); }  // sous le contenu (rien ne chevauche)
 }
 
 // Clé d'une jaquette dans le cache de l'app : la clé de l'élément et sa source (une jaquette officielle
@@ -1943,6 +2260,7 @@ void Ui::draw_header(Surface& s) {
     // Onglets : une pastille de largeur fixe entre la marque et l'état ; s'ils ne tiennent pas tous, elle défile (L1 / R1)
     // et de petites flèches ‹ › disent qu'il y en a d'autres de ce côté.
     const int px0 = margin + 72 + brand_w + 44, px1 = st_left - 26;
+    hdr_px0_ = px0; hdr_px1_ = px1;
     s.rect(px0, 34, px1 - px0, 56, rgb(255, 255, 255, 16), 28);
     s.outline(px0, 34, px1 - px0, 56, rgb(255, 255, 255, 22), 28, 1);
     s.rect(px0 + 10, 48, 40, 28, rgb(255, 255, 255, 18), 8);
@@ -1985,9 +2303,9 @@ void Ui::draw_header(Surface& s) {
             s.rect(x + (w - tw) / 2, 81, tw, 4, color::accent, 2);
         }
         s.text(font_, x + (w - Surface::measure(tr(tab_names[i]), body)) / 2, 46, tr(tab_names[i]), body, i == tab_ ? color::text : rgb(160, 180, 204));
-        if (i == tasks) {
+        if (i == tasks || i == downloads) {  // pastille : tâches actives ; Téléchargements : ceux en cours (comme le web)
             int active = 0;
-            for (const auto& t : snap_->tasks) if (in_group(t.state, 0)) ++active;
+            for (const auto& t : snap_->tasks) if (in_group(t.state, 0) && (i == tasks || t.origin == "download")) ++active;
             if (active) { char b[8]; std::snprintf(b, sizeof b, "%d", active); s.rect(x + w - 14, 34, 26, 24, color::accent2, 12); s.text(font_, x + w - 6, 35, b, small, color::text); }
         }
         x += w + 2;
@@ -2110,11 +2428,33 @@ std::vector<Ui::Shelf> Ui::library_shelves() const {
     for (Shelf* sh : {&ps5, &ps4}) if (!sh->items.empty()) cats.push_back(*sh);
     for (auto& r : retro) cats.push_back(r);
     for (Shelf* sh : {&apps, &orphans}) if (!sh->items.empty()) cats.push_back(*sh);
+    // Les jeux des bibliothèques déclarées (NAS, nuage…) qui ne sont pas sur cette PS5 : « À installer », à la fin.
+    lib_gl_items_.clear();
+    lib_gl_refs_.clear();
+    Shelf gl{tr("À installer"), {}};
+    if (lib_peer_.empty() && (kind_ == 0 || kind_keys[kind_] == std::string("game_ps5") || kind_keys[kind_] == std::string("game_ps4")) && app_ == 0 && place_ == 0) {
+        const auto miss = gamelib_missing();
+        lib_gl_items_.reserve(miss.size());
+        std::set<std::string> where;
+        for (const std::size_t gi : miss) {
+            const Json& g = gamelib_["games"][gi];
+            if (kind_ && g["kind"].as_string() != kind_keys[kind_]) continue;
+            if (!search_.empty() && fold(g["title"].as_string()).find(search_) == std::string::npos && fold(g["title_id"].as_string()).find(search_) == std::string::npos) continue;
+            Item tmp;
+            lib_gl_items_.push_back(*find_or_stand_in("", g["title"].as_string(), g["title_id"].as_string(), tmp, g["kind"].as_string()));
+            lib_gl_refs_.push_back(gi);
+            gl.items.push_back(&lib_gl_items_.back());
+            where.insert(g["place_label"].as_string());
+        }
+        for (const auto& w : where) gl.away += (gl.away.empty() ? "" : " · ") + w;
+    }
+    if (!gl.items.empty()) { gl.gl_first = 0; cats.push_back(gl); }
     // Grille : 8 jaquettes par rangée ; les rangées suivantes d'une catégorie n'ont pas de titre (cont = true).
     for (const auto& c : cats)
         for (std::size_t i = 0; i < c.items.size(); i += lib_per_row) {
             Shelf row{i ? std::string() : c.title, {}};
             row.total = c.items.size();
+            if (c.gl_first >= 0) { row.gl_first = static_cast<int>(i); row.away = i ? std::string() : c.away; }
             row.items.assign(c.items.begin() + static_cast<std::ptrdiff_t>(i), c.items.begin() + static_cast<std::ptrdiff_t>(std::min(c.items.size(), i + lib_per_row)));
             out.push_back(std::move(row));
         }
@@ -2216,7 +2556,7 @@ std::vector<Ui::Shelf> Ui::home_shelves() const {
         // Stockage dans le nuage (Google Drive, Backblaze…) : son nom de service, pas « NAS ».
         auto cloud_name = [this](const std::string& place) -> std::string {
             for (const auto& p : snap_->places)
-                if (p.id == place && (p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox")) return p.label;
+                if (p.id == place && (cloud_proto(p.protocol))) return p.label;
             return {};
         };
         {   // seulement les endroits qui ont vraiment une de ces sauvegardes : « Ici », « NAS », « Nuage », le nom de l'autre PS5
@@ -2264,6 +2604,27 @@ std::vector<Ui::Shelf> Ui::home_shelves() const {
             cl.away = w;
             if (!cl.items.empty()) out.push_back(std::move(cl));
         }
+    }
+    // À installer : les jeux des bibliothèques déclarées (NAS, nuage, USB…) absents de cette PS5. Croix : l'installer.
+    {
+        home_gl_items_.clear();
+        home_gl_refs_.clear();
+        const auto miss = gamelib_missing();
+        home_gl_items_.reserve(std::min<std::size_t>(24, miss.size()));
+        Shelf sh{tr("À installer"), {}};
+        sh.gl_first = 0;
+        std::set<std::string> where;
+        for (const std::size_t gi : miss) {
+            if (sh.items.size() >= 24) break;
+            const Json& g = gamelib_["games"][gi];
+            Item tmp;
+            home_gl_items_.push_back(*find_or_stand_in("", g["title"].as_string(), g["title_id"].as_string(), tmp, g["kind"].as_string()));
+            home_gl_refs_.push_back(gi);
+            sh.items.push_back(&home_gl_items_.back());
+            where.insert(g["place_label"].as_string());
+        }
+        for (const auto& w : where) sh.away += (sh.away.empty() ? "" : " · ") + w;
+        if (!sh.items.empty()) out.push_back(std::move(sh));
     }
     // Sur les autres PS5 : leurs jeux installés qui ne sont pas ici. Croix : les recevoir ici.
     {
@@ -2339,6 +2700,19 @@ std::vector<Ui::HomeCard> Ui::home_cards() const {
         }
     }
     if (!save.empty()) out.push_back({tr("À SAUVEGARDER"), trf("%d jeu(x)", static_cast<int>(save.size())), "", color::warn, 5, save});
+    if (arrivals_["new_count"].as_int() > 0) {  // Orbit / BlackBox : des jeux amenés, pas encore vus (« Vu » les acquitte)
+        Games g;
+        std::set<std::string> apps;
+        for (const auto& a : arrivals_["items"].items()) {
+            if (a["later"].as_bool()) continue;
+            apps.insert(a["app_name"].as_string());
+            const std::string key = a["item"].as_string().empty() ? "title:" + a["title_id"].as_string() : a["item"].as_string();
+            g.push_back({key, a["title"].as_string() + " · " + tr(a["place_label"].as_string().c_str()) + (a["pkg"].as_bool() ? " · .pkg" : "")});
+        }
+        std::string who = apps.size() == 1 ? *apps.begin() : std::string("Orbit / BlackBox");
+        for (auto& c : who) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));  // en-tête en capitales, comme les autres
+        if (!g.empty()) out.push_back({trf("ARRIVÉS PAR %s", who.c_str()), trf("%d nouveau(x) jeu(x)", static_cast<int>(g.size())), "", rgb(255, 159, 90), 11, g});
+    }
     {   // Mise à jour de Backup Center : en cours (reçue d'une autre PS5 ou trouvée) ou installée mais pas encore en marche
         const auto& u = snap_->update;
         const std::string from = u.received_from.empty() ? std::string() : trf("reçue de %s", u.received_from.c_str());
@@ -2349,13 +2723,13 @@ std::vector<Ui::HomeCard> Ui::home_cards() const {
                            {{"pbc:logo", dl ? update_progress_text(u) : from.empty() ? std::string(tr("Backup Center se met à jour")) : from}}});
         } else if (u.engine_restart_needed && !u.installed.empty()) {
             out.push_back({tr("MISE À JOUR"), trf("%s installée", u.installed.c_str()), "", color::ok, 7,
-                           {{"pbc:logo", (from.empty() ? std::string() : from + " · ") + tr("Croix : relancer le moteur")}}});
+                           {{"pbc:logo", (from.empty() ? std::string() : from + " · ") + tr("Relancer le moteur")}}});
         } else if (u.state == "available" && !u.available.empty()) {  // trouvée par la recherche automatique ou manuelle
             out.push_back({tr("MISE À JOUR"), trf("%s disponible", u.available.c_str()), "", color::accent, 10,
-                           {{"pbc:logo", tr("Croix : installer")}}});
+                           {{"pbc:logo", tr("Installer")}}});
         } else if (!snap_->version.empty() && version_cmp(snap_->version, app_version) > 0) {  // moteur à jour, appli ouverte ancienne (pas l'inverse)
             out.push_back({tr("MISE À JOUR"), trf("%s en marche", snap_->version.c_str()), "", color::ok, 9,
-                           {{"pbc:logo", tr("Croix : rouvrir l'appli pour la voir")}}});
+                           {{"pbc:logo", tr("Rouvrir l'appli pour la voir")}}});
         }
     }
     {   // Une copie plus récente que la partie sur la console (jouée ailleurs, sur l'autre PS5…) : à restaurer ?
@@ -2398,9 +2772,14 @@ std::vector<Ui::HomeCard> Ui::home_cards() const {
     } else {
         // Une seule carte Synchro (comme Sauvegardes) : d'abord les appareils avec des jeux à mettre à niveau (leurs jaquettes
         // défilent), puis « au même niveau », et une seule ligne pour tous ceux sans jeu choisi. Croix : le premier à traiter.
+        const std::set<std::string> acked = sync_acked();
+        const std::vector<std::string> shown = sync_card_keys();
+        bool hidden = !acked.empty();  // acquittée et rien de plus qu'à ce moment-là : cachée
+        for (const auto& key : shown) if (!acked.count(key)) hidden = false;
         int need_total = 0, first = -1, same_first = -1;
         Games g, same;
         Games idle;  // un appareil sans jeu choisi par ligne, avec son image (PS5 ou NAS) : ils défilent dans la carte
+        Games autos;  // synchro automatique des parties des dernières 24 h : « Mis à niveau automatiquement… » en premier
         for (std::size_t i = 0; i < sync_plans_.size(); ++i) {
             const auto& [name, pl] = sync_plans_[i];
             // L'image de l'autre côté : PS5, NAS, ou le logo du service dans le nuage (Google Drive, Backblaze…).
@@ -2408,30 +2787,37 @@ std::vector<Ui::HomeCard> Ui::home_cards() const {
             if (pl["peer"].as_string().rfind("remote:", 0) == 0) {
                 dev_key = "dev:nas";
                 for (const auto& p : snap_->places)
-                    if (p.id == pl["peer"].as_string() && (p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox")) {
+                    if (p.id == pl["peer"].as_string() && (cloud_proto(p.protocol))) {
                         std::string svc = p.service;  // connu dès le démarrage (la liste des appareils arrive plus tard)
                         if (svc.empty()) for (const auto& r : remotes_all_.items()) if (r["id"].as_string() == p.id) svc = r["config"]["service"].as_string();
                         dev_key = "dev:cloud:" + p.protocol + ":" + svc;
                     }
+            }
+            if (const Json* pp = parties_plan_for(pl["peer"].as_string())) {
+                const Json& last = (*pp)["auto_last"];
+                if (last["at"].as_int() > static_cast<std::int64_t>(std::time(nullptr)) - 86400) autos.push_back({dev_key, parties_auto_line(last, name)});
             }
             int chosen = 0, n = 0;
             for (const auto& t : pl["titles"].items()) {
                 chosen += t["followed"].as_bool();
                 if (!sy_needs(t)) continue;
                 ++n;
-                if (g.size() < 12) g.push_back({"title:" + t["title_id"].as_string(), std::string(t["state"].as_string() == "pull" ? "↓ " : "↑ ") + t["title"].as_string() + " · " + name});
+                const bool fresh = !acked.empty() && !acked.count(sync_title_key(pl["peer"].as_string(), t));  // pas encore vu au moment de « Pas maintenant »
+                if (g.size() < 12) g.push_back({"title:" + t["title_id"].as_string(), std::string(fresh ? std::string(tr("nouveau")) + " · " : "") + (t["state"].as_string() == "pull" ? "↓ " : "↑ ") + t["title"].as_string() + " · " + name});
             }
             if (!chosen) { idle.push_back({dev_key, trf("%s · aucun jeu choisi", name.c_str())}); continue; }
             if (n) { need_total += n; if (first < 0) first = static_cast<int>(i); continue; }
             same.push_back({dev_key, trf("%s : les mêmes sauvegardes des deux côtés", name.c_str())});
             if (same_first < 0) same_first = static_cast<int>(i);
         }
-        if (!sync_plans_.empty()) {
+        if (!sync_plans_.empty() && !hidden) {
             const std::string head = sync_plans_.size() > 1 ? trf("SYNCHRO · %d cibles disponibles", static_cast<int>(sync_plans_.size())) : std::string(tr("SYNCHRO"));
             if (need_total) {
+                g.insert(g.begin(), autos.begin(), autos.end());
                 g.insert(g.end(), idle.begin(), idle.end());
                 out.push_back({head, trf("%d jeu(x) à mettre à niveau", need_total), "", color::warn, 100 + first, g});
             } else if (!same.empty()) {
+                same.insert(same.begin(), autos.begin(), autos.end());
                 same.insert(same.end(), idle.begin(), idle.end());
                 out.push_back({head, tr("Tout est au même niveau"), "", color::ok, 100 + same_first, same});
             } else {
@@ -2458,7 +2844,11 @@ std::vector<Ui::HomeCard> Ui::home_cards() const {
                 for (const auto& t : snap_->tasks) {
                     if (task_kind(t.type) != k || (pass == 0) != (t.state == "running") || (pass == 1 && t.state != "queued" && t.state != "paused")) continue;
                     (pass == 0 ? run : wait)++;
-                    c.games.push_back({t.item, t.title.empty() ? k : t.title});
+                    std::string img = t.item;
+                    if (img.empty() && !t.from_place.empty())  // téléchargement depuis un lien reçu : le logo de son service (MEGA, Drive…)
+                        for (const auto& p : snap_->places)
+                            if (p.id == t.from_place && p.readonly) img = "dev:cloud:share:" + p.service;
+                    c.games.push_back({img, t.title.empty() ? k : t.title});
                     const bool ph = t.state == "running" && t.phase_fraction() >= 0;
                     c.progress.push_back(ph ? static_cast<int>(t.phase_fraction() * 1000) : t.state == "running" && t.total ? static_cast<int>(std::min(t.done, t.total) * 1000 / t.total) : -1);
                     c.eta.push_back(ph ? "\t" + t.phase_text() : t.state == "running" && t.speed > 0 && t.total ? duration_text(static_cast<double>(t.total - std::min(t.done, t.total)) / t.speed) : std::string());
@@ -2471,6 +2861,243 @@ std::vector<Ui::HomeCard> Ui::home_cards() const {
     return out;
 }
 
+std::string Ui::sync_title_key(const std::string& peer, const Json& t) {
+    return peer + "|" + t["title_id"].as_string() + "|" + t["state"].as_string() + "|" + std::to_string(std::max(t["here_at"].as_int(), t["there_at"].as_int()));
+}
+
+std::vector<std::string> Ui::sync_card_keys() const {
+    std::vector<std::string> out;
+    for (const auto& [name, pl] : sync_plans_) {
+        const std::string peer = pl["peer"].as_string();
+        int chosen = 0, n = 0;
+        for (const auto& t : pl["titles"].items()) {
+            chosen += t["followed"].as_bool();
+            if (sy_needs(t)) { ++n; out.push_back(sync_title_key(peer, t)); }
+        }
+        if (!chosen) out.push_back(peer + "|idle");
+        else if (!n) out.push_back(peer + "|same");
+    }
+    return out;
+}
+
+std::set<std::string> Ui::sync_acked() const {
+    if (sync_ack_at_ && now_ - sync_ack_at_ < 8000) return sync_ack_local_;  // le temps que les réglages relus le disent
+    return std::set<std::string>(snap_->home_ack_sync.begin(), snap_->home_ack_sync.end());
+}
+
+void Ui::sync_ack(bool on) {
+    sync_ack_local_.clear();
+    if (on) for (const auto& k : sync_card_keys()) sync_ack_local_.insert(k);
+    sync_ack_at_ = now_ ? now_ : 1;
+    Json keys = Json::array();
+    for (const auto& k : sync_ack_local_) keys.push(k);
+    Json ack = Json::object();
+    if (on) ack.set("sync", keys);
+    Json b = Json::object();
+    b.set("home_ack", ack);
+    model_.command("POST", "/api/v2/settings", b.dump(), [this](const std::string& e, const std::string&) { if (!e.empty()) post_toast(e); });
+    toast(on ? tr("Synchro masquée sur l'Accueil : elle reviendra s'il y a du nouveau") : tr("Carte Synchro réaffichée sur l'Accueil"));
+}
+
+void Ui::draw_page_head(Surface& s, const std::string& name, const std::string& sub) {
+    const int tw = s.text(font_, margin, 112, name, title, color::text);
+    if (!sub.empty()) s.text(font_, margin + tw + 32, 146, sub, small, color::muted, 1920 - margin - (margin + tw + 32));
+}
+
+void Ui::window_frame(Surface& s, int x, int y, int w, int h, int band, bool danger) {
+    for (int g = 4; g >= 1; --g) s.rect(x - g * 6, y - g * 6 + 10, w + g * 12, h + g * 12, rgb(0, 0, 0, 22), 34 + g * 6);
+    s.rect(x, y, w, h, color::panel, 28);
+    if (band > 0) s.rect(x, y, w, band, danger ? rgb(255, 94, 91, 18) : rgb(255, 255, 255, 10), 28);
+    s.outline(x, y, w, h, danger ? color::bad : color::line, 28, danger ? 3 : 2);
+}
+
+// Dégradé horizontal qui suit les coins arrondis d'une carte (rayon r) : sans ça, le reflet rectangulaire dépasse
+// dans les coins et laisse des « bords carrés ».
+static void rounded_fade(Surface& s, int x, int y, int w, int h, std::uint32_t c, int r) {
+    for (int yy = 0; yy < h; ++yy) {
+        int dx = 0;
+        const int from_edge = std::min(yy, h - 1 - yy);
+        if (from_edge < r) { const double d = r - from_edge - 0.5; dx = static_cast<int>(r - std::sqrt(std::max(0.0, static_cast<double>(r) * r - d * d)) + 0.999); }
+        if (w - dx > 0) s.fade(x + dx, y + yy, w - dx, 1, c, true, true);
+    }
+}
+
+void Ui::card_frame(Surface& s, int x, int y, int w, int h, bool focus, bool chosen, bool light) {
+    if (focus) for (int g = 3; g >= 1; --g) s.rect(x - g * 5, y - g * 5, w + g * 10, h + g * 10, rgb(80, 150, 255, 20), 22 + g * 5);
+    if (!light) s.rect(x + 6, y + 10, w, h, rgb(0, 0, 0, 70), 22);
+    s.rect(x, y, w, h, light ? rgb(255, 255, 255, 8) : chosen ? color::panel2 : color::panel, 22);
+    if (!light) rounded_fade(s, x, y, std::min(200, w / 2), h, rgb(124, 196, 255, 28), 22);
+    s.outline(x, y, w, h, focus ? color::accent : chosen ? color::accent2 : color::line, 22, focus ? 4 : chosen ? 3 : 2);
+}
+
+int Ui::device_card(Surface& s, const DevCard& c, int x, int y, int w, int h, bool focus, bool chosen) {
+    card_frame(s, x, y, w, h, focus, chosen, c.light);
+    const bool compact = h < 100;
+    const int im = c.img > 0 ? c.img : std::min(150, h - (compact ? 20 : 24));
+    int tx = x + 22;
+    if (c.dev >= 0 && devices_[c.dev].valid()) { s.image(devices_[c.dev], x + 14, y + (h - im) / 2, im, im); tx = x + 14 + im + 16; }
+    else if (c.reserve) tx = x + 14 + im + 16;
+    const int right = x + w - 18;
+    int tagw = 0;
+    if (!c.tag.empty()) { tagw = Surface::measure(c.tag, small) + 12; s.text(font_, right - tagw + 12, y + (compact ? 10 : 20), c.tag, small, c.tag_col ? c.tag_col : color::accent); }
+    const bool tight = compact || (!c.minis.empty() && h < 130);  // place pour les petites images en bas
+    const int ny = tight ? y + 8 : y + 16, ly = tight ? y + 44 : y + 58;
+    s.text(font_, tx, ny, c.name, body, color::text, right - tx - tagw - 6);
+    if (!c.line.empty()) s.text(font_, tx, ly, c.line, small, c.line_col ? c.line_col : color::muted, right - tx);
+    int ry = ly + 38;
+    if (!c.pill.empty() && !compact) {
+        const std::uint32_t pc = c.pill_col ? c.pill_col : rgb(200, 175, 255);
+        const int pw = std::min(right - tx, Surface::measure(c.pill, small) + 28);
+        s.rect(tx, ry, pw, 32, (pc & 0x00FFFFFFu) | (50u << 24), 16);
+        s.text(font_, tx + 14, ry + 2, c.pill, small, pc, pw - 28);
+        ry += 40;
+    }
+    ry = std::min(ry, y + h - 36);  // petites images : toujours dans la carte, en bas
+    int ix = tx;
+    for (int d : c.minis) {
+        if (d < 0 || !devices_[d].valid() || ix + 32 > right || ry < ly + 28) continue;
+        s.image(devices_[d], ix, ry, 30, 30);
+        ix += 36;
+    }
+    return tx;
+}
+
+void Ui::open_network_settings(int row) {
+    close_overlays();
+    set_back_tab_ = static_cast<int>(tab_);
+    tab_ = settings;
+    set_section_ = sec_network;
+    set_zone_ = 1;
+    set_row_ = row;
+    bar_ = false;
+}
+
+void Ui::net_set(const char* key, Json value) {
+    Json b = Json::object();
+    b.set(key, value);
+    model_.command("POST", "/api/v2/settings", b.dump(), [this](const std::string& e, const std::string&) { if (!e.empty()) post_toast(e); });
+}
+
+void Ui::input_network(std::uint32_t k) {
+    // Deux colonnes (comme à l'écran) : à gauche les ports (0 à 4), « Options BitTorrent » (15) et « Tester » (5), à droite
+    // BitTorrent (6 à 14).
+    // Haut / bas : dans la colonne ; droite / gauche : l'autre colonne (gauche depuis la colonne de gauche : le menu) ;
+    // Croix : la liste des choix du réglage (rien ne change d'un coup, charte §1).
+    const Json& n = snap_->net;
+    const bool right_col = set_row_ >= 6 && set_row_ <= 14;
+    if (k & key::circle) { set_zone_ = 0; return; }
+    // Colonne de gauche : 0 à 4 (ports), 15 (Options BitTorrent), 16 (Adresse publique), 5 (Tester).
+    if (k & key::up) { set_row_ = right_col ? std::max(6, set_row_ - 1) : set_row_ == 5 ? 16 : set_row_ == 16 ? 15 : set_row_ == 15 ? 4 : std::max(0, set_row_ - 1); return; }
+    if (k & key::down) { set_row_ = right_col ? std::min(14, set_row_ + 1) : set_row_ == 4 ? 15 : set_row_ == 15 ? 16 : set_row_ == 16 ? 5 : std::min(5, set_row_ + 1); return; }
+    if (k & key::right) { if (!right_col) set_row_ = set_row_ == 15 ? 11 : set_row_ == 16 ? 12 : std::min(14, 6 + set_row_); return; }
+    if (k & key::left) { if (right_col) set_row_ = std::min(5, set_row_ - 6); else set_zone_ = 0; return; }
+    if (!(k & key::cross)) return;
+    using Acts = std::vector<std::pair<std::string, std::function<void()>>>;
+    auto mark = [](bool on, const std::string& t) { return (on ? std::string("● ") : std::string("○ ")) + t; };
+    auto rate_label = [](int ko) { return ko <= 0 ? std::string(tr("Illimité")) : ko >= 1024 ? trf("%lld Mo/s", static_cast<long long>(ko / 1024)) : trf("%lld Ko/s", static_cast<long long>(ko)); };
+    auto rate_menu = [&](const char* title, const char* key, std::int64_t def) {
+        static const int rates[] = {0, 256, 512, 1024, 2048, 5120, 10240, 20480, 51200};
+        const std::int64_t cur = n[key].as_int(def);
+        Acts acts;
+        for (int r : rates) acts.push_back({mark(cur == r, rate_label(r)), [this, key, r] { net_set(key, Json(static_cast<std::int64_t>(r))); }});
+        open_actions(tr(title), std::move(acts));
+    };
+    auto yes_no = [&](const char* title, const char* key, bool def, const char* yes, const char* no) {
+        const bool cur = n[key].as_bool(def);
+        open_actions(tr(title), {{mark(cur, tr(yes)), [this, key] { net_set(key, Json(true)); }}, {mark(!cur, tr(no)), [this, key] { net_set(key, Json(false)); }}});
+    };
+    auto parse_ports = [](const std::string& t, int& a, int& b) {
+        a = b = 0;
+        std::size_t i = 0;
+        while (i < t.size() && std::isdigit(static_cast<unsigned char>(t[i]))) a = a * 10 + (t[i++] - '0');
+        while (i < t.size() && !std::isdigit(static_cast<unsigned char>(t[i]))) ++i;
+        while (i < t.size() && std::isdigit(static_cast<unsigned char>(t[i]))) b = b * 10 + (t[i++] - '0');
+        if (!b) b = a;
+        return a >= 1024 && a <= 65535 && b >= a && b <= 65535 && b - a <= 1000;
+    };
+    auto ours = [&](int a, int b) {  // nos ports à nous : jamais pour BitTorrent
+        const int wan = static_cast<int>(n["wan_port"].as_int(52373));
+        for (int p : {52370, 52371, 52372, 52373, wan}) if (p >= a && p <= b) return true;
+        return false;
+    };
+    switch (set_row_) {
+        case 0: case 1: toast(tr("Port fixe : les PS5 se trouvent par lui")); return;
+        case 2: {  // PS5 à distance
+            const bool on = n["wan_enabled"].as_bool();
+            open_actions(tr("PS5 à distance (par Internet)"), {
+                {mark(on, tr("Activée")), [this] { net_set("wan_enabled", Json(true)); }},
+                {mark(!on, tr("Désactivée")), [this] { net_set("wan_enabled", Json(false)); }},
+                {tr("Changer le port…"), [this, n] {
+                    open_keyboard(tr("Port de « PS5 à distance » (TCP)"), std::to_string(n["wan_port"].as_int(52373)), [](const std::string&) {});
+                    kb_done_ = [this] { const int a = std::atoi(kb_text_.c_str()); if (a >= 1024 && a <= 65535) net_set("wan_port", Json(static_cast<std::int64_t>(a))); else toast(tr("Port entre 1024 et 65535")); };
+                }},
+            });
+            return;
+        }
+        case 3: {  // protocole
+            const std::string cur = n["bt_proto"].as_string().empty() ? "both" : n["bt_proto"].as_string();
+            open_actions(tr("BitTorrent : protocole"), {
+                {mark(cur == "both", "TCP + UDP"), [this] { net_set("bt_proto", Json(std::string("both"))); }},
+                {mark(cur == "tcp", "TCP"), [this] { net_set("bt_proto", Json(std::string("tcp"))); }},
+                {mark(cur == "udp", "UDP (uTP)"), [this] { net_set("bt_proto", Json(std::string("udp"))); }},
+            });
+            return;
+        }
+        case 4: {  // ports : un port ou une plage
+            const std::int64_t pf = n["bt_port_from"].as_int(6891), pt = n["bt_port_to"].as_int(6899);
+            open_keyboard(tr("Ports BitTorrent : un port (6891) ou une plage (6891-6899)"), pf == pt ? std::to_string(pf) : std::to_string(pf) + "-" + std::to_string(pt), [](const std::string&) {});
+            kb_done_ = [this, parse_ports, ours] {
+                int a, b;
+                if (!parse_ports(kb_text_, a, b)) { toast(tr("Ports entre 1024 et 65535, plage de 1000 au plus")); return; }
+                if (ours(a, b)) { toast(tr("Ces ports sont ceux de Backup Center (52370 à 52373) : choisissez-en d'autres")); return; }
+                net_set("bt_port_from", Json(static_cast<std::int64_t>(a))); net_set("bt_port_to", Json(static_cast<std::int64_t>(b)));
+            };
+            return;
+        }
+        case 5:  // tester
+            if (net_testing_) return;
+            net_testing_ = true;
+            model_.command("GET", "/api/v2/network/test", "", [this](const std::string& e, const std::string& body) {
+                Json j;
+                const bool ok = e.empty() && Json::parse(body, j);
+                post_ui([this, ok, j] { net_testing_ = false; if (ok) net_test_ = j; else toast(tr("Test impossible : moteur injoignable")); });
+            });
+            return;
+        case 6:
+            yes_no("Accepter les connexions entrantes", "bt_accept_in", true, "Oui", "Non (sortant seulement)");
+            popup_note_ = tr("Non : la console va chercher les autres, mais personne ne peut s'y brancher ; vos liens créés ici ne marchent plus pour les autres.");
+            return;
+        case 7: yes_no("Ouvrir le port automatiquement (UPnP / NAT-PMP)", "bt_upnp", false, "Oui", "Non"); return;
+        case 8: yes_no("Trouver des sources sur Internet (DHT)", "bt_dht", true, "Oui", "Non"); return;
+        case 9: rate_menu("Débit maximal", "bt_rate_max", 0); return;
+        case 10: rate_menu("Débit pendant une partie", "bt_rate_game", 2048); return;
+        case 11: rate_menu("Envoi maximal (partage)", "bt_upload_max", 1024); return;
+        case 12: {  // téléchargements actifs en même temps (les autres attendent leur tour dans la file)
+            Acts acts;
+            const std::int64_t cur = n["bt_active"].as_int(3);
+            for (int v : {1, 2, 3, 5, 8, 10}) acts.push_back({mark(cur == v, std::to_string(v)), [this, v] { net_set("bt_active", Json(static_cast<std::int64_t>(v))); }});
+            open_actions(tr("Téléchargements en même temps"), std::move(acts));
+            popup_note_ = tr("Les autres attendent leur tour, dans l'ordre de la file (≡ sur un torrent : monter, descendre, forcer le démarrage).");
+            return;
+        }
+        case 13: {
+            Acts acts;
+            const std::int64_t cur = n["bt_connections"].as_int(200);
+            for (int v : {50, 100, 200, 400, 800}) acts.push_back({mark(cur == v, std::to_string(v)), [this, v] { net_set("bt_connections", Json(static_cast<std::int64_t>(v))); }});
+            open_actions(tr("Connexions au plus"), std::move(acts));
+            popup_note_ = tr("Pour tous les torrents ensemble. Moins : plus léger pour la box ; plus : plus de sources à la fois.");
+            return;
+        }
+        case 15: open_bt_options(); return;
+        case 16: refresh_public_address(true); return;
+        case 14:  // où ranger : la fenêtre « Où ranger ? » (disques de cette console), comme Paramètres › Où ranger
+            open_where(tr("Téléchargements : où ranger par défaut ?"), tr("Proposé en premier à chaque lien de partage ou torrent ajouté."), n["dl_place"].as_string(), 1,
+                       [this](const std::string& id) { net_set("dl_place", Json(id == "internal" ? std::string() : id)); toast(tr("Destination par défaut enregistrée")); });
+            return;
+        default: return;
+    }
+}
+
 void Ui::run_home_card(int action) {
     if (action >= 0 && action <= 3) { tab_ = backups; mg_screen_ = 0; mg_place_ = 0; mg_view_ = action; mg_row_ = 0; mg_zone_ = 1; mg_back_tab_ = -1; }
     else if (action == 4) tab_ = tasks;
@@ -2481,6 +3108,7 @@ void Ui::run_home_card(int action) {
             post_toast(e.empty() ? std::string(tr("Relance du moteur…")) : trf("Relance refusée : %s — la nouvelle version sera active au prochain démarrage de la console", e.c_str()));
         });
     }
+    else if (action == 11) open_arrivals();
     else if (action == 9) offer_reopen(snap_->version);  // rouvrir l'appli : la même fenêtre de confirmation (avant : un compte à rebours invisible ici)
     else if (action == 8) tab_ = settings;  // mise à jour en cours : son avancement dans Paramètres
     else if (action == 10) {  // mise à jour disponible : l'installer (l'avancement remplace la bulle)
@@ -2501,7 +3129,7 @@ void Ui::run_home_card(int action) {
 void Ui::input_home(std::uint32_t k) {
     const auto hero = hero_items();
     const auto shelves = home_shelves();
-    auto open = [&](const Item* it) { sheet_ = true; sheet_key_ = it->key; sheet_focus_ = 0; unchecked_.clear(); dest_ = 0; };
+    auto open = [&](const Item* it) { sheet_ = true; sheet_key_ = it->key; sheet_focus_ = sheet_go; unchecked_.clear(); dest_ = 0; sheet_place_.clear(); };
     if (home_cols_.size() != shelves.size()) home_cols_.assign(shelves.size(), 0);
     if (home_zone_ == 0) {
         const int n = static_cast<int>(hero.size());
@@ -2523,6 +3151,10 @@ void Ui::input_home(std::uint32_t k) {
     if (k & key::circle) home_zone_ = 0;
     if ((k & key::cross) && col < n) {
         if (shelves[static_cast<std::size_t>(row)].todo) { const auto cards = home_cards(); if (col < static_cast<int>(cards.size())) run_home_card(cards[static_cast<std::size_t>(col)].action); }
+        else if (shelves[static_cast<std::size_t>(row)].gl_first >= 0) {
+            const std::size_t idx = static_cast<std::size_t>(shelves[static_cast<std::size_t>(row)].gl_first + col);
+            if (idx < home_gl_refs_.size()) open_gamelib_game(gamelib_["games"][home_gl_refs_[idx]]);
+        }
         else if (shelves[static_cast<std::size_t>(row)].peer_first >= 0) {
             const std::size_t idx = static_cast<std::size_t>(shelves[static_cast<std::size_t>(row)].peer_first + col);
             if (idx < home_peer_refs_.size()) {
@@ -2539,6 +3171,17 @@ void Ui::input_home(std::uint32_t k) {
         }
         else open(shelves[static_cast<std::size_t>(row)].items[static_cast<std::size_t>(col)]);
     }
+    if ((k & key::options) && shelves[static_cast<std::size_t>(row)].todo && col < n) {  // carte Synchro : « Pas maintenant »
+        const auto cards = home_cards();
+        if (col < static_cast<int>(cards.size()) && cards[static_cast<std::size_t>(col)].action >= 100) {
+            const int action = cards[static_cast<std::size_t>(col)].action;
+            open_actions(tr("Synchro"), {{tr("Ouvrir Synchro"), [this, action] { run_home_card(action); }},
+                                         {tr("Pas maintenant : masquer jusqu'à du nouveau"), [this] { sync_ack(true); }}});
+            popup_note_ = tr("Elle revient seule si un jeu, une partie ou un appareil de plus est à synchroniser. Une synchro en cours reste toujours affichée.");
+        }
+        return;
+    }
+    if ((k & key::options) && shelves[static_cast<std::size_t>(row)].gl_first >= 0) return;  // « À installer » : Croix seulement
     if ((k & key::options) && shelves[static_cast<std::size_t>(row)].peer_first >= 0 && col < n) {  // « Sur … » : la fiche distante
         const std::size_t idx = static_cast<std::size_t>(shelves[static_cast<std::size_t>(row)].peer_first + col);
         if (idx < home_peer_refs_.size()) {
@@ -2549,15 +3192,15 @@ void Ui::input_home(std::uint32_t k) {
             open_remote_sheet(home_peer_refs_[idx].first, pname, g, true);
         }
     }
-    if (k & key::triangle) tab_ = library;  // « Tout voir »
+    if (k & key::triangle) { tab_ = library; lib_zone_ = 1; input_library(key::triangle); return; }  // △ = Rechercher, comme sur le bandeau
     // Options : les mêmes actions que dans la Bibliothèque, sur l'élément sous le curseur (ex. écarter une
     // sauvegarde sans le jeu qui n'intéresse plus).
     if ((k & key::options) && !shelves[static_cast<std::size_t>(row)].todo && shelves[static_cast<std::size_t>(row)].bk_first < 0 && shelves[static_cast<std::size_t>(row)].peer_first < 0 && col < n) {
         const Item* focus = shelves[static_cast<std::size_t>(row)].items[static_cast<std::size_t>(col)];
         const std::string key2 = focus->key, tid = focus->title_id, title2 = focus->title;
         std::vector<std::pair<std::string, std::function<void()>>> acts;
-        acts.push_back({tr("Ouvrir la fiche"), [this, key2] { sheet_ = true; sheet_key_ = key2; sheet_focus_ = 0; unchecked_.clear(); dest_ = 0; }});
-        acts.push_back({tr("Toutes les versions"), [this, key2, tid, title2] { open_versions("", tid, title2, key2); }});
+        acts.push_back({tr("Ouvrir la fiche"), [this, key2] { sheet_ = true; sheet_key_ = key2; sheet_focus_ = sheet_go; unchecked_.clear(); dest_ = 0; sheet_place_.clear(); }});
+        acts.push_back({tr("Détails"), [this, key2, tid, title2] { open_versions("", tid, title2, key2); }});
         acts.push_back({tr("Ignorer…"), [this, key2, tid, title2] { open_ignore({{tid.empty() ? "key" : "title_id", tid.empty() ? key2 : tid, title2}}, -1); }});
         if (has_console_save(tid)) acts.push_back({tr("Supprimer la partie de la console…"), [this, tid, title2] { delete_console_save(tid, title2); }});
         open_actions(title2, std::move(acts));
@@ -2694,6 +3337,7 @@ void Ui::load_sync_plans() {
 void Ui::draw_home(Surface& s) {
     if (!overview_loaded_ || now_ - overview_loaded_ > 15000) load_overview();
     if (overview_.is_object() && !mg_sum_at_) { mg_sum_account_ = mg_account(); mg_load_summary(); }  // cartes « À faire »
+    if (!arrivals_at_ || now_ - arrivals_at_ > 30000) load_arrivals();  // Orbit / BlackBox : jeux amenés pas encore sauvegardés
     // Synchro des copies : avancement (toutes les 2 s pendant qu'elle tourne), état par PS5 jumelée (toutes les 60 s).
     const bool sync_running = sync_copies_status_["state"].as_string() == "running";
     if (!sync_copies_at_ || now_ - sync_copies_at_ > (sync_running ? 2000u : 20000u)) {
@@ -2708,6 +3352,7 @@ void Ui::draw_home(Surface& s) {
         });
     }
     load_sync_plans();
+    load_gamelib();
     if (!peer_games_at_ || now_ - peer_games_at_ > 30000) {  // jeux des autres PS5 (rangées « Sur … »)
         peer_games_at_ = now_ ? now_ : 1;
         model_.command("GET", "/api/v2/link/peer-games", "", [this](const std::string& e, const std::string& body) {
@@ -2805,7 +3450,8 @@ void Ui::draw_home(Surface& s) {
         int cx = margin;
         const std::string plat = it.kind == "rom" ? it.platform : it.kind == "app" ? std::string(tr("Application")) : it.kind == "game_ps4" ? std::string("PS4") : std::string("PS5");
         std::string place = it.place;
-        for (const auto& p : snap_->places) if (p.id == it.place) place = p.label;
+        for (const auto& p : snap_->places)  // l'identifiant, ou l'ancien « mount:<dossier> » d'un disque qui a reçu le sien depuis
+            if (p.id == it.place || (it.place.rfind("mount:", 0) == 0 && !p.mount.empty() && it.place.substr(6) == p.mount)) place = p.label;
         std::string last;
         for (const auto& e : overview_["entries"].items())
             if (e["item"].as_string() == it.key) {
@@ -2831,6 +3477,7 @@ void Ui::draw_home(Surface& s) {
         // Boutons.
         const int by = ty + 76;
         const std::string b1 = it.kind == "app" ? tr("Sauvegarder l'application…") : it.kind == "rom" ? tr("Sauvegarder la ROM…") : tr("Sauvegarder le jeu…");
+        hero_btn_ = b1;  // l'aide du bas dit la même chose que ce bouton
         const int w1 = Surface::measure(b1, body) + 86;
         const bool f = home_zone_ == 0;
         s.rect(margin, by, w1, 60, f ? rgb(124, 196, 255) : rgb(255, 255, 255, 30), 30);
@@ -2869,8 +3516,9 @@ void Ui::draw_home(Surface& s) {
                 const int kx = margin + (i - kfirst) * (kw + kgap), ky = ry + 52;
                 const bool focus = row_on && i == col;
                 if (focus) for (int g = 3; g >= 1; --g) s.rect(kx - g * 5, ky - g * 5, kw + g * 10, kh + g * 10, rgb(80, 150, 255, 22), 22 + g * 5);
+                s.rect(kx + 6, ky + 10, kw, kh, rgb(0, 0, 0, 70), 22);  // même ombre douce que les autres bulles
                 s.rect(kx, ky, kw, kh, color::panel, 22);
-                s.fade(kx, ky, kw, kh, (c.tone & 0x00FFFFFFu) | 0x30000000u, true, true);
+                rounded_fade(s, kx, ky, kw, kh, (c.tone & 0x00FFFFFFu) | 0x30000000u, 22);
                 s.rect(kx, ky + 20, 8, kh - 40, c.tone, 4);
                 s.outline(kx, ky, kw, kh, focus ? color::accent : color::line, 22, focus ? 4 : 2);
                 int tx = kx + 36;
@@ -2933,8 +3581,22 @@ void Ui::draw_home(Surface& s) {
     if (home_scroll_ > 0) s.fade(0, 100, 1920, 60, color::bg, false, true);  // les rangées passent sous l'en-tête en fondu
     draw_header(s);
     if (sheet_) {}  // la fiche dessine ses propres aides
-    else if (home_zone_ == 0) draw_footer(s, {{0, tr("Sauvegarder…")}, {3, tr("Rechercher")}, {-1, tr("Gauche / droite : défiler")}, {-1, tr("Bas : vos rangées")}});
-    else draw_footer(s, {{0, tr("Ouvrir la fiche")}, {-1, tr("Options : actions")}, {-1, tr("Haut / bas : rangées")}, {3, tr("Tout voir")}, {1, tr("À la une")}});
+    else if (home_zone_ == 0)  // ✕ : le même texte que le bouton du bandeau
+        draw_footer(s, {{0, hero_btn_.empty() ? tr("Ouvrir la fiche") : hero_btn_.c_str()}, {3, tr("Rechercher")}, {-1, tr("Gauche / droite : défiler")}, {-1, tr("Bas : vos rangées")}});
+    else {  // ✕ dit ce qu'il fait sur CETTE rangée ; Options seulement là où il agit
+        const int r = home_zone_ - 1;
+        const bool ok = r >= 0 && r < static_cast<int>(shelves.size());
+        const bool todo = ok && shelves[static_cast<std::size_t>(r)].todo, bk = ok && shelves[static_cast<std::size_t>(r)].bk_first >= 0, peer = ok && shelves[static_cast<std::size_t>(r)].peer_first >= 0;
+        const bool gl = ok && shelves[static_cast<std::size_t>(r)].gl_first >= 0;  // « À installer »
+        bool todo_sync = false;  // la carte Synchro sous le curseur : Options propose « Pas maintenant »
+        if (todo && static_cast<std::size_t>(r) < home_cols_.size()) {
+            const auto cards = home_cards();
+            const int c = home_cols_[static_cast<std::size_t>(r)];
+            todo_sync = c >= 0 && c < static_cast<int>(cards.size()) && cards[static_cast<std::size_t>(c)].action >= 100;
+        }
+        draw_footer(s, {{0, todo ? tr("Faire") : bk ? tr("Détails") : peer ? tr("Fiche et actions") : gl ? tr("Installer…") : tr("Ouvrir la fiche")},
+                        {-1, todo_sync ? tr("Options : pas maintenant…") : todo || bk || gl ? "" : tr("Options : actions")}, {-1, tr("Haut / bas : rangées")}, {3, tr("Rechercher")}, {1, tr("À la une")}});
+    }
 }
 
 void Ui::draw_library(Surface& s) {
@@ -2949,6 +3611,7 @@ void Ui::draw_library(Surface& s) {
                       lib_peer_online_ ? when.c_str() : tr("hors ligne : dernière liste connue"));
     }
     // Bandeau : la jaquette de l'élément choisi en grand, floutée, derrière l'en-tête (comme l'Accueil).
+    if (lib_peer_.empty()) load_gamelib();
     const auto shelves = library_shelves();
     {  // filtres ou recherche changés : on repart de la première rangée
         const std::string sig = std::to_string(kind_) + "|" + std::to_string(app_) + "|" + std::to_string(place_) + "|" + search_ + "|" + std::to_string(shelves.size());
@@ -3080,6 +3743,14 @@ void Ui::draw_library(Surface& s) {
             if (focus) for (int g = 3; g >= 1; --g) s.rect(cx - g * 5, cy - g * 5, cs + g * 10, cs + g * 10, rgb(80, 150, 255, 22), 22 + g * 5);
             const Item& ci = *sh.items[static_cast<std::size_t>(i)];
             cover(s, ci, cx, cy, cs, true);
+            if (lib_peer_.empty() && ci.via.is_object()) {  // arrivé par Orbit / BlackBox : pastille en haut à gauche
+                const std::string t = ci.via["app_name"].as_string();
+                const bool bb = ci.via["app"].as_string() == "blackbox";
+                const int tw2 = std::min(cs - 16, Surface::measure(t, small) + 20);
+                s.rect(cx + 8, cy + 8, tw2, 32, bb ? rgb(14, 30, 43, 230) : rgb(43, 26, 14, 230), 16);
+                s.outline(cx + 8, cy + 8, tw2, 32, bb ? rgb(28, 74, 106) : rgb(106, 60, 28), 16, 1);
+                s.text(font_, cx + 18, cy + 11, t, small, bb ? rgb(154, 208, 255) : rgb(255, 159, 90), tw2 - 20);
+            }
             if (ci.ignored) {  // ignoré : voilé, petite pastille
                 s.rect(cx, cy, cs, cs, rgb(6, 16, 29, 150), 16);
                 const char* t = tr("Ignoré");
@@ -3110,8 +3781,10 @@ void Ui::draw_library(Surface& s) {
     s.pop_clip();
     if (items.empty()) s.text(font_, margin, 420, snap_->connected ? tr("Aucun élément ne correspond à ces filtres.") : tr("La bibliothèque s'affichera dès que le moteur répondra."), large, color::muted);
     if (!lib_marks_.empty() && !sheet_) draw_checked(s, static_cast<int>(lib_marks_.size()));
-    if (!sheet_ && !rsheet_ && !lib_peer_.empty()) draw_footer(s, {{0, tr("Fiche et actions")}, {-1, tr("L2 : cocher")}, {-1, lib_marks_.empty() ? "" : tr("Options : actions")}, {2, trf("Voir : %s", chips[(kind_ + 1) % kind_count].c_str()).c_str()}, {3, tr("Rechercher")}});
-    else if (!sheet_ && !rsheet_) draw_footer(s, {{0, tr("Ouvrir")}, {-1, tr("L2 : cocher")}, {-1, tr("Options : actions")}, {2, trf("Voir : %s", chips[(kind_ + 1) % kind_count].c_str()).c_str()}, {3, tr("Rechercher")}});
+    const std::string next_kind = trf("Voir : %s", chips[(kind_ + 1) % kind_count].c_str());
+    if (!sheet_ && !rsheet_ && lib_zone_ == 0) draw_footer(s, {{0, tr("Choisir ce filtre")}, {-1, tr("Gauche / droite : filtres")}, {2, next_kind.c_str()}, {-1, tr("Bas : la liste")}});
+    else if (!sheet_ && !rsheet_ && !lib_peer_.empty()) draw_footer(s, {{0, tr("Fiche et actions")}, {-1, tr("L2 : cocher")}, {-1, tr("Options : actions")}, {2, next_kind.c_str()}, {3, tr("Rechercher")}, {-1, tr("R2 : page suivante")}, {1, lib_marks_.empty() ? tr("Retour") : tr("Tout décocher")}});
+    else if (!sheet_ && !rsheet_) draw_footer(s, {{0, tr("Ouvrir")}, {-1, tr("L2 : cocher")}, {-1, tr("Options : actions")}, {2, next_kind.c_str()}, {3, tr("Rechercher")}, {-1, tr("R2 : page suivante")}, {1, lib_marks_.empty() ? tr("Retour") : tr("Tout décocher")}});
 }
 
 void Ui::draw_sheet(Surface& s) {
@@ -3119,9 +3792,48 @@ void Ui::draw_sheet(Surface& s) {
     for (const auto& x : snap_->items) if (x.key == sheet_key_) it = &x;
     if (!it) return;
     s.rect(0, 0, 1920, 1080, rgb(2, 8, 20, 200));
-    const int pw = 1180, ph = 860, px = (1920 - pw) / 2, py = (1080 - ph) / 2;
-    s.rect(px, py, pw, ph, color::panel, 28);
-    s.outline(px, py, pw, ph, color::line, 28, 2);
+    int shift = 0;
+    { const auto c = compat_.find(it->key); if (c != compat_.end()) shift = 34 * static_cast<int>(std::min<std::size_t>(c->second["peers"].items().size(), 2)); }
+    if (sheet_focus_ == sheet_go) sheet_focus_ = static_cast<int>(it->components.size()) + 1;  // à l'ouverture : « Sauvegarder »
+    // Deux colonnes sous l'en-tête (maquette « Fiche d'un jeu », charte §4.6) : à gauche ce qu'on sauvegarde (cases),
+    // à droite les actions en lignes — l'action attendue d'abord, « Détails » deuxième, puis, après un trait et en rouge,
+    // ce qui retire ou efface. L'aide des touches est dans la fenêtre.
+    const int comps = static_cast<int>(it->components.size());
+    std::uint64_t total = 0;
+    for (int i = 0; i < comps; ++i) if (!unchecked_.count(i)) total += it->components[static_cast<std::size_t>(i)].bytes;
+    const std::string dest_name = sheet_place_.empty() ? where_label(snap_->default_place) : where_label(sheet_place_);
+    int n_plans = 0;
+    for (const auto& p : plans_) for (const auto& k2 : p["items"].items()) if (k2.as_string() == it->key) ++n_plans;
+    const bool tools = (it->kind == "game_ps5" || it->kind == "game_ps4") && it->key.rfind("save:", 0) != 0;  // sauvegarde sans le jeu : pas d'image
+    // Maquette « Fiche d'un jeu : la sauvegarde à gauche, le jeu à droite » (docs/maquettes/fiche-jeu-gauche-droite.html).
+    load_images();
+    const auto img_it = tr_images_.find(it->key);
+    const bool installable = tools && img_it != tr_images_.end() && img_it->second["storage"].as_string() != "native";
+    struct Line { int focus; std::string label, sub; bool bad; };
+    std::vector<Line> left = {{comps + 1, trf("Sauvegarder (%s)", size_text(total).c_str()), trf("Destination : %s", dest_name.c_str()), false},
+                              {comps + 3, tr("Plans programmés…"), n_plans ? trf("dans %d plan(s)", n_plans) : std::string(), false},
+                              {comps + 5, tr("Détails"), tr("Toutes les versions, comparer"), false}};
+    if (it->ignored) left.push_back({comps + 6, tr("Sauvegarder de nouveau"), {}, false});
+    const std::size_t safe = left.size();
+    if (!it->ignored) left.push_back({comps + 6, tr("Ne plus sauvegarder…"), {}, true});
+    if (has_console_save(it->title_id)) left.push_back({comps + 9, tr("Supprimer la partie de la console…"), {}, true});
+    std::vector<Line> right;
+    if (installable) right.push_back({comps + 11, tr("Installer…"), tr("le monter là où il est, ou sur un autre disque ou une autre PS5"), false});
+    right.push_back({comps + 7, tr("Envoyer à une PS5…"), {}, false});
+    right.push_back({comps + 10, tr("Partager ma copie…"), {}, false});
+    if (tools) right.push_back({comps + 8, tr("Outils de l'image…"), tr("vérifier, compresser, créer un .pkg…"), false});
+    right.push_back({comps + 4, tr("Parcourir"), {}, false});
+    // Hauteurs : si tout ne tient pas (beaucoup de cases, PS5 jumelées), les lignes perdent leur sous-titre secondaire.
+    auto line_h = [](const Line& l) { return l.sub.empty() ? 56 : 80; };
+    auto col_h = [&](const std::vector<Line>& v, std::size_t sep) { int h = 0; for (std::size_t i = 0; i < v.size(); ++i) h += line_h(v[i]) + 6 + (i == sep && sep < v.size() ? 20 : 0); return h; };
+    const int checks_h = comps * 62 + (comps ? 8 : 0);
+    auto need_of = [&] { return std::max(50 + checks_h + col_h(left, safe), 50 + col_h(right, right.size())) + 312 + shift + 16 + 64; };
+    if (need_of() > 1040) { left[2].sub.clear(); for (auto& l : right) if (l.focus != comps + 11) l.sub.clear(); }
+    const int need = need_of();
+    const int pw = 1180, ph = std::clamp(need, 860, 1040), px = (1920 - pw) / 2, py = (1080 - ph) / 2;
+    const int top = py + 312 + shift;
+    // Même cadre que les autres fenêtres (charte §4.6) : ombre douce, bandeau d'en-tête.
+    window_frame(s, px, py, pw, ph, 296);
     cover(s, *it, px + 48, py + 48, 200, false);
     std::string eyebrow = it->kind == "rom" ? it->platform : it->kind == "app" ? tr("Application") : "PS5";
     if (!it->title_id.empty()) eyebrow += " · " + it->title_id;
@@ -3140,7 +3852,7 @@ void Ui::draw_sheet(Surface& s) {
     if (img != tr_images_.end()) {  // le vrai disque des données, et comment le jeu est installé
         const Json& g = img->second;
         const std::string st = g["storage"].as_string();
-        chips.push_back(g["disk"]["label"].as_string());
+        chips.push_back(tr(g["disk"]["label"].as_string().c_str()));  // « Interne » vient du moteur : traduit ici
         chips.push_back(st == "native" ? std::string(tr("Installé (natif)")) : st == "image" ? trf("Image .%s", g["container"].as_string().c_str()) : std::string(tr("Dossier")));
         if (g["running"].as_bool()) chips.push_back(tr("En cours de jeu"));
         else if (g["mounted"].as_bool()) chips.push_back(tr("Monté"));
@@ -3149,6 +3861,10 @@ void Ui::draw_sheet(Surface& s) {
         if (!it->image_type.empty()) chips.push_back(it->image_type);
     }
     for (const auto& a : it->apps) chips.push_back(a);
+    if (it->via.is_object()) {  // Orbit / BlackBox : d'où il vient, et s'il est déjà sauvegardé
+        chips.push_back(trf("Arrivé par %s", it->via["app_name"].as_string().c_str()));
+        if (!it->via["saved"].as_bool()) chips.push_back(tr("Pas encore sauvegardé"));
+    }
     for (const auto& c : chips) {
         const int w = Surface::measure(c, small) + 20;
         s.rect(cx, py + 134, w, 30, color::panel2, 8);
@@ -3169,7 +3885,7 @@ void Ui::draw_sheet(Surface& s) {
         if (c != compat_.end() && c->second["state"].is_string()) {
             const Json& cj = c->second;
             const std::string st = cj["state"].as_string();
-            auto col_of = [](const std::string& x) { return x == "system_ok" || x == "verified" ? color::ok : x == "backport_present" ? color::warn : x == "no_backport" || x == "incompatible_known" ? color::bad : color::muted; };
+            auto col_of = [](const std::string& x) { return x == "system_ok" || x == "verified" ? color::ok : x == "backport_present" ? color::warn : x == "no_backport" || x == "backport_insufficient" || x == "incompatible_known" ? color::bad : color::muted; };
             const std::uint32_t col = col_of(st);
             const Json& id = cj["identity"];
             std::string idl;
@@ -3191,77 +3907,54 @@ void Ui::draw_sheet(Surface& s) {
             }
         }
     }
-    int shift = 0;
-    { const auto c = compat_.find(it->key); if (c != compat_.end()) shift = 34 * static_cast<int>(std::min<std::size_t>(c->second["peers"].items().size(), 2)); }
-    s.text(font_, px + 48, py + 290 + shift, tr("Que sauvegarder ?"), large, color::text);
-    int y = py + 344 + shift;
-    std::uint64_t total = 0;
-    const int comps = static_cast<int>(it->components.size());
+    sheet_btns_.clear();
+    const bool game = (it->kind == "game_ps5" || it->kind == "game_ps4" || it->kind == "rom") && it->key.rfind("save:", 0) != 0;  // une partie seule : « Actions »
+    auto draw_lines = [&](const std::vector<Line>& v, std::size_t sep, int x, int y0, int w, int col) {
+        int ry = y0;
+        for (std::size_t i = 0; i < v.size(); ++i) {
+            const Line& l = v[i];
+            if (i == sep && sep < v.size()) { s.rect(x + 16, ry + 2, w - 32, 2, color::line, 1); ry += 20; }  // trait avant ce qui retire ou efface
+            const int h = line_h(l);
+            const bool on = sheet_focus_ == l.focus;
+            const bool go = l.focus == comps + 1;  // « Sauvegarder » : l'action attendue, mise en avant
+            s.rect(x, ry, w, h, on ? color::panel2 : go ? ((color::accent2 & 0x00ffffffu) | (60u << 24)) : rgb(255, 255, 255, 10), 14);
+            if (on) s.outline(x, ry, w, h, l.bad ? color::bad : color::accent, 14, 3);
+            s.text(font_, x + 24, ry + 11, l.label, body, l.bad ? color::bad : color::text, w - 48);
+            if (!l.sub.empty()) s.text(font_, x + 24, ry + 45, l.sub, small, l.focus == comps + 3 ? color::ok : color::muted, w - 48);
+            sheet_btns_.push_back({l.focus, col, ry + h / 2});
+            ry += h + 6;
+        }
+    };
+    // Colonne de gauche : la sauvegarde — les cases, puis « Sauvegarder » juste en dessous.
+    const int lx = px + 48, lw = 520;
+    s.text(font_, lx, top, tr("Sauvegarde"), large, color::text);
+    int y = top + 50;
     for (int i = 0; i < comps; ++i) {
         const auto& c = it->components[static_cast<std::size_t>(i)];
         const bool on = !unchecked_.count(i);
-        if (on) total += c.bytes;
-        s.rect(px + 48, y, pw - 96, 56, color::bg2, 14);
-        if (sheet_focus_ == i) s.outline(px + 44, y - 4, pw - 88, 64, color::accent, 18, 3);
-        s.rect(px + 68, y + 16, 24, 24, on ? color::accent2 : color::panel2, 6);
-        if (on) for (int k = 0; k < 6; ++k) { s.rect(px + 73 + k, y + 27 + k, 3, 3, color::text); s.rect(px + 79 + k * 2 / 2 + k, y + 32 - k * 2, 3, 3, color::text); }
-        s.text(font_, px + 108, y + 13, c.label.empty() ? part_name(c.part) : c.label, body, color::text);
+        s.rect(lx, y, lw, 54, color::bg2, 14);
+        if (sheet_focus_ == i) s.outline(lx - 4, y - 4, lw + 8, 62, color::accent, 18, 3);
+        s.rect(lx + 20, y + 15, 24, 24, on ? color::accent2 : color::panel2, 6);
+        if (on) for (int k = 0; k < 6; ++k) { s.rect(lx + 25 + k, y + 26 + k, 3, 3, color::text); s.rect(lx + 31 + k * 2 / 2 + k, y + 31 - k * 2, 3, 3, color::text); }
         const auto sz = size_text(c.bytes);
-        s.text(font_, px + pw - 72 - Surface::measure(sz, body), y + 13, sz, body, color::muted);
-        y += 66;
+        const int szw = Surface::measure(sz, body);
+        s.text(font_, lx + 60, y + 12, c.label.empty() ? part_name(c.part) : c.label, body, color::text, lw - 100 - szw);
+        s.text(font_, lx + lw - 20 - szw, y + 12, sz, body, color::muted);
+        sheet_btns_.push_back({i, 0, y + 27});
+        y += 62;
     }
-    y += 12;
-    const auto& places = snap_->places;
-    const bool chosen = dest_ > 0 && dest_ <= static_cast<int>(places.size());
-    const std::string dest = trf("Destination : %s", (!chosen ? std::string(tr("automatique")) : places[static_cast<std::size_t>(dest_ - 1)].label +
-                             (places[static_cast<std::size_t>(dest_ - 1)].type == "ftp" ? std::string(" · ") + (places[static_cast<std::size_t>(dest_ - 1)].protocol == "gdrive" || places[static_cast<std::size_t>(dest_ - 1)].protocol == "s3" || places[static_cast<std::size_t>(dest_ - 1)].protocol == "onedrive" || places[static_cast<std::size_t>(dest_ - 1)].protocol == "dropbox" ? tr("nuage") : tr("réseau")) : " · " + trf("%s libres", size_text(places[static_cast<std::size_t>(dest_ - 1)].free).c_str()))).c_str());
-    const int dw = Surface::measure(dest, body) + 40;
-    s.rect(px + 48, y, dw, 52, color::bg2, 26);
-    sheet_btns_.clear();
-    if (sheet_focus_ == comps) s.outline(px + 44, y - 4, dw + 8, 60, color::accent, 30, 3);
-    s.text(font_, px + 68, y + 10, dest, body, color::text);
-    const std::string go = trf("Sauvegarder (%s)", size_text(total).c_str());
-    const int gw = Surface::measure(go, body) + 48;
-    s.rect(px + 64 + dw, y, gw, 52, color::text, 26);
-    sheet_btns_.push_back({comps, px + 48 + dw / 2, 0});
-    sheet_btns_.push_back({comps + 1, px + 64 + dw + gw / 2, 0});
-    sheet_btns_.push_back({comps + 2, px + 80 + dw + gw + 75, 0});
-    if (sheet_focus_ == comps + 1) s.outline(px + 60 + dw, y - 4, gw + 8, 60, color::accent, 30, 3);
-    s.text(font_, px + 88 + dw, y + 10, go, body, color::bg);
-    s.rect(px + 80 + dw + gw, y, 150, 52, color::panel2, 26);
-    if (sheet_focus_ == comps + 2) s.outline(px + 76 + dw + gw, y - 4, 158, 60, color::accent, 30, 3);
-    s.text(font_, px + 112 + dw + gw, y + 10, tr("Fermer"), body, color::text);
-    // Deuxième rangée : plans programmés de ce jeu, et parcourir son emplacement.
-    {
-        int bx = px + 48;
-        int by = y + 76;
-        int line = 1;
-        const bool tools = (it->kind == "game_ps5" || it->kind == "game_ps4") && it->key.rfind("save:", 0) != 0;  // sauvegarde sans le jeu : pas d'image
-        std::vector<std::pair<int, const char*>> btns = {{0, tr("Plans programmés…")}, {1, tr("Parcourir")}, {2, tr("Toutes les versions")}, {7, tr("Comparer")},
-                                                         {3, it->ignored ? tr("Sauvegarder de nouveau") : tr("Ne plus sauvegarder…")}, {4, tr("Envoyer à une PS5…")}};
-        if (tools) btns.push_back({5, tr("Outils de l'image…")});
-        if (has_console_save(it->title_id)) btns.push_back({6, tr("Supprimer la partie de la console…")});
-        for (const auto& [b, label] : btns) {
-            const int bw2 = Surface::measure(label, body) + 28;
-            if (bx + bw2 > px + pw - 48) { bx = px + 48; by += 64; ++line; }  // pas la place : ligne suivante
-            sheet_btns_.push_back({comps + 3 + b, bx + bw2 / 2, line});
-            s.rect(bx, by, bw2, 52, b == 6 ? color::panel : color::panel2, 26);
-            if (sheet_focus_ == comps + 3 + b) s.outline(bx - 4, by - 4, bw2 + 8, 60, b == 6 ? color::bad : color::accent, 30, 3);
-            s.text(font_, bx + 14, by + 10, label, body, b == 6 ? color::bad : color::text);
-            bx += bw2 + 8;
-        }
-        int n = 0;
-        for (const auto& p : plans_) for (const auto& k2 : p["items"].items()) if (k2.as_string() == it->key) ++n;
-        if (n) { const std::string t = trf("dans %d plan(s)", n); s.text(font_, px + pw - 48 - Surface::measure(t, small), by + 74, t, small, color::ok); }
-        s.text(font_, px + 48, by + 74, tr("La sauvegarde continue même si vous fermez l'application."), small, color::muted);
-    }
-    if ((it->kind == "game_ps5" || it->kind == "game_ps4") && it->key.rfind("save:", 0) != 0) draw_footer(s, {{0, tr("Cocher / choisir")}, {3, tr("Outils de l'image")}, {-1, tr("Haut / bas  parcourir")}, {1, tr("Fermer")}});
-    else draw_footer(s, {{0, tr("Cocher / choisir")}, {-1, tr("Haut / bas  parcourir")}, {1, tr("Fermer")}});
+    draw_lines(left, safe, lx, y + (comps ? 8 : 0), lw, 0);
+    // Colonne de droite : ce qu'on fait du jeu.
+    const int rx = px + 608, rw = pw - 608 - 48;
+    s.text(font_, rx, top, game ? tr("Le jeu") : tr("Actions"), large, color::text);
+    draw_lines(right, right.size(), rx, top + 50, rw, 1);
+    help_in(px, py, pw, ph);
+    if (tools) draw_footer(s, {{0, tr("Choisir")}, {2, tr("Destination")}, {3, tr("Outils de l'image")}, {1, tr("Fermer")}});
+    else draw_footer(s, {{0, tr("Choisir")}, {2, tr("Destination")}, {1, tr("Fermer")}});
 }
 
 void Ui::draw_destinations(Surface& s) {
-    s.text(font_, margin, 112, tr("Appareils"), title, color::text);
-    s.text(font_, margin, 190, tr("Les disques sont reconnus par leur témoin, même s'ils changent de port USB."), body, color::muted);
+    draw_page_head(s, tr("Appareils"), tr("Vos disques, NAS, nuages, Switch et PS5."));
     if (!switches_loaded_ || now_ - switches_loaded_ > 15000) load_remotes();
     {   // pendant la mise à jour d'une autre PS5 : son avancement toutes les 2 s
         const bool pushing = !upd_push_["state"].as_string().empty() && !upd_push_.has("finished");
@@ -3279,8 +3972,17 @@ void Ui::draw_destinations(Surface& s) {
     }
     int n_cards = static_cast<int>(entries.size());
     const int rows = std::max(1, (n_cards + 2) / 3), ah = 150, row_gap = 16;
-    const int ch = std::clamp((975 - 244 - (36 + ah + 12) - (rows - 1) * row_gap) / rows, 120, 176), cw = 552, gap = 36;
-    int x = margin, y = 244;
+    // Les cartes gardent leur hauteur (plus basses, leurs pastilles et les disques d'une autre PS5 débordaient sur les voisines) :
+    // si tout ne tient plus (une famille ouverte, beaucoup d'appareils), la page défile pour montrer la rangée choisie.
+    const int ch = 176, cw = 552, gap = 36;
+    const int total_h = rows * ch + (rows - 1) * row_gap + 6 + 36 + ah, avail = 975 - 244;
+    int scroll = 0;
+    if (total_h > avail) {
+        const int frow = std::min(dest_sel_, std::max(0, n_cards - 1)) / 3;
+        scroll = dest_zone_ == 1 ? total_h - avail : std::clamp(frow * (ch + row_gap) + ch + 40 - avail, 0, total_h - avail);
+    }
+    s.push_clip(0, 222, 1920, 975 - 222);
+    int x = margin, y = 244 - scroll;
     auto next = [&] { x += cw + gap; if (x + cw > 1920 - margin + 1) { x = margin; y += ch + row_gap; } };
     // Carte : l'image de l'appareil à gauche (PS5, disque, Switch…), le reste à droite.
     int card_index = 0;
@@ -3289,7 +3991,7 @@ void Ui::draw_destinations(Surface& s) {
         if (focus) for (int g = 3; g >= 1; --g) s.rect(x - g * 5, y - g * 5, cw + g * 10, ch + g * 10, rgb(80, 150, 255, 20), 22 + g * 5);
         s.rect(x + 6, y + 10, cw, ch, rgb(0, 0, 0, 70), 22);
         s.rect(x, y, cw, ch, color::panel, 22);
-        s.fade(x, y, 200, ch, rgb(124, 196, 255, 28), true, true);
+        rounded_fade(s, x, y, 200, ch, rgb(124, 196, 255, 28), 22);
         s.outline(x, y, cw, ch, focus ? color::accent : highlight ? color::accent2 : color::line, 22, focus ? 4 : 2);
         const int im = std::min(150, ch - 16);
         if (devices_[dev].valid()) s.image(devices_[dev], x + 20 + (150 - im) / 2, y + (ch - im) / 2, im, im);
@@ -3313,7 +4015,7 @@ void Ui::draw_destinations(Surface& s) {
         for (const auto& r : remotes_all_.items()) { if (dest_fam(k) == fam) list += (list.empty() ? "" : " · ") + r["name"].as_string(); ++k; }
         s.text(font_, tx, y + 66, list, small, color::muted, tw);
         if (fam == "ps5") s.text(font_, tx, y + 110, trf("%s libres", size_text(free).c_str()), body, color::text, tw);
-        else s.text(font_, tx, y + 110, tr("Croix : voir les appareils"), small, color::accent, tw);
+        else s.text(font_, tx, y + 110, fam == "cloud" ? tr("Voir les services ›") : tr("Voir les appareils ›"), small, color::accent, tw);  // le nuage : des services, pas des appareils
     };
     int oi = 0;  // rang de la carte dans l'ancienne liste
     for (const auto& p : snap_->places) {
@@ -3336,13 +4038,24 @@ void Ui::draw_destinations(Surface& s) {
         { const int me = oi++; if (vis[static_cast<std::size_t>(me)] == 2) continue; if (vis[static_cast<std::size_t>(me)] == 1) { group_card(me); next(); continue; } }
         const bool sw = r["type"].as_string() == "switch";
         const bool drive = r["type"].as_string() == "gdrive" || r["type"].as_string() == "onedrive" || r["type"].as_string() == "dropbox";
-        const bool s3 = r["type"].as_string() == "s3" || drive;  // stockage dans le nuage : image du nuage
-        const std::string service = r["config"]["service"].as_string();
+        const bool share = r["type"].as_string() == "share";  // lien de partage reçu : lecture seule, temporaire
+        const bool s3 = r["type"].as_string() == "s3" || r["type"].as_string() == "mega" || drive || share;  // stockage dans le nuage : image du nuage
+        const std::string service = share ? r["config"]["host"].as_string() : r["config"]["service"].as_string();
         card(sw ? dev_switch : s3 ? cloud_dev(r["type"].as_string(), service) : dev_nas, false);  // nuage : logo du service ; FTP = un NAS (boîtier)
         const int tx = x + 200, tw = cw - 220;
-        const char* tag = sw ? "Switch" : drive ? (r["type"].as_string() == "gdrive" ? "Drive" : r["type"].as_string() == "dropbox" ? "Dropbox" : "OneDrive") : s3 ? (service == "b2" ? "B2" : "S3") : r["type"].as_string() == "webdav" ? "WebDAV" : "FTP";
+        const char* tag = share ? tr("Partage") : sw ? "Switch" : drive ? (r["type"].as_string() == "gdrive" ? "Drive" : r["type"].as_string() == "dropbox" ? "Dropbox" : "OneDrive") : r["type"].as_string() == "mega" ? "MEGA" : s3 ? (service == "b2" ? "B2" : "S3") : r["type"].as_string() == "webdav" ? "WebDAV" : "FTP";
         card_title(s, tx, y, r["name"].as_string(), cw - 20 - Surface::measure(tag, small) - 16 - (tx - x));  // le nom s'arrête avant l'étiquette
-        s.text(font_, x + cw - 20 - Surface::measure(tag, small), y + 30, tag, small, sw ? rgb(255, 120, 120) : color::accent);
+        s.text(font_, x + cw - 20 - Surface::measure(tag, small), y + 30, tag, small, sw ? rgb(255, 120, 120) : share ? rgb(180, 140, 255) : color::accent);
+        if (share) {  // service, lecture seule, temps restant
+            s.text(font_, tx, y + 66, std::string(service == "mega" ? "MEGA" : service == "gdrive" ? "Google Drive" : service == "dropbox" ? "Dropbox" : service == "onedrive" ? "OneDrive" : service) + " · " + tr("lecture seule"), small, color::muted, tw);
+            const std::int64_t exp = r["config"]["expires"].as_int(), left = exp ? (exp - static_cast<std::int64_t>(std::time(nullptr)) + 86399) / 86400 : 0;
+            const std::string when = !exp ? std::string(tr("gardé jusqu'à ce que vous l'enleviez")) : left <= 1 ? std::string(tr("expire aujourd'hui")) : trf("expire dans %d j", static_cast<int>(left));
+            const int lw = Surface::measure(when, small) + 28;
+            s.rect(tx, y + 104, lw, 36, rgb(180, 140, 255, 50), 18);
+            s.text(font_, tx + 14, y + 108, when, small, rgb(200, 175, 255));
+            next();
+            continue;
+        }
         const std::string where = drive ? r["config"]["bucket"].as_string() : !s3 ? r["config"]["host"].as_string() + ":" + std::to_string(r["config"]["port"].as_int())
             : (service == "b2" ? std::string("Backblaze B2") : service == "other" ? r["config"]["host"].as_string() : std::string("Amazon S3")) +
               (r["config"]["region"].as_string().empty() ? std::string() : " · " + r["config"]["region"].as_string()) + " · " + r["config"]["bucket"].as_string();
@@ -3483,9 +4196,8 @@ void Ui::draw_destinations(Surface& s) {
     }
     if (x != margin) { x = margin; y += ch + row_gap; }
     // Ajouter un appareil : tout ce que l'app saura joindre, avec sa vraie image.
-    y = std::max(y + 6, 0);
+    y += 6;
     s.text(font_, margin, y, tr("AJOUTER UN APPAREIL"), small, color::accent);
-    s.text(font_, margin + Surface::measure(tr("AJOUTER UN APPAREIL"), small) + 18, y, tr("Bas pour choisir, Croix pour ajouter"), small, color::muted);
     struct Add { int dev; const char* name; const char* sub; bool logo; };
     static const Add adds[] = {{dev_internal, "PlayStation 5", N_("une autre PS5"), false}, {dev_internal, N_("PS5 à distance"), N_("par Internet"), false},
                                {dev_usb, N_("Disque USB"), N_("disque externe"), false}, {dev_switch, "Switch", N_("réseau ou USB"), false},
@@ -3515,6 +4227,7 @@ void Ui::draw_destinations(Surface& s) {
         const int sw = Surface::measure(tr(adds[i].sub), small);
         s.text(font_, ax + std::max(8, (aw - sw) / 2), ay + 118, tr(adds[i].sub), small, color::muted, aw - 16);
     }
+    s.pop_clip();
     if (dest_zone_ == 0) draw_footer(s, {{0, tr("Disque par défaut / Réglages")}, {-1, tr("Options : actions")}, {3, tr("Parcourir")}, {-1, tr("Bas : ajouter un appareil")}});
     else draw_footer(s, {{0, tr("Ajouter")}, {-1, tr("Gauche / droite")}, {-1, tr("Haut : vos appareils")}});
 }
@@ -3529,7 +4242,7 @@ std::string Ui::dest_fam(int old) const {
     const int ri = old - np;
     if (ri < static_cast<int>(remotes_all_.size())) {
         const std::string t = remotes_all_[static_cast<std::size_t>(ri)]["type"].as_string();
-        return t == "switch" ? "switch" : (t == "s3" || t == "gdrive" || t == "onedrive" || t == "dropbox") ? "cloud" : "nas";
+        return t == "switch" ? "switch" : (cloud_proto(t)) ? "cloud" : "nas";
     }
     return "peer:" + std::to_string(old);  // chaque autre PS5 reste seule (ses disques sont déjà dans sa carte)
 }
@@ -3616,7 +4329,19 @@ void Ui::input_destinations(std::uint32_t k) {
                 acts.push_back({tr("Ses parties"), [this, remote_id] { open_switch_sync(remote_id); }});
                 acts.push_back({tr("Synchroniser"), [this, remote_id] { open_switch_sync(remote_id); }});
             }
-            if (type == "usb" || type == "ftp") acts.push_back({tr("Ses sauvegardes"), [this, place_id] {
+            if (type == "share") {  // partage reçu : le garder plus longtemps, ou le retirer (rien n'est effacé nulle part)
+                acts.push_back({tr("Garder plus longtemps…"), [this, remote_id] { open_editor(remote_id, "share"); }});
+                acts.push_back({tr("Retirer ce partage…"), [this, remote_id, title] {
+                    open_actions(trf("Retirer « %s » ?", title.c_str()), {{tr("Oui, retirer (rien n'est effacé, ni chez vous ni chez la personne qui partage)"), [this, remote_id] {
+                        model_.command("POST", "/api/v2/remotes/" + remote_id + "/forget", "{}", [this](const std::string& e, const std::string&) {
+                            post_toast(e.empty() ? tr("Partage retiré") : e);
+                            std::lock_guard<std::mutex> l(async_mu_);
+                            switches_loaded_ = 0;
+                        });
+                    }}, {tr("Annuler"), [] {}}});
+                }});
+            }
+            if (type == "usb" || type == "ftp" || type == "share") acts.push_back({tr("Ses sauvegardes"), [this, place_id] {
                 const auto pl = mg_places();
                 for (std::size_t i = 0; i < pl.size(); ++i) if (pl[i]->id == place_id || pl[i]->id == "remote:" + place_id) mg_place_ = static_cast<int>(i) + 1;
                 tab_ = backups; mg_screen_ = 0; mg_zone_ = 1; mg_row_ = 0;
@@ -3654,6 +4379,7 @@ void Ui::open_add_service() {
         {tr("Switch"), [this] { add_device(3); }},
         {tr("NAS (Synology, QNAP, FTP, SMB, WebDAV)"), [this] { add_device(6); }},
         {tr("Nuage (Google Drive, OneDrive, Dropbox, S3…)"), [this] { add_device(7); }},
+        {tr("Lien de partage (reçu de quelqu'un)"), [this] { open_editor("", "share"); }},
         {tr("Annuler"), [] {}},
     });
 }
@@ -3680,9 +4406,10 @@ void Ui::add_device(int which) {
                     toast(tr(hint));
                 };
             };
-            std::vector<std::pair<std::string, std::function<void()>>> items = {{"Google Drive", [this] { open_cloud_link("gdrive"); }}, {"OneDrive", [this] { open_cloud_link("onedrive"); }},
-                                                                           {"Dropbox", [this] { open_cloud_link("dropbox"); }}};
-            std::vector<std::string> subs = {tr("connexion par code"), tr("connexion par code"), tr("depuis le téléphone")};
+            std::vector<std::pair<std::string, std::function<void()>>> items = {{tr("Lien de partage"), [this] { open_editor("", "share"); }},
+                                                                           {"Google Drive", [this] { open_cloud_link("gdrive"); }}, {"OneDrive", [this] { open_cloud_link("onedrive"); }},
+                                                                           {"Dropbox", [this] { open_cloud_link("dropbox"); }}, {"MEGA", [this] { open_editor("", "mega"); }}};
+            std::vector<std::string> subs = {tr("reçu de quelqu'un : MEGA, Google Drive, Dropbox, OneDrive"), tr("connexion par code"), tr("connexion par code"), tr("depuis le téléphone"), tr("e-mail et mot de passe")};
             for (const auto& x : kS3Services) {
                 if (std::string(x.id) == "other") continue;
                 items.push_back({x.name, s3(x.id)});
@@ -3769,6 +4496,15 @@ void Ui::offer_reopen(const std::string& v) {
             reopen_deadline_ = front ? now_ + 15000 : 0;
         });
     });
+}
+
+void Ui::preview_reopen(const std::string& v) {
+    std::vector<std::pair<std::string, std::function<void()>>> acts;
+    acts.push_back({tr("Rouvrir maintenant"), [this] { reopen_popup_ = false; reopen_deadline_ = 0; }});
+    acts.push_back({tr("Plus tard"), [this] { reopen_popup_ = false; reopen_deadline_ = 0; }});
+    open_actions(trf("Backup Center %s est prête", v.c_str()), std::move(acts));
+    popup_note_ = trf("L'appli ouverte est encore en %s : rouvrez-la pour voir les nouveautés (environ 5 s). Le jeu en cours n'est pas touché.", app_version);
+    reopen_popup_ = true; reopen_kind_ = 2; reopen_deadline_ = now_ + 15000;
 }
 
 // Mise à jour installée, moteur encore à l'ancienne version : relancer le moteur (minuteur de 15 s si Backup Center est
@@ -3961,7 +4697,7 @@ void Ui::open_peer_menu(const Json& p, const Json& st) {
     }});
     sub.push_back({tr("Envoyer une sauvegarde…"), [this, name] {
         tab_ = parties; pt_zone_ = 1;
-        toast(trf("Choisissez une partie, puis Options › « Envoyer la sauvegarde à une PS5… » (vers %s).", name.c_str()));
+        toast(trf("Choisissez une partie, puis Actions › « Envoyer la sauvegarde à une PS5… » (vers %s).", name.c_str()));
     }});
     sub.push_back({tr("Fermer l'application ouverte…"), [this, inst, name] {
         model_.command("GET", "/api/v2/link/peer?instance=" + inst + "&what=foreground", "", [this, inst, name](const std::string& e, const std::string& body) {
@@ -4015,7 +4751,7 @@ void Ui::open_other_ps5() {
         steps.push_back({tr("1. Installez Backup Center sur les deux PS5, sur le même réseau."), [] {}});
         steps.push_back({tr("2. Sur l'une, choisissez l'autre PS5 dans cette liste."), [] {}});
         steps.push_back({tr("3. Tapez le code affiché sur la télé de l'autre PS5. C'est tout : le lien marche dans les deux sens."), [] {}});
-        steps.push_back({tr("Ensuite : Sauvegardes › un jeu › Options › « Envoyer à … »."), [] {}});
+        steps.push_back({tr("Ensuite : Sauvegardes › un jeu › Actions › « Envoyer à … »."), [] {}});
         open_actions(tr("Deux PS5 qui travaillent ensemble"), std::move(steps));
     }});
     open_actions(tr("Une autre PS5"), std::move(acts));
@@ -4203,7 +4939,8 @@ void Ui::wan_test(const std::string& inst, const std::string& name) {
 // Image d'un stockage dans le nuage : le logo de son service (Google Drive, Dropbox, OneDrive, Backblaze, Amazon),
 // sinon le nuage (Wasabi, R2, Scaleway…, ou logo absent).
 int Ui::cloud_dev(const std::string& type, const std::string& service) const {
-    const int d = type == "gdrive" ? dev_gdrive : type == "dropbox" ? dev_dropbox : type == "onedrive" ? dev_onedrive
+    if (type == "share") return service == "mega" || service == "gdrive" || service == "dropbox" || service == "onedrive" ? cloud_dev(service, "") : dev_cloud;  // partage reçu : logo de son service
+    const int d = type == "gdrive" ? dev_gdrive : type == "dropbox" ? dev_dropbox : type == "onedrive" ? dev_onedrive : type == "mega" || (type == "share" && service == "mega") ? dev_mega
                 : type == "s3" && service == "b2" ? dev_b2 : type == "s3" && service == "aws" ? dev_aws : dev_cloud;
     return devices_[d].valid() ? d : dev_cloud;
 }
@@ -4229,6 +4966,8 @@ void Ui::open_editor(const std::string& id, const std::string& type) {
             if (r["type"].as_string() == "smb" || r["type"].as_string() == "webdav") ed_type_ = r["type"].as_string();
             if (r["config"]["proto"].as_string() == "smb") proto = "smb";
             if (r["type"].as_string() == "gdrive" || r["type"].as_string() == "onedrive" || r["type"].as_string() == "dropbox") { ed_type_ = r["type"].as_string(); bucket = r["config"]["bucket"].as_string(); }
+            if (r["type"].as_string() == "mega") ed_type_ = "mega";
+            if (r["type"].as_string() == "share") { ed_type_ = "share"; ed_service_ = host; }
             if (r["type"].as_string() == "s3") {
                 ed_type_ = "s3";
                 ed_service_ = r["config"]["service"].as_string();
@@ -4240,6 +4979,25 @@ void Ui::open_editor(const std::string& id, const std::string& type) {
     if (ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox") {  // compte connecté par code : rien à saisir que le nom et l'usage
         // Comme un NAS : les sauvegardes dans « PBC Backup » (créé à l'enregistrement), sauvegardes et synchro par défaut.
         ed_fields_ = {{N_("Compte"), bucket}, {N_("Nom"), name.empty() ? bucket : name}, {N_("Dossier"), id.empty() ? std::string("/PBC Backup") : root},
+                      {N_("Utilisé pour"), use == "backups" ? N_("Sauvegardes seulement") : use == "sync" ? N_("Synchro seulement") : N_("Sauvegardes et Synchro")}};
+        return;
+    }
+    if (ed_type_ == "share") {  // lien de partage reçu : le lien (collé depuis le téléphone, plus simple), un nom, combien de temps
+        ed_fields_.clear();
+        if (id.empty()) { ed_service_.clear(); ed_fields_.push_back({N_("Lien"), ""}); }
+        ed_fields_.push_back({N_("Nom"), name});
+        ed_fields_.push_back({N_("Garder"), N_("7 jours")});
+        ed_qr_ = Json();
+        if (id.empty())
+            model_.command("GET", "/api/v2/web-link?place=share", "", [this](const std::string& e, const std::string& body) {
+                Json j;
+                if (e.empty() && Json::parse(body, j)) { std::lock_guard<std::mutex> l(async_mu_); pending_ed_qr_ = j; has_pending_ed_qr_ = true; }
+            });
+        return;
+    }
+    if (ed_type_ == "mega") {  // MEGA : e-mail et mot de passe du compte (gardés sur la console, le mot de passe jamais affiché)
+        ed_fields_ = {{N_("Nom"), name.empty() ? std::string("MEGA") : name}, {N_("E-mail"), user == "anonymous" ? "" : user}, {N_("Mot de passe"), ""},
+                      {N_("Dossier"), id.empty() ? std::string("/") : root},
                       {N_("Utilisé pour"), use == "backups" ? N_("Sauvegardes seulement") : use == "sync" ? N_("Synchro seulement") : N_("Sauvegardes et Synchro")}};
         return;
     }
@@ -4284,6 +5042,31 @@ Json Ui::ed_s3_body() const {
     return c;
 }
 
+Json Ui::ed_share_body() const {
+    Json c = Json::object();
+    const std::string keep = ed_field("Garder");
+    c.set("type", "share");
+    c.set("id", ed_id_);
+    c.set("url", ed_field("Lien"));
+    c.set("password", ed_field("Lien"));  // pour « Tester » (le moteur reprend le lien gardé s'il est vide)
+    c.set("name", ed_field("Nom"));
+    c.set("days", keep == "1 jour" ? 1 : keep == "30 jours" ? 30 : keep == "Jusqu'à ce que je l'enlève" ? 0 : 7);
+    return c;
+}
+
+Json Ui::ed_mega_body() const {
+    Json c = Json::object();
+    const std::string use = ed_field("Utilisé pour");
+    c.set("type", "mega");
+    c.set("id", ed_id_);
+    c.set("name", ed_field("Nom"));
+    c.set("user", ed_field("E-mail"));
+    c.set("password", ed_field("Mot de passe"));  // vide en réglage : le moteur garde l'ancien
+    c.set("root", ed_field("Dossier").empty() ? std::string("/") : ed_field("Dossier"));
+    c.set("use", use == "Sauvegardes seulement" ? "backups" : use == "Synchro seulement" ? "sync" : "both");
+    return c;
+}
+
 Json Ui::ed_drive_body() const {
     Json c = Json::object();
     const std::string use = ed_field("Utilisé pour");
@@ -4319,7 +5102,7 @@ void Ui::open_cloud_link(const std::string& provider) {
 }
 
 void Ui::input_cloud_link(std::uint32_t k) {
-    if (k & key::circle) { cl_open_ = false; return; }
+    if (k & key::circle) { cl_open_ = false; cl_reconnect_.clear(); return; }
     if ((k & key::square) && cl_state_ != "starting") open_cloud_link(cl_provider_);  // nouveau code
 }
 
@@ -4341,12 +5124,26 @@ void Ui::draw_cloud_link(Surface& s) {
             }
         }
     }
+    if (cl_state_ == "ok" && !cl_reconnect_.empty()) {  // reconnexion d'un compte déjà là : rien d'autre ne change
+        cl_open_ = false;
+        Json b = Json::object();
+        b.set("reconnect", true);
+        b.set("link", cl_id_);
+        const std::string id = cl_reconnect_;
+        cl_reconnect_.clear();
+        model_.command("POST", "/api/v2/remotes/" + id + "/update", b.dump(), [this](const std::string& e, const std::string&) {
+            post_toast(e.empty() ? std::string(tr("Compte reconnecté : rien d'autre ne change")) : trf("Connexion impossible : %s", e.c_str()));
+            std::lock_guard<std::mutex> l(async_mu_);
+            switches_loaded_ = 0;
+        });
+        return;
+    }
     if (cl_state_ == "ok") {  // accepté : le réglage du compte s'ouvre, connexion reprise à l'enregistrement
         cl_open_ = false;
         const std::string link = cl_id_, account = cl_status_["account"].as_string();
         open_editor("", cl_provider_);
         ed_link_ = link;
-        // Display the service device name separately from the account name.
+        // Nom de l'appareil : celui du service (comme « example-xp7-01 » pour un NAS) ; le compte reste affiché à part.
         const std::string svc = cl_provider_ == "gdrive" ? "Google Drive" : cl_provider_ == "dropbox" ? "Dropbox" : "OneDrive";
         for (auto& f : ed_fields_) { if (f.first == "Compte") f.second = account; if (f.first == "Nom") f.second = svc; }
         if (cl_status_["total"].as_int() > 0)
@@ -4369,9 +5166,8 @@ void Ui::draw_cloud_link(Surface& s) {
     const char* name = g ? "Google Drive" : dbx ? "Dropbox" : "OneDrive";
     s.rect(0, 0, 1920, 1080, rgb(2, 8, 20, 170));
     const int w = 1240, h = 640, x = (1920 - w) / 2, y = 170;
-    s.rect(x + 10, y + 14, w, h, rgb(0, 0, 0, 120), 30);
-    s.rect(x, y, w, h, color::panel, 30);
-    s.outline(x, y, w, h, color::line, 30, 2);
+    window_frame(s, x, y, w, h + 64, 148);
+    help_in(x, y, w, h + 64);  // l'aide de la fenêtre, en bas dans le cadre
     if (devices_[cloud_dev(cl_provider_)].valid()) s.image(devices_[cloud_dev(cl_provider_)], x + 36, y + 26, 96, 96);
     s.text(font_, x + 150, y + 36, trf("Connecter %s", name), large, color::text);
     s.text(font_, x + 150, y + 84, tr("Rien à taper ici : la connexion se fait sur votre téléphone, chez le service."), small, color::muted, w - 190);
@@ -4398,7 +5194,7 @@ void Ui::draw_cloud_link(Surface& s) {
                                  N_("3. Dropbox affiche un code : copiez-le et collez-le sur la page.")})
             for (const auto& line : wrap(tr(step), body, tw)) { s.text(font_, tx, ty, line, body, color::muted); ty += 40; }
         const int sy = qy + qs - 30;
-        if (cl_state_ == "expired") s.text(font_, tx, sy, tr("Code expiré. Carré : nouveau code."), body, color::warn, tw);
+        if (cl_state_ == "expired") s.text(font_, tx, sy, tr("Code expiré : demandez-en un nouveau."), body, color::warn, tw);
         else { spinner(s, tx + 16, sy + 18, 14); s.text(font_, tx + 44, sy, tr("En attente du téléphone…"), body, color::accent, tw - 44); }
     } else {
         std::string url = cl_url_;
@@ -4411,8 +5207,8 @@ void Ui::draw_cloud_link(Surface& s) {
         int ly = ty + 262;  // l'étape 3 tient sur deux lignes : l'attente passe dessous, sans la chevaucher
         for (const auto& line : wrap(tr("3. Connectez-vous (e-mail, mot de passe, code de validation…) et acceptez."), body, tw)) { s.text(font_, tx, ly, line, body, color::muted); ly += 40; }
         const int sy = std::max(qy + qs - 30, ly + 16);
-        if (cl_state_ == "denied") s.text(font_, tx, sy, tr("Refusé sur le téléphone. Carré : nouveau code."), body, color::bad, tw);
-        else if (cl_state_ == "expired") s.text(font_, tx, sy, tr("Code expiré. Carré : nouveau code."), body, color::warn, tw);
+        if (cl_state_ == "denied") s.text(font_, tx, sy, tr("Refusé sur le téléphone : demandez un nouveau code."), body, color::bad, tw);
+        else if (cl_state_ == "expired") s.text(font_, tx, sy, tr("Code expiré : demandez-en un nouveau."), body, color::warn, tw);
         else { spinner(s, tx + 16, sy + 18, 14); s.text(font_, tx + 44, sy, tr("En attente de votre accord…"), body, color::accent, tw - 44); }
     }
     s.text(font_, x + 50, y + h - 56, tr("L'appli n'aura accès qu'à son propre dossier, jamais à vos autres fichiers."), small, color::muted, w - 100);
@@ -4430,14 +5226,25 @@ void Ui::input_editor(std::uint32_t k) {
     const int fields = static_cast<int>(ed_fields_.size());
     // Actions : Enregistrer, Tester (+ Ranger sous PBC Backup pour un NAS / FTP, Oublier pour un appareil existant)
     std::vector<int> acts{0, 1};
-    if (!ed_id_.empty()) acts.push_back(3);  // mêmes actions pour tous les appareils (NAS, FTP, Switch)
+    if (!ed_id_.empty() && ed_type_ != "share") acts.push_back(3);  // mêmes actions pour tous les appareils (NAS, FTP, Switch) ; rien à ranger dans un partage
     if (!ed_id_.empty()) acts.push_back(2);
     const int actions = static_cast<int>(acts.size());
     if (k & key::up) ed_row_ = std::max(0, ed_row_ - 1);
     if (k & key::down) ed_row_ = std::min(fields + actions - 1, ed_row_ + 1);
     if (k & key::circle) { ed_open_ = false; return; }
     if (!(k & key::cross)) return;
-    if (ed_row_ < fields && ed_fields_[static_cast<std::size_t>(ed_row_)].first == "Compte") { toast(tr("Pour changer de compte : Oublier, puis reconnecter.")); return; }
+    if (ed_row_ < fields && ed_fields_[static_cast<std::size_t>(ed_row_)].first == "Compte") {
+        // Compte déjà réglé : Croix le reconnecte (mêmes réglages, nouveau jeton — par exemple après un nouveau droit de
+        // l'appli). Changer de compte : Oublier, puis reconnecter.
+        if (!ed_id_.empty() && (ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox")) {
+            cl_reconnect_ = ed_id_;
+            ed_open_ = false;
+            open_cloud_link(ed_type_);
+            return;
+        }
+        toast(tr("Pour changer de compte : Oublier, puis reconnecter."));
+        return;
+    }
     if (ed_type_ == "s3" && ed_row_ < fields && ed_fields_[static_cast<std::size_t>(ed_row_)].first == "Service") {  // Amazon → Backblaze → autre
         const std::string before = ed_service_;
         constexpr int count = sizeof kS3Services / sizeof kS3Services[0];
@@ -4472,6 +5279,11 @@ void Ui::input_editor(std::uint32_t k) {
         v = v == "Sauvegardes et Synchro" ? N_("Sauvegardes seulement") : v == "Sauvegardes seulement" ? N_("Synchro seulement") : N_("Sauvegardes et Synchro");
         return;
     }
+    if (ed_row_ < fields && ed_fields_[static_cast<std::size_t>(ed_row_)].first == "Garder") {  // 1 jour → 7 → 30 → jusqu'à ce qu'on l'enlève
+        auto& v = ed_fields_[static_cast<std::size_t>(ed_row_)].second;
+        v = v == "1 jour" ? N_("7 jours") : v == "7 jours" ? N_("30 jours") : v == "30 jours" ? N_("Jusqu'à ce que je l'enlève") : N_("1 jour");
+        return;
+    }
     if (ed_row_ < fields && ed_fields_[static_cast<std::size_t>(ed_row_)].first == "Rangement") {  // bascule, sans clavier
         auto& v = ed_fields_[static_cast<std::size_t>(ed_row_)].second;
         v = v == "Dossier PBC Backup" ? N_("Par plateforme (PS5 backup…)") : N_("Dossier PBC Backup");
@@ -4482,10 +5294,11 @@ void Ui::input_editor(std::uint32_t k) {
     if (ed_row_ < fields && ed_fields_[static_cast<std::size_t>(ed_row_)].first == "Dossier") {
         const int row = ed_row_;
         const std::string start = ed_fields_[static_cast<std::size_t>(row)].second;
-        const bool cloudy = ed_type_ == "s3" || ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox";
+        const bool cloudy = cloud_proto(ed_type_);
         if (!cloudy && ed_fields_[1].second.empty()) { toast(tr("Saisissez d'abord l'adresse IP de l'appareil")); return; }
         Json c = Json::object();
         if (ed_type_ == "s3") c = ed_s3_body();
+        else if (ed_type_ == "mega") c = ed_mega_body();
         else if (ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox") c = ed_drive_body();  // 4 champs seulement : pas d'adresse
         else {
             c.set("type", ed_type_);
@@ -4529,7 +5342,7 @@ void Ui::input_editor(std::uint32_t k) {
     }
     // Google Drive, OneDrive, Dropbox : 4 champs seulement (Compte, Nom, Dossier, Utilisé pour). La demande d'un NAS lit les
     // champs 1 à 5 : on ne la construit que pour un NAS ou une Switch (sinon lecture hors de la liste → plantage).
-    const bool cloud_form = ed_type_ == "s3" || ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox";
+    const bool cloud_form = cloud_proto(ed_type_);
     if (a == 0) {  // Enregistrer : le moteur teste la connexion avant
         ed_count0_ = -1;
         std::string body = cloud_form ? std::string() : "{\"type\":" + json_str(ed_type_) + ",\"name\":" + json_str(ed_fields_[0].second) + ",\"host\":" + json_str(ed_fields_[1].second) +
@@ -4540,11 +5353,18 @@ void Ui::input_editor(std::uint32_t k) {
                            ",\"use\":" + json_str(ed_field("Utilisé pour") == "Sauvegardes seulement" ? std::string("backups") : ed_field("Utilisé pour") == "Synchro seulement" ? std::string("sync") : std::string("both")) + "}";
         if (ed_type_ == "s3") body = ed_s3_body().dump();
         if (ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox") body = ed_drive_body().dump();
+        if (ed_type_ == "mega") body = ed_mega_body().dump();
+        if (ed_type_ == "share") {
+            if (ed_id_.empty() && ed_field("Lien").empty()) { toast(tr("Collez d'abord le lien (le plus simple : depuis le téléphone, code à droite)")); return; }
+            body = ed_share_body().dump();
+        }
         ed_busy_ = true;
         const std::string path = ed_id_.empty() ? "/api/v2/remotes" : "/api/v2/remotes/" + ed_id_ + "/update";
-        model_.command("POST", path, body, [this](const std::string& e, const std::string&) {
+        const bool share = ed_type_ == "share";
+        model_.command("POST", path, body, [this, share](const std::string& e, const std::string&) {
             // Deux synchros dans le même dossier : le moteur dit laquelle a déjà ce dossier.
-            if (e.rfind("sync_taken:", 0) == 0) post_toast(trf("Ce dossier sert déjà à la synchro de « %s ». Choisissez un autre dossier, ou « Sauvegardes seulement ».", e.substr(11).c_str()));
+            if (share) post_toast(e.empty() ? tr("Partage enregistré : lecture seule") : e);
+            else if (e.rfind("sync_taken:", 0) == 0) post_toast(trf("Ce dossier sert déjà à la synchro de « %s ». Choisissez un autre dossier, ou « Sauvegardes seulement ».", e.substr(11).c_str()));
             else post_toast(e.empty() ? tr("Appareil enregistré : connexion vérifiée") : trf("Connexion impossible : %s", e.c_str()));
             std::lock_guard<std::mutex> l(async_mu_);
             ed_busy_ = false;
@@ -4559,6 +5379,20 @@ void Ui::input_editor(std::uint32_t k) {
                            ",\"proto\":" + json_str(ed_field("Protocole") == "SMB" ? std::string("smb") : std::string("ftp")) + "}";
         if (ed_type_ == "s3") body = ed_s3_body().dump();
         if (ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox") body = ed_drive_body().dump();
+        if (ed_type_ == "mega") body = ed_mega_body().dump();
+        if (ed_type_ == "share" && ed_id_.empty()) {  // ce que contient le lien
+            model_.command("POST", "/api/v2/shares/probe", ed_share_body().dump(), [this](const std::string& e, const std::string& rb) {
+                Json j;
+                Json::parse(rb, j);
+                post_toast(!e.empty() ? e : trf("%s · %s : %d fichier(s), %d dossier(s), %s", j["service"].as_string() == "mega" ? "MEGA" : j["service"].as_string() == "gdrive" ? "Google Drive" : j["service"].as_string() == "dropbox" ? "Dropbox" : j["service"].as_string() == "onedrive" ? "OneDrive" : j["service"].as_string().c_str(),
+                                                j["kind"].as_string() == "file" ? tr("fichier") : tr("dossier"), static_cast<int>(j["files"].as_int()), static_cast<int>(j["dirs"].as_int()),
+                                                size_text(static_cast<std::uint64_t>(j["bytes"].as_int())).c_str()));
+                std::lock_guard<std::mutex> l(async_mu_);
+                ed_busy_ = false;
+            });
+            return;
+        }
+        if (ed_type_ == "share") body = ed_share_body().dump();
         model_.command("POST", "/api/v2/remotes/test-config", body, [this](const std::string& e, const std::string&) {
             post_toast(e.empty() ? tr("Connexion réussie : vous pouvez enregistrer") : e);
             std::lock_guard<std::mutex> l(async_mu_);
@@ -4584,17 +5418,17 @@ void Ui::draw_editor(Surface& s) {
     }
     s.rect(0, 0, 1920, 1080, rgb(2, 8, 20, 170));
     const int w = 1000, h = 690 + std::max(0, static_cast<int>(ed_fields_.size()) - 6) * 66, x = (1920 - w) / 2, y = std::max(40, 150 - std::max(0, static_cast<int>(ed_fields_.size()) - 7) * 50);  // une ligne de plus par champ (Rangement, Protocole)
-    s.rect(x + 10, y + 14, w, h, rgb(0, 0, 0, 120), 30);
-    s.rect(x, y, w, h, color::panel, 30);
-    s.outline(x, y, w, h, color::line, 30, 2);
-    const bool sw = ed_type_ == "switch", s3 = ed_type_ == "s3", drive = ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox";
+    window_frame(s, x, y, w, h + 64, 144);
+    help_in(x, y, w, h + 64);  // l'aide de la fenêtre, en bas dans le cadre
+    const bool sw = ed_type_ == "switch", share = ed_type_ == "share", s3 = ed_type_ == "s3" || ed_type_ == "mega" || share, drive = ed_type_ == "gdrive" || ed_type_ == "onedrive" || ed_type_ == "dropbox";
     const int dev = sw ? dev_switch : s3 || drive ? cloud_dev(ed_type_, ed_service_) : dev_nas;
     if (devices_[dev].valid()) s.image(devices_[dev], x + 36, y + 26, 96, 96);
-    const std::string s3_title = trf("Ajouter un stockage %s", ed_service_ == "other" ? "S3" : s3_service(ed_service_).name);
+    const std::string s3_title = share ? std::string(tr("Ajouter un lien de partage")) : ed_type_ == "mega" ? std::string(tr("Ajouter un compte MEGA")) : trf("Ajouter un stockage %s", ed_service_ == "other" ? "S3" : s3_service(ed_service_).name);
     s.text(font_, x + 150, y + 36, drive ? (ed_type_ == "gdrive" ? "Google Drive" : ed_type_ == "dropbox" ? "Dropbox" : "OneDrive") : ed_id_.empty() ? (sw ? tr("Ajouter une Switch") : s3 ? s3_title.c_str() : ed_type_ == "smb" ? tr("Ajouter un partage SMB") : ed_type_ == "webdav" ? tr("Ajouter un NAS en WebDAV") : tr("Ajouter un serveur FTP")) : tr("Régler l'appareil"), large, color::text);
     if (s3 || drive) {  // deux lignes : la mise en garde reste lisible en entier
         int ly = y + 78;
-        for (const auto& line : wrap(tr("Par Internet : plus lent qu'un NAS. Le service peut facturer le stockage et les téléchargements."), small, w - 190)) { s.text(font_, x + 150, ly, line, small, color::muted); ly += 30; }
+        for (const auto& line : wrap(share ? tr("Lecture seule : rien n'y est jamais écrit. Transferts, Fichiers et Sauvegardes s'en servent comme d'un disque.")
+                                           : tr("Par Internet : plus lent qu'un NAS. Le service peut facturer le stockage et les téléchargements."), small, w - 190)) { s.text(font_, x + 150, ly, line, small, color::muted); ly += 30; }
     } else s.text(font_, x + 150, y + 82, sw ? tr("Sur la Switch : ftpd ouvert, l'adresse s'affiche en haut de son écran.") : tr("Adresse, port et compte du serveur (NAS, PC…)."), small, color::muted, w - 190);
     int yy = y + 146;
     for (int i = 0; i < static_cast<int>(ed_fields_.size()); ++i) {
@@ -4606,14 +5440,15 @@ void Ui::draw_editor(Surface& s) {
         std::string v = ed_fields_[static_cast<std::size_t>(i)].second;
         const std::string& fname = ed_fields_[static_cast<std::size_t>(i)].first;
         if (fname == "Mot de passe" || fname == "Clé secrète") v = v.empty() ? (ed_id_.empty() ? tr("(aucun)") : tr("(inchangé)")) : std::string(v.size(), '*');
-        else if (fname == "Rangement" || fname == "Utilisé pour" || fname == "Service") v = tr(v.c_str());
+        else if (fname == "Rangement" || fname == "Utilisé pour" || fname == "Service" || fname == "Garder") v = tr(v.c_str());
+        else if (fname == "Lien" && v.size() > 40) v = v.substr(0, 37) + "…";  // la clé du lien ne s'étale pas à l'écran
         else if (fname == "Adresse du service" && !s3_host_typed(ed_service_)) v = tr("d'après la région");
         s.text(font_, x + 330, yy + 14, v.empty() ? "—" : v, body, color::text, w - 400);
         yy += 66;
     }
     static const char* const names[4] = {N_("Enregistrer"), N_("Tester la connexion"), N_("Oublier"), N_("Ranger sous PBC Backup")};
     std::vector<int> acts{0, 1};
-    if (!ed_id_.empty()) acts.push_back(3);
+    if (!ed_id_.empty() && !share) acts.push_back(3);
     if (!ed_id_.empty()) acts.push_back(2);
     int ax = x + 36;
     for (int i = 0; i < static_cast<int>(acts.size()); ++i) {
@@ -4635,9 +5470,9 @@ void Ui::draw_editor(Surface& s) {
         if (m && pw >= 300) {
             const int qs = std::min(pw, 340);
             int ty = y + 40;
-            for (const auto& line : wrap(tr("Plus simple : vos clés depuis le téléphone"), body, pw)) { s.text(font_, px, ty, line, body, color::text); ty += 40; }
+            for (const auto& line : wrap(share ? tr("Plus simple : collez le lien depuis le téléphone") : tr("Plus simple : vos clés depuis le téléphone"), body, pw)) { s.text(font_, px, ty, line, body, color::text); ty += 40; }
             ty += 6;
-            for (const auto& line : wrap(tr("Scannez : la page web s'ouvre sur ce formulaire, où vous collez les clés."), small, pw)) { s.text(font_, px, ty, line, small, color::muted); ty += 30; }
+            for (const auto& line : wrap(share ? tr("Scannez : la page web s'ouvre sur ce formulaire, où vous collez le lien reçu.") : tr("Scannez : la page web s'ouvre sur ce formulaire, où vous collez les clés."), small, pw)) { s.text(font_, px, ty, line, small, color::muted); ty += 30; }
             const int top = ty + 16;
             const double cell = qs / (m + 4.0);  // fractionnaire : tous les codes ont la même taille
             s.exact_colors(true);  // un code QR se scanne en noir sur blanc
@@ -4709,9 +5544,8 @@ void Ui::draw_emulator(Surface& s) {
     s.rect(0, 0, 1920, 1080, rgb(2, 8, 20, 170));
     const int w = 1160, x = (1920 - w) / 2, y = 130, roms = static_cast<int>(em_roms_.size());
     const int h = std::min(830, 124 + (roms + 3) * 62 + 110);
-    s.rect(x + 10, y + 14, w, h, rgb(0, 0, 0, 120), 30);
-    s.rect(x, y, w, h, color::panel, 30);
-    s.outline(x, y, w, h, color::line, 30, 2);
+    window_frame(s, x, y, w, h + 64, 116);
+    help_in(x, y, w, h + 64);  // l'aide de la fenêtre, en bas dans le cadre
     s.text(font_, x + 40, y + 30, trf("Régler %s", em_name_.c_str()), large, color::text, w - 80);
     s.text(font_, x + 40, y + 78, tr("Vos choix remplacent la détection automatique. « Revenir à l'automatique » les efface."), small, color::muted, w - 80);
     int yy = y + 124;
@@ -4748,6 +5582,7 @@ void Ui::open_browser(std::string title, std::string start, bool files, std::fun
     br_fallback_ = false;
     br_title_ = std::move(title);
     br_files_ = files;
+    br_any_ = false;
     br_remote_.clear();
     br_config_ = Json();
     br_view_ = false;
@@ -4781,8 +5616,13 @@ void Ui::input_browser(std::uint32_t k) {
         const auto sl = br_path_.rfind('/');
         browse_to(sl == 0 || sl == std::string::npos ? "/" : br_path_.substr(0, sl));
     };
-    if (k & key::triangle) { br_open_ = false; return; }
-    if (k & key::circle) { parent(); return; }
+    // Règle des touches (charte : ○ ferme toujours une fenêtre, propriétaire 17/11) : ○ = fermer ; gauche = dossier parent ;
+    // △ = choisir ce dossier (choix d'un dossier) ou dossier parent (parcourir, choisir un fichier).
+    const bool at_root = br_path_ == "/" || br_path_.empty();
+    if (k & key::circle) { br_open_ = false; return; }
+    if (k & key::left) { if (!at_root) parent(); return; }
+    if ((k & key::triangle) && br_any_ && !br_loading_) { if (!at_root) { if (br_pick_) br_pick_(br_path_); br_open_ = false; } return; }
+    if ((k & key::triangle) && (br_view_ || br_files_)) { if (!at_root) parent(); return; }
     if (br_loading_) return;
     const auto& list = br_entries_["entries"];
     const int n = static_cast<int>(list.size());
@@ -4791,7 +5631,7 @@ void Ui::input_browser(std::uint32_t k) {
     if (k & key::down) br_sel_ = std::min(std::max(0, total - 1), br_sel_ + 1);
     if (k & key::r2) br_sel_ = std::min(std::max(0, total - 1), br_sel_ + 10);
     if (k & key::l2) br_sel_ = std::max(0, br_sel_ - 10);
-    if ((k & key::square) && !br_view_ && !br_files_ && br_path_ != "/") { if (br_pick_) br_pick_(br_path_); br_open_ = false; return; }
+    if ((k & key::triangle) && !br_view_ && !br_files_ && br_path_ != "/") { if (br_pick_) br_pick_(br_path_); br_open_ = false; return; }
     if ((k & key::cross) && br_sel_ == n && total > n) {  // « Nouveau dossier… » : le clavier, puis création sur l'appareil
         open_keyboard(tr("Nom du dossier"), "", [this](const std::string& t) {
             if (t.empty()) return;
@@ -4837,9 +5677,8 @@ void Ui::draw_browser(Surface& s) {
     }
     s.rect(0, 0, 1920, 1080, rgb(2, 8, 20, 150));
     const int w = 1100, h = 800, x = (1920 - w) / 2, y = 120;
-    s.rect(x + 10, y + 14, w, h, rgb(0, 0, 0, 120), 30);
-    s.rect(x, y, w, h, rgb(18, 34, 58), 30);
-    s.outline(x, y, w, h, rgb(124, 196, 255, 90), 30, 2);
+    window_frame(s, x, y, w, h + 64, 76);
+    help_in(x, y, w, h + 64);  // l'aide de la fenêtre, en bas dans le cadre
     s.text(font_, x + 40, y + 28, br_title_, large, color::text, w - 80);
     s.rect(x + 40, y + 80, w - 80, 48, rgb(4, 12, 24, 220), 12);
     s.text(font_, x + 60, y + 89, br_path_, body, color::accent, w - 120);
@@ -4874,9 +5713,10 @@ void Ui::draw_browser(Surface& s) {
         s.text(font_, x + 64, yy + 11, std::string("+  ") + tr("Nouveau dossier…"), body, color::accent, w - 300);
     }
     s.rect(0, 996, 1920, 84, color::bg, 0);
-    if (br_view_) draw_footer(s, {{0, tr("Ouvrir")}, {1, tr("Dossier parent")}, {3, tr("Fermer")}});
-    else if (br_files_) draw_footer(s, {{0, tr("Ouvrir / choisir ce fichier")}, {1, tr("Dossier parent")}, {3, tr("Annuler")}});
-    else draw_footer(s, {{0, tr("Ouvrir")}, {2, tr("Choisir ce dossier")}, {1, tr("Dossier parent")}, {3, tr("Annuler")}});
+    if (br_view_) draw_footer(s, {{0, tr("Ouvrir le dossier")}, {3, tr("Dossier parent")}, {-1, tr("L2 / R2 : 10 lignes")}, {1, tr("Fermer")}});
+    else if (br_any_) draw_footer(s, {{0, tr("Ouvrir / choisir ce fichier")}, {3, tr("Choisir ce dossier")}, {-1, tr("Gauche : dossier parent")}, {1, tr("Fermer")}});
+    else if (br_files_) draw_footer(s, {{0, tr("Ouvrir / choisir ce fichier")}, {3, tr("Dossier parent")}, {1, tr("Fermer")}});
+    else draw_footer(s, {{0, tr("Ouvrir le dossier")}, {3, tr("Choisir ce dossier")}, {-1, tr("Gauche : dossier parent")}, {1, tr("Fermer")}});
 }
 
 // Roue de chargement : 12 points, l'un éclairé qui tourne (l'écran est redessiné tant qu'elle est visible).
@@ -4895,8 +5735,9 @@ void Ui::spinner(Surface& s, int cx, int cy, int r) {
 namespace {
 // Avec un point : « Jeu » seul est déjà « Jeu » (un jeu), une autre traduction.
 const char* const weekday_short[7] = {N_("Lun."), N_("Mar."), N_("Mer."), N_("Jeu."), N_("Ven."), N_("Sam."), N_("Dim.")};
-const char* const rule_keys[5] = {"", "ps5_saves", "all_games", "roms", "apps"};
-const char* const rule_names[5] = {N_("Jeux choisis"), N_("Toutes mes sauvegardes PS5"), N_("Tous mes jeux"), N_("Toutes mes ROM"), N_("Toutes mes applications")};
+constexpr int rule_count = 5;
+const char* const rule_keys[rule_count] = {"", "ps5_saves", "all_games", "roms", "apps"};
+const char* const rule_names[rule_count] = {N_("Jeux choisis"), N_("Toutes mes sauvegardes PS5"), N_("Tous mes jeux"), N_("Toutes mes ROM"), N_("Toutes mes applications")};
 bool has_item(const Json& plan, const std::string& key) {
     for (const auto& k : plan["items"].items()) if (k.as_string() == key) return true;
     return false;
@@ -4942,11 +5783,11 @@ void Ui::input_item_plans(std::uint32_t k) {
 
 void Ui::draw_item_plans(Surface& s) {
     s.rect(0, 0, 1920, 1080, rgb(2, 8, 20, 170));
-    const int n = static_cast<int>(plans_.size()) + 1, w = 1000, h = std::min(800, 190 + n * 70), x = (1920 - w) / 2, y = (1080 - h) / 2;
-    s.rect(x, y, w, h, color::panel, 28);
-    s.outline(x, y, w, h, color::line, 28, 2);
-    s.text(font_, x + 40, y + 30, tr("Plans programmés de ce jeu"), large, color::text);
-    s.text(font_, x + 40, y + 78, tr("Croix coche ou décoche : le jeu est sauvegardé à chaque passage du plan."), small, color::muted, w - 80);
+    const int n = static_cast<int>(plans_.size()) + 1, w = 1000, h = std::min(800, 190 + n * 70), x = (1920 - w) / 2, y = (1080 - h - 64) / 2;
+    window_frame(s, x, y, w, h + 64, 112);
+    help_in(x, y, w, h + 64);  // l'aide de la fenêtre, en bas dans le cadre
+    s.text(font_, x + 40, y + 30, tr("Sauvegardes automatiques de ce jeu"), large, color::text);
+    s.text(font_, x + 40, y + 78, tr("Les jeux cochés sont sauvegardés à chaque passage du plan."), small, color::muted, w - 80);
     int yy = y + 120;
     for (int i = 0; i < n && yy < y + h - 70; ++i) {
         const bool on = pp_row_ == i;
@@ -5005,8 +5846,8 @@ void Ui::input_plan_editor(std::uint32_t k) {
         }
         case 4: {
             int i = 0;
-            for (int r = 0; r < 5; ++r) if (pe_["rule"].as_string() == rule_keys[r]) i = r;
-            if (dir || (k & key::cross)) { i = (i + (dir ? dir : 1) + 5) % 5; pe_.set("rule", rule_keys[i]); }
+            for (int r = 0; r < rule_count; ++r) if (pe_["rule"].as_string() == rule_keys[r]) i = r;
+            if (dir || (k & key::cross)) { i = (i + (dir ? dir : 1) + rule_count) % rule_count; pe_.set("rule", rule_keys[i]); }
             if (i == 1) {  // sauvegardes PS5 d'un compte : celui de la console
                 for (const auto& a : overview_["accounts"].items()) if (a["on_console"].as_bool()) { pe_.set("rule_arg", a["user_id"].as_string()); break; }
             }
@@ -5065,16 +5906,15 @@ void Ui::input_plan_editor(std::uint32_t k) {
 void Ui::draw_plan_editor(Surface& s) {
     s.rect(0, 0, 1920, 1080, rgb(2, 8, 20, 170));
     const int w = 1160, h = 860, x = (1920 - w) / 2, y = 110;
-    s.rect(x + 10, y + 14, w, h, rgb(0, 0, 0, 120), 30);
-    s.rect(x, y, w, h, color::panel, 30);
-    s.outline(x, y, w, h, color::line, 30, 2);
+    window_frame(s, x, y, w, h + 64);
+    help_in(x, y, w, h + 64);  // l'aide de la fenêtre, en bas dans le cadre
     s.text(font_, x + 40, y + 26, pe_["id"].as_string().empty() ? tr("Nouveau plan") : tr("Modifier le plan"), large, color::text);
     const std::string timing = pe_["timing"].as_string().empty() ? "manual" : pe_["timing"].as_string();
     const int m = static_cast<int>(pe_["minute_of_day"].as_int(8 * 60));
     char hour[16];
     std::snprintf(hour, sizeof hour, tr("%02d h %02d"), m / 60, m % 60);
     std::string rule = tr(rule_names[0]);
-    for (int r = 0; r < 5; ++r) if (pe_["rule"].as_string() == rule_keys[r]) rule = tr(rule_names[r]);
+    for (int r = 0; r < rule_count; ++r) if (pe_["rule"].as_string() == rule_keys[r]) rule = tr(rule_names[r]);
     if (pe_["rule"].as_string().empty()) rule += " (" + std::to_string(pe_["items"].size()) + ")";
     const Json& parts = pe_["parts"];
     const std::string what = parts.size() == 0 ? tr("Tout (jeu et sauvegarde)") : parts[0].as_string() == "save" ? tr("Sauvegardes seulement") : tr("Jeu seulement");
@@ -5082,7 +5922,7 @@ void Ui::draw_plan_editor(Surface& s) {
     for (const auto& p : snap_->places) if (p.id == pe_["place"].as_string()) dest = p.label;
     const int keep = static_cast<int>(pe_["keep"].as_int(5));
     const std::string vals[9] = {pe_["name"].as_string(), timing == "daily" ? tr("Chaque jour") : timing == "weekly" ? tr("Chaque semaine") : tr("À la demande"), "", hour, rule, what, dest,
-                                 keep ? trf("%d versions gardées", keep) : std::string(tr("Toutes les versions")), pe_["enabled"].as_bool(true) ? tr("Oui") : tr("En pause")};
+                                 keep ? trf("%d versions gardées", keep) : std::string(tr("Toutes")), pe_["enabled"].as_bool(true) ? tr("Oui") : tr("En pause")};
     const char* labels[9] = {tr("Nom"), tr("Quand"), tr("Jours"), tr("Heure"), tr("Contenu"), tr("Sauvegarder"), tr("Destination"), tr("Versions"), tr("Actif")};
     int yy = y + 82;
     for (int i = 0; i < 9; ++i) {
@@ -5171,8 +6011,7 @@ std::vector<std::size_t> Ui::pt_rows() const {
 
 void Ui::draw_parties(Surface& s) {
     {   // ce que montre l'onglet, en une phrase (à côté du titre)
-        const int tw = s.text(font_, margin, 112, tr("Parties"), title, color::text);
-        s.text(font_, margin + tw + 28, 140, tr("Les parties actives, par joueur, en vraie synchro : PS5 ↔ PS5, Switch ↔ émulateur, Switch ↔ Switch. À sauvegarder, à restaurer, à nettoyer."), small, color::muted, 1920 - 2 * margin - tw - 28 - 200);
+        draw_page_head(s, tr("Parties"), tr("Vos parties en cours, joueur par joueur."));
     }
     if (!overview_loaded_ || now_ - overview_loaded_ > 5000) load_overview();
     if (!switches_loaded_ || now_ - switches_loaded_ > 15000) load_remotes();
@@ -5187,9 +6026,7 @@ void Ui::draw_parties(Surface& s) {
     for (int i = first; i < n && i < first + per; ++i) {
         const int x = margin + (i - first) * (cw + gap);
         const bool sel = i == pt_player_, focus = sel && pt_zone_ == 0;
-        if (focus) for (int g = 3; g >= 1; --g) s.rect(x - g * 5, cy - g * 5, cw + g * 10, ch + g * 10, rgb(80, 150, 255, 20), 22 + g * 5);
-        s.rect(x, cy, cw, ch, sel ? color::panel2 : color::panel, 20);
-        s.outline(x, cy, cw, ch, focus ? color::accent : sel ? color::accent2 : color::line, 20, focus ? 4 : 2);
+        card_frame(s, x, cy, cw, ch, focus, sel);  // même bulle que partout (ombre, reflet)
         std::string name, sub, state;
         std::uint32_t tone = color::muted;
         int dev = dev_consoles;
@@ -5230,7 +6067,7 @@ void Ui::draw_parties(Surface& s) {
     }
     if (pt_player_ >= accounts) {
         s.text(font_, x, 380, tr("Les parties d'Eden se comparent avec une Switch : choisissez sa carte."), large, color::muted, w);
-        draw_footer(s, {{0, tr("Ouvrir")}, {-1, tr("Gauche / droite : joueurs")}});
+        draw_footer(s, {{-1, tr("Gauche / droite : joueurs")}});  // Eden : rien à ouvrir, tout est affiché ici
         return;
     }
     // Vues (Carré).
@@ -5278,7 +6115,17 @@ void Ui::draw_parties(Surface& s) {
         s.rect(gx, yy + cs + 38, std::min(cs, lw), 30 * nl, (tone & 0x00FFFFFFu) | 0x30000000u, 15);
         for (int li = 0; li < nl; ++li) s.text(font_, gx + 10, yy + cs + 40 + li * 28, lab[static_cast<std::size_t>(li)], small, tone, cs - 20);
         std::string adv = e["console"]["progress"]["text"].as_string();
-        const std::int64_t pts = e["console"]["progress"]["play_time_seconds"].as_int(-1);
+        std::int64_t pts = e["console"]["progress"]["play_time_seconds"].as_int(-1);
+        const Json& hint = e["progress_hint"];  // lue dans la partie (comme Sauvegardes), ou celle de la copie la plus avancée
+        if (adv.empty() && !hint["text"].as_string().empty())
+            adv = hint["from"].as_string() == "copy" ? trf("Copie : %s", hint["text"].as_string().c_str()) : hint["text"].as_string();
+        if (pts <= 0) pts = hint["play_time_seconds"].as_int(-1);
+        if (adv.empty() && e["console"]["mtime"].as_int() > 0) {  // le jeu n'écrit pas où on en est : au moins la date de la partie
+            std::time_t when = static_cast<std::time_t>(e["console"]["mtime"].as_int());
+            char b[32];
+            std::strftime(b, sizeof b, "%d/%m %H:%M", std::localtime(&when));
+            adv = trf("Partie du %s", b);
+        }
         if (pts > 0 && adv.find(':') == std::string::npos) adv += (adv.empty() ? "" : " · ") + trf("%s de jeu", hours_text(pts).c_str());
         if (!adv.empty()) s.text(font_, gx, yy + cs + 74 + (nl - 1) * 28, adv, small, color::accent, cs);
     }
@@ -5330,7 +6177,7 @@ void Ui::input_parties(std::uint32_t k) {
         else targets.push_back(idx);
         std::vector<std::pair<std::string, std::function<void()>>> acts;
         acts.push_back({targets.size() > 1 ? trf("Sauvegarder maintenant (%d)", static_cast<int>(targets.size())) : std::string(tr("Sauvegarder maintenant")), [this, targets] { save_entries(targets); }});
-        if (targets.size() == 1) acts.push_back({tr("Toutes les versions"), [this, idx] { const Json& x = overview_["entries"][idx]; open_versions(x["account"].as_string(), x["title_id"].as_string(), x["title"].as_string(), x["item"].as_string()); }});
+        if (targets.size() == 1) acts.push_back({tr("Détails"), [this, idx] { const Json& x = overview_["entries"][idx]; open_versions(x["account"].as_string(), x["title_id"].as_string(), x["title"].as_string(), x["item"].as_string()); }});
         if (targets.size() == 1 && e["console"].is_object() && e["account"].as_string().rfind("ps5:", 0) == 0) {
             const std::string item = e["item"].as_string(), title = e["title"].as_string(), uid = e["account"].as_string().substr(4);
             acts.push_back({tr("Envoyer la sauvegarde à une PS5…"), [this, item, title, uid] { send_save_to_peer(item, title, uid); }});
@@ -5359,8 +6206,7 @@ void Ui::input_parties(std::uint32_t k) {
         int versions = 0;
         for (const auto& v : e["backups"].items()) if (v["complete"].as_bool()) ++versions;
         if (versions && e["account"].as_string().rfind("ps5:", 0) == 0) opts.push_back(trf("Restaurer une version… (%d)", versions));
-        if (opts.empty()) { toast(tr("Rien à faire pour ce jeu ici")); return; }
-        if (opts.size() == 1 && e["console"].is_object()) { save_entries({idx}); return; }
+        opts.push_back(tr("Détails"));  // l'avancée de chaque copie, où elle est, quand
         rs_title_ = e["title"].as_string();
         open_popup(6, rs_title_, opts, 0);
     }
@@ -5371,10 +6217,23 @@ std::string Ui::compat_state_text(const Json& c) const {
     const std::string st = c["state"].as_string();
     const std::string fw = c["firmware"].as_string();
     const std::string who = c["console"].as_string().empty() ? std::string(tr("cette console")) : c["console"].as_string();
-    const char* label = st == "system_ok" ? tr("Compatible : système suffisant") : st == "verified" ? tr("Compatibilité vérifiée")
-                      : st == "backport_present" ? tr("Backport nécessaire : présent") : st == "no_backport" ? tr("Risque de ne pas fonctionner : aucun backport")
-                      : st == "incompatible_known" ? tr("Incompatibilité connue") : tr("Informations insuffisantes");
-    return fw.empty() ? trf("%s (%s)", label, who.c_str()) : trf("%s (%s, système %s)", label, who.c_str(), fw.c_str());
+    // Les vrais chiffres quand ils comptent : SDK des exécutables (ou du backport) face au système de la console.
+    std::string exe_sdk, need_sdk, declared;
+    bool exe_fits = true;
+    for (const auto& r : c["reasons"].items()) {
+        const std::string code = r["code"].as_string();
+        if (code == "exe_sdk") { exe_sdk = r["sdk"].as_string(); exe_fits = r["fits"].as_bool(true); }
+        else if (code == "needs_system") need_sdk = r["sdk"].as_string();
+        else if (code == "declared") declared = r["declared"].as_string();
+    }
+    std::string label;
+    if (st == "backport_insufficient") label = trf("Ne se lancera pas : backport fait pour le SDK %s, trop récent", need_sdk.c_str());
+    else if (st == "no_backport" && !exe_fits && !exe_sdk.empty()) label = trf("Ne se lancera pas : jeu en SDK %s, aucun backport", exe_sdk.c_str());
+    else if (st == "no_backport" && !declared.empty()) label = trf("Risque de ne pas fonctionner : le jeu demande le système %s, aucun backport", declared.c_str());
+    else label = st == "system_ok" ? tr("Compatible : système suffisant") : st == "verified" ? tr("Compatibilité vérifiée")
+               : st == "backport_present" ? tr("Backport nécessaire : présent") : st == "no_backport" ? tr("Risque de ne pas fonctionner : aucun backport")
+               : st == "incompatible_known" ? tr("Incompatibilité connue") : tr("Informations insuffisantes");
+    return fw.empty() ? trf("%s (%s)", label.c_str(), who.c_str()) : trf("%s (%s, système %s)", label.c_str(), who.c_str(), fw.c_str());
 }
 
 std::string Ui::compat_backport_text(const Json& c) const {
@@ -5399,6 +6258,7 @@ std::string Ui::compat_reasons_text(const Json& c, std::size_t max) const {
         else if (code == "backport") out.push_back(trf("backport ShadowMountPlus sur la console : %d fichier(s)", static_cast<int>(r["count"].as_int())));
         else if (code == "smp_fakelib") out.push_back(r["on"].as_bool() ? tr("backport fakelib activé dans ShadowMountPlus") : tr("backport fakelib désactivé dans ShadowMountPlus"));
         else if (code == "format_failed") out.push_back(trf(".%s ne s'est pas monté sur cette console : image non compressée conseillée", r["ext"].as_string().c_str()));
+        else if (code == "needs_system") out.push_back(trf("backport en SDK %s, système %s trop ancien", r["sdk"].as_string().c_str(), r["firmware"].as_string().c_str()));
         else if (code == "unreadable") out.push_back(tr("image non lisible ici"));
         else if (code == "no_firmware") out.push_back(tr("système de la console inconnu"));
         if (out.size() >= max) break;
@@ -5420,6 +6280,7 @@ void Ui::system_check_then(const std::string& path, const Json& body, const std:
             std::string note = trf("« %s » demande le système %s ; %s est en %s.", title.c_str(), j["required"].as_string().c_str(), who.c_str(), j["firmware"].as_string().c_str());
             if (st == "backport_present") note += " " + trf("Il faut un backport, et il existe : %s.", compat_backport_text(j).c_str());
             else if (st == "no_backport") note += " " + std::string(tr("Aucun backport trouvé : le jeu risque de ne pas fonctionner. PS5 Center pourra aider (fonctions expérimentales de backport)."));
+            else if (st == "backport_insufficient") note += " " + std::string(tr("Le backport trouvé est fait pour un système plus récent que celui de cette console : le jeu ne se lancera pas."));
             popup_note_ = note;
         });
     });
@@ -5431,7 +6292,8 @@ void Ui::card_title(Surface& s, int x, int y, const std::string& t, int max_w) {
     else s.text(font_, x, y + 30, t, body, color::text, max_w);
 }
 
-void Ui::open_hold_confirm(std::string title, std::string note, std::function<void()> fn) {
+void Ui::open_hold_confirm(std::string title, std::string note, std::function<void()> fn, std::string how) {
+    hold_how_ = std::move(how);
     hold_title_ = std::move(title);
     hold_note_ = std::move(note);
     hold_fn_ = std::move(fn);
@@ -5458,9 +6320,9 @@ void Ui::draw_hold_confirm(Surface& s) {
         return out;
     };
     const auto title = wrap(hold_title_, large, w - 80), note = wrap(hold_note_, small, w - 80);
-    const int h = 120 + static_cast<int>(title.size()) * 54 + static_cast<int>(note.size()) * 36 + 96, y = (1080 - h) / 2;
-    s.rect(x, y, w, h, color::panel, 28);
-    s.outline(x, y, w, h, color::bad, 28, 3);
+    const int h = 120 + static_cast<int>(title.size()) * 54 + static_cast<int>(note.size()) * 36 + 96 + 64, y = (1080 - h) / 2;
+    // Même cadre que les autres fenêtres (charte §4.6), bordure rouge : ce qui suit efface pour de bon.
+    window_frame(s, x, y, w, h, 30 + static_cast<int>(title.size()) * 54 + 10, true);
     int yy = y + 30;
     for (const auto& l : title) { s.text(font_, x + 40, yy, l, large, color::bad, w - 80); yy += 54; }
     yy += 10;
@@ -5471,12 +6333,15 @@ void Ui::draw_hold_confirm(Surface& s) {
     s.rect(x + 40, yy, bw, 22, color::bg2, 11);
     if (fill > 0) s.rect(x + 40, yy, std::max(22, fill), 22, color::bad, 11);
     yy += 44;
-    const std::string left = hold_since_ ? trf("Encore %d s…", static_cast<int>((5000 - std::min<std::uint64_t>(held, 5000) + 999) / 1000)) : std::string(tr("Maintenez Carré 5 secondes pour supprimer"));
+    const std::string left = hold_since_ ? trf("Encore %d s…", static_cast<int>((5000 - std::min<std::uint64_t>(held, 5000) + 999) / 1000)) : (hold_how_.empty() ? std::string(tr("Maintenez Carré 5 secondes pour supprimer")) : hold_how_);
     icon(s, 2, x + 40, yy, color::text);
     s.text(font_, x + 80, yy - 4, left, body, color::text, w - 120);
     animating_ = true;  // la barre avance à chaque image
+    // L'aide dans la fenêtre : ○ Annuler (la consigne « maintenir » est déjà écrite au-dessus, pas deux fois).
+    s.rect(x + 24, y + h - 64, w - 48, 2, color::line, 1);
+    icon(s, 1, x + 40, y + h - 46, color::muted);
+    s.text(font_, x + 76, y + h - 48, tr("Annuler"), small, color::muted);
     s.rect(0, 990, 1920, 90, color::bg);
-    draw_footer(s, {{2, tr("Maintenir : supprimer")}, {1, tr("Annuler")}});
 }
 
 const Item* Ui::find_or_stand_in(const std::string& key, const std::string& title, const std::string& title_id, Item& stand_in, const std::string& kind) const {
@@ -5575,7 +6440,7 @@ void Ui::delete_console_save(const std::string& title_id, const std::string& tit
             open_actions(trf("Supprimer la sauvegarde de « %s » ?", title.c_str()), {
                 {tr("Annuler"), [] {}},
                 {tr("Supprimer quand même…"), [this, title, who, uid, run] {
-                    open_hold_confirm(trf("Supprimer DÉFINITIVEMENT la sauvegarde de « %s » (%s) ?", title.c_str(), who.c_str()),
+                    open_hold_confirm(trf("Supprimer définitivement la sauvegarde de « %s » (%s) ?", title.c_str(), who.c_str()),
                                       std::string(tr("C'est la partie active sur la console, pas une copie de l'onglet Sauvegardes.")) + " " +
                                       tr("Aucune sauvegarde à jour ne pourra la remettre. Seule une copie de sécurité brute est gardée sur la console (dossier de l'application)."),
                                       [uid, run] { run(uid, true); });
@@ -5688,10 +6553,30 @@ void Ui::choose_format(const std::string& title, std::function<void(const std::s
 
 void Ui::open_actions(std::string title, std::vector<std::pair<std::string, std::function<void()>>> items) {
     if (items.empty()) return;
+    // Rangement commun (charte §4.6) : le contenu ne change pas ; les actions qui effacent passent en bas, en rouge, et
+    // « Annuler » / « Fermer » tout en bas. L'ordre des autres est gardé (l'action attendue reste la première).
+    auto kind = [](const std::string& l) {
+        if (l == tr("Annuler") || l == tr("Fermer")) return 2;
+        auto has = [&](const char* w) {
+            const std::string t = tr(w);
+            std::string a = l, b = t;
+            for (auto& c : a) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            for (auto& c : b) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            return !b.empty() && a.find(b) != std::string::npos;
+        };
+        for (const char* w : {"Supprimer", "Corbeille", "Désinstaller", "Oublier", "Effacer", "Retirer"}) if (has(w)) return 1;
+        return 0;
+    };
+    std::stable_sort(items.begin(), items.end(), [&](const auto& a, const auto& b) { return kind(a.first) < kind(b.first); });
+    // « Détails » toujours au même endroit : juste après l'action attendue (charte §2).
+    for (std::size_t i = 2; i < items.size(); ++i)
+        if (items[i].first == tr("Détails")) { auto d = std::move(items[i]); items.erase(items.begin() + static_cast<long>(i)); items.insert(items.begin() + 1, std::move(d)); break; }
     std::vector<std::string> labels;
+    std::vector<int> kinds;
     act_fns_.clear();
-    for (auto& [l, f] : items) { labels.push_back(std::move(l)); act_fns_.push_back(std::move(f)); }
+    for (auto& [l, f] : items) { kinds.push_back(kind(l)); labels.push_back(std::move(l)); act_fns_.push_back(std::move(f)); }
     open_popup(11, std::move(title), std::move(labels), 0);
+    popup_kind_ = std::move(kinds);
 }
 
 // « 3 cochés » au-dessus de l'aide du bas.
@@ -5820,7 +6705,9 @@ void Ui::draw_sync(Surface& s, const std::pair<std::string, std::string>& sw, in
         }
         return;
     }
-    draw_footer(s, {{0, tr("Synchroniser")}, {3, tr("Relire la Switch")}, {2, trf("Voir : %s", tr(filters[(sync_filter_ + 1) % 4])).c_str()}, {1, tr("Retour")}});
+    if (tab_ == parties && pt_zone_ == 0)  // rangée des joueurs (Switch choisie) : ses aides à elle
+        draw_footer(s, {{0, tr("Ouvrir")}, {-1, tr("Gauche / droite : joueurs")}, {2, trf("Voir : %s", tr(filters[(sync_filter_ + 1) % 4])).c_str()}});
+    else draw_footer(s, {{0, tr("Synchroniser")}, {3, tr("Relire la Switch")}, {2, trf("Voir : %s", tr(filters[(sync_filter_ + 1) % 4])).c_str()}, {1, tr("Retour")}});
 }
 
 void Ui::draw_plans(Surface& s) {
@@ -5878,7 +6765,7 @@ void Ui::draw_plans(Surface& s) {
 void Ui::draw_tasks(Surface& s) {
     int counts[5] = {0, 0, 0, 0, static_cast<int>(plans_.size())};
     for (const auto& t : snap_->tasks) for (int g = 0; g < 4; ++g) if (in_group(t.state, g)) ++counts[g];
-    s.text(font_, margin, 112, tr("Tâches"), title, color::text);
+    draw_page_head(s, tr("Tâches"), tr("Ce qui tourne, ce qui attend, ce qui est fini."));
     int x = margin;
     {  // fond des listes : à la largeur des libellés (traductions plus longues)
         int bw = 4;
@@ -5922,13 +6809,18 @@ void Ui::draw_tasks(Surface& s) {
             Item stand_in;
             const std::string short_title = t.title.substr(t.title.find(" · ") == std::string::npos ? 0 : t.title.find(" · ") + 3);
             if (!found) for (const auto& it : snap_->items) if (it.title == short_title && it.has_cover) { found = &it; break; }
-            if (!found) {
+            int src_dev = -1;  // téléchargement depuis un lien reçu : le logo de son service (MEGA, Drive…), pas une jaquette inventée
+            if (!found && !t.from_place.empty())
+                for (const auto& p : snap_->places) if (p.id == t.from_place && p.readonly) src_dev = cloud_dev("share", p.service);
+            const bool logo = !found && src_dev >= 0 && devices_[src_dev].valid();
+            if (logo) s.image(devices_[src_dev], margin + 16, y + 12, 100, 100);
+            else if (!found) {
                 stand_in.title = short_title;
                 stand_in.kind = t.type == "import_switch" || t.type == "export_switch" ? "rom" : "game_ps5";
                 stand_in.platform = t.type == "import_switch" || t.type == "export_switch" ? "Switch" : "PS5";
                 found = &stand_in;
             }
-            cover(s, *found, margin + 16, y + 12, 100, false);
+            if (!logo) cover(s, *found, margin + 16, y + 12, 100, false);
             tx = margin + 136;
         }
         const std::string title = (t.type == "restore" ? std::string(tr("Restauration")) + " · " : std::string()) + t.title;
@@ -5940,7 +6832,8 @@ void Ui::draw_tasks(Surface& s) {
         s.text(font_, margin + 53 + tw, y + 20, st, small, sc);
         std::string detail = trf("%s sur %s", size_text(t.done).c_str(), size_text(t.total).c_str()) + " · " + trf("%d/%d fichiers", static_cast<int>(t.files_done), static_cast<int>(t.files_total));
         const bool ph = t.state == "running" && t.phase_fraction() >= 0;
-        if (ph) detail += " · " + t.phase_text();
+        if (t.type == "install_job") detail = install_job_line(t);  // étapes, vitesse, temps restant de tout
+        else if (ph) detail += " · " + t.phase_text();
         else if (t.state == "running" && t.speed > 0) detail += " · " + size_text(static_cast<std::uint64_t>(t.speed)) + "/s · " + tr("reste") + " " + duration_text(static_cast<double>(t.total - t.done) / t.speed);
         if (!t.error.empty()) detail += " · " + t.error;
         if (t.state == "done" && t.report["mount_deferred"].is_string()) detail += " · " + std::string(tr("apparaît sur l'accueil une fois l'application fermée"));
@@ -5952,8 +6845,8 @@ void Ui::draw_tasks(Surface& s) {
         {
             auto place_name = [&](const std::string& id, int& dev) -> std::string {
                 for (const auto& p : snap_->places) if (p.id == id) {
-                    const bool cl = p.protocol == "s3" || p.protocol == "gdrive" || p.protocol == "onedrive" || p.protocol == "dropbox";
-                    dev = p.type == "ftp" ? (cl ? cloud_dev(p.protocol, p.service) : dev_nas) : p.type == "usb" ? dev_usb : dev_internal;
+                    const bool cl = cloud_proto(p.protocol);
+                    dev = p.readonly ? cloud_dev("share", p.service) : p.type == "ftp" ? (cl ? cloud_dev(p.protocol, p.service) : dev_nas) : p.type == "usb" ? dev_usb : dev_internal;
                     return p.type == "internal" ? std::string(tr("Interne")) : p.label;
                 }
                 dev = dev_nas;
@@ -5963,7 +6856,8 @@ void Ui::draw_tasks(Surface& s) {
             int fd = dev_internal, td = dev_internal;
             if (t.type == "backup" && !t.to_place.empty()) { from = tr("Cette PS5"); to = place_name(t.to_place, td); }
             else if ((t.type == "restore_save" || t.type == "restore") && !t.from_place.empty()) { from = place_name(t.from_place, fd); to = tr("Cette PS5"); }
-            std::string by = t.origin.rfind("plan:", 0) == 0 ? trf("Plan « %s »", t.origin.substr(5).c_str()) : t.origin == "sync" ? std::string(tr("Synchro")) : std::string();
+            else if ((t.type == "files_copy" || t.type == "files_move") && !t.from_place.empty() && !t.to_place.empty()) { from = place_name(t.from_place, fd); to = place_name(t.to_place, td); }
+            std::string by = t.origin.rfind("plan:", 0) == 0 ? trf("Plan « %s »", t.origin.substr(5).c_str()) : t.origin == "sync" ? std::string(tr("Synchro")) : t.origin == "download" ? std::string(tr("Téléchargement")) : std::string();
             int rx = tx + Surface::measure(detail, small) + 24;
             if (rx > 1300) rx = tx + 900;
             if (!from.empty()) {
@@ -5982,34 +6876,23 @@ void Ui::draw_tasks(Surface& s) {
             const int w = ph ? static_cast<int>(bw * t.phase_fraction()) : t.total ? static_cast<int>(static_cast<double>(bw) * static_cast<double>(t.done) / static_cast<double>(t.total)) : 0;
             s.rect(tx, y + 96, std::max(8, w), 8, ph ? color::ok : color::accent2, 4);
         }
-        const char* actions[2] = {nullptr, nullptr};
-        std::string close_label;
-        if (t.state == "running" || t.state == "queued") { actions[0] = tr("Pause"); actions[1] = tr("Annuler"); }
-        else if (t.state == "paused") { actions[0] = tr("Reprendre"); actions[1] = tr("Annuler"); }
-        else if (t.state == "failed") { actions[0] = tr("Reprendre"); actions[1] = tr("Détails"); }
-        else if (t.type == "link_send" && t.report["foreground"]["title_id"].is_string()) {  // l'app ouverte là-bas
-            close_label = trf("Fermer « %s » là-bas", t.report["foreground"]["title"].as_string().c_str());
-            actions[0] = close_label.c_str();
-        }
-        else { actions[0] = tr("Détails"); actions[1] = tr("Retirer"); }
-        int bx = 1920 - margin - 28;
-        for (int a = 1; a >= 0; --a) {
-            if (!actions[a]) continue;
-            const int bw = Surface::measure(actions[a], small) + 32;
-            bx -= bw;
-            const bool af = focused && std::min(tasks_action_, actions[1] ? 1 : 0) == a;
-            s.rect(bx, y + 14, bw, 40, af ? color::text : color::panel2, 20);
-            s.text(font_, bx + 16, y + 20, actions[a], small, af ? color::bg : color::text);
-            bx -= 10;
+        // Ce que fait △ sur cette ligne (pause / reprendre), affiché seulement sur la ligne choisie.
+        const char* tri = t.state == "running" || t.state == "queued" ? tr("Pause") : t.state == "paused" || t.state == "failed" ? tr("Reprendre") : nullptr;
+        if (focused && tri) {
+            const int bw = Surface::measure(tri, small) + 32 + 36;
+            const int bx = 1920 - margin - 28 - bw;
+            s.rect(bx, y + 14, bw, 40, color::panel2, 20);
+            icon(s, 3, bx + 12, y + 20, color::muted);
+            s.text(font_, bx + 48, y + 20, tri, small, color::text);
         }
         y += 140;
     }
     if (list.empty()) s.text(font_, margin, 320, tr("Rien ici. Choisissez un élément dans la bibliothèque pour lancer une sauvegarde."), large, color::muted);
     if (!tasks_sel_.empty()) draw_checked(s, static_cast<int>(tasks_sel_.size()));
     const bool finished = tasks_group_ >= 1 && tasks_group_ <= 3 && !list.empty();
-    draw_footer(s, {{0, tr("Action")}, {-1, finished ? tr("L2 : cocher") : ""}, {2, trf("Voir : %s", tr(group_names[(tasks_group_ + 1) % 5])).c_str()},
-                    {3, finished ? tr("Vider la liste") : ""},
-                    {-1, !tasks_sel_.empty() ? tr("Options : la sélection") : finished ? tr("Options : retirer") : ""}, {1, tr("Maintenir 2 s : quitter")}});
+    draw_footer(s, {{0, tr("Détails")}, {3, tasks_group_ == 0 ? tr("Pause / reprendre") : tasks_group_ == 2 ? tr("Reprendre") : ""}, {-1, finished ? tr("L2 : cocher") : ""},
+                    {2, trf("Voir : %s", tr(group_names[(tasks_group_ + 1) % 5])).c_str()},
+                    {-1, !tasks_sel_.empty() ? tr("Options : la sélection") : tr("Options : actions")}, {1, tr("Maintenir 2 s : quitter")}});
 }
 
 namespace {
@@ -6032,6 +6915,20 @@ void Ui::task_details(const Task& t) {
     std::string vol = trf("%s sur %s", size_text(t.done).c_str(), size_text(t.total).c_str());
     if (t.files_total) vol += " · " + trf("%d/%d fichiers", static_cast<int>(t.files_done), static_cast<int>(t.files_total));
     line(vol);
+    {   // d'où → vers où, avec le service d'un lien reçu (MEGA, Google Drive…)
+        static const std::map<std::string, std::string> svc = {{"mega", "MEGA"}, {"gdrive", "Google Drive"}, {"dropbox", "Dropbox"}, {"onedrive", "OneDrive"}};
+        auto where = [&](const std::string& id) -> std::string {
+            for (const auto& p : snap_->places) if (p.id == id) {
+                if (p.type == "internal") return tr("Interne");
+                const auto it = svc.find(p.service);
+                return p.readonly && it != svc.end() ? p.label + " (" + it->second + ", " + tr("lien reçu") + ")" : p.label;
+            }
+            return id;
+        };
+        if (!t.from_place.empty() && !t.to_place.empty()) line(trf("De : %s → vers : %s", where(t.from_place).c_str(), where(t.to_place).c_str()));
+        else if (!t.from_place.empty()) line(trf("De : %s", where(t.from_place).c_str()));
+        else if (!t.to_place.empty()) line(trf("Vers : %s", where(t.to_place).c_str()));
+    }
     if (secs > 0) line(std::string(tr("Durée :")) + " " + duration_text(static_cast<double>(secs)) +
                        (t.done > 0 ? " · " + trf("%s/s en moyenne", size_text(t.done / static_cast<std::uint64_t>(secs)).c_str()) : std::string()));
     const pbc::Json& r = t.report;
@@ -6113,11 +7010,11 @@ void Ui::clear_tasks(int group) {
 }
 
 void Ui::draw_settings(Surface& s) {
-    s.text(font_, margin, 112, tr("Paramètres"), title, color::text);
+    draw_page_head(s, tr("Paramètres"), tr("Langue, thème, mises à jour et le reste."));
     for (int i = 0; i < section_count; ++i) {
-        const int y = 210 + i * 64;
-        if (i == set_section_) s.rect(margin, y, 420, 52, color::panel2, 26);
-        if (i == set_section_ && set_zone_ == 0) s.outline(margin - 4, y - 4, 428, 60, color::accent, 30, 3);
+        const int y = 210 + i * 54;  // quatorze sections : serrées pour tenir au-dessus de l'aide du bas
+        if (i == set_section_) s.rect(margin, y, 420, 50, color::panel2, 25);
+        if (i == set_section_ && set_zone_ == 0) s.outline(margin - 4, y - 4, 428, 58, color::accent, 29, 3);
         s.text(font_, margin + 24, y + 11, tr(section_names[i]), body, i == set_section_ ? color::text : color::muted, 380);
     }
     const int x = margin + 480, w = 1920 - margin - x;
@@ -6160,6 +7057,87 @@ void Ui::draw_settings(Surface& s) {
             const int first = set_zone_ == 1 ? std::min(set_row_, static_cast<int>(news_.size()) - 1) : 0;
             std::vector<ChangelogEntry> shown(news_.begin() + first, news_.end());
             draw_changelog(s, shown, x, y, w, 975);
+            break;
+        }
+        case sec_network: {  // Paramètres › Réseau (16/11) : ports de cette console, réglages BitTorrent, rangement des téléchargements
+            heading(tr("Réseau"), tr("Les ports qu'utilise Backup Center, à ouvrir sur la box ou le pare-feu si besoin, et les réglages des téléchargements."));
+            const Json& n = snap_->net;
+            auto rate = [](std::int64_t ko) { return ko <= 0 ? std::string(tr("Illimité")) : ko >= 1024 ? trf("%lld Mo/s", static_cast<long long>(ko / 1024)) : trf("%lld Ko/s", static_cast<long long>(ko)); };
+            auto yes = [](bool b) { return std::string(b ? tr("Oui") : tr("Non")); };
+            const std::string proto = n["bt_proto"].as_string() == "tcp" ? "TCP" : n["bt_proto"].as_string() == "udp" ? "UDP (uTP)" : "TCP + UDP";
+            const std::int64_t pf = n["bt_port_from"].as_int(6891), pt = n["bt_port_to"].as_int(6899);
+            std::string where = tr("Interne");
+            for (const auto& p : snap_->places) if (p.id == n["dl_place"].as_string()) where = p.type == "internal" ? std::string(tr("Interne")) : p.label;
+            struct Row { const char* k; std::string v; const char* why; bool change; };
+            const std::vector<Row> ports = {
+                {N_("Page web et liaison entre PS5"), "TCP 52370", N_("réseau local · fixe"), false},
+                {N_("Découverte des autres PS5"), "UDP 52371", N_("réseau local · fixe"), false},
+                {N_("PS5 à distance (par Internet)"), trf("TCP %lld", static_cast<long long>(n["wan_port"].as_int(52373))) + (n["wan_enabled"].as_bool() ? "" : std::string(" · ") + tr("désactivée")),
+                 N_("à ouvrir sur la box pour être joint de l'extérieur"), true},
+                {N_("BitTorrent : protocole"), proto, N_("TCP, UDP (uTP) ou les deux"), true},
+                {N_("BitTorrent : ports"), pf == pt ? std::to_string(pf) : std::to_string(pf) + " – " + std::to_string(pt), N_("un port ou une plage : le premier libre est pris ; jamais 52370 à 52373 (ceux de Backup Center)"), true},
+            };
+            const std::vector<Row> bt = {
+                {N_("Accepter les connexions entrantes"), n["bt_accept_in"].as_bool(true) ? std::string(tr("Oui")) : std::string(tr("Non (sortant seulement)")), N_("depuis Internet : ouvrir aussi le port sur la box, ou UPnP ci-dessous"), true},
+                {N_("Ouvrir le port automatiquement (UPnP / NAT-PMP)"), yes(n["bt_upnp"].as_bool()), N_("la box doit l'autoriser"), true},
+                {N_("Trouver des sources sur Internet (DHT)"), yes(n["bt_dht"].as_bool(true)), N_("liens magnet ; jamais pour vos sauvegardes"), true},
+                {N_("Débit maximal"), rate(n["bt_rate_max"].as_int(0)), nullptr, true},
+                {N_("Débit pendant une partie"), rate(n["bt_rate_game"].as_int(2048)), N_("pour ne pas gêner le jeu en ligne"), true},
+                {N_("Envoi maximal (partage)"), rate(n["bt_upload_max"].as_int(1024)), nullptr, true},
+                {N_("Téléchargements en même temps"), std::to_string(n["bt_active"].as_int(3)), nullptr, true},
+                {N_("Connexions au plus"), std::to_string(n["bt_connections"].as_int(200)), nullptr, true},
+                {N_("Où ranger les téléchargements"), where + " › " + tr("Téléchargements"), N_("un disque de cette console : interne ou USB"), true},
+            };
+            const int cw2 = (w - 24) / 2, top = y;
+            auto block = [&](int bx, int& by, const char* title, const std::vector<Row>& rows, int first_row) {
+                s.text(font_, bx, by, title, small, color::accent);
+                by += 32;
+                int row = first_row;
+                for (const Row& r : rows) {
+                    const int rh = r.why ? 78 : 52;
+                    const bool on = set_zone_ == 1 && set_row_ == row;
+                    s.rect(bx, by, cw2, rh, on ? color::panel2 : color::panel, 16);
+                    s.outline(bx, by, cw2, rh, on ? color::accent : color::line, 16, on ? 3 : 1);
+                    const std::string v = r.change ? r.v + " ›" : r.v;  // « › » : Croix ouvre les choix
+                    const int vw = Surface::measure(v, small);
+                    s.text(font_, bx + 20, by + 10, tr(r.k), small, color::text, cw2 - vw - 56);
+                    s.text(font_, bx + cw2 - 20 - vw, by + 10, v, small, r.change ? color::accent : color::muted);
+                    if (r.why) s.text(font_, bx + 20, by + 44, tr(r.why), small, color::muted, cw2 - 40);
+                    by += rh + 8;
+                    ++row;
+                }
+            };
+            int ly = top, ry = top;
+            block(x, ly, tr("PORTS DE CETTE CONSOLE"), ports, 0);
+            block(x + cw2 + 24, ry, tr("BITTORRENT (TÉLÉCHARGEMENTS, SYNCHRO)"), bt, 6);
+            {  // Options BitTorrent (ligne 15) : sous les ports, une fenêtre de choix
+                // Sans sous-titre : la colonne doit tenir avec « Tester les ports » au-dessus de l'aide du bas.
+                const std::vector<Row> opt = {{N_("Options BitTorrent"), bt_options_summary(n), nullptr, true},
+                                              {N_("Adresse publique"), pub_addr_.empty() ? std::string(tr("inconnue")) : pub_addr_ + "  ·  " + tr("Actualiser"), nullptr, true}};
+                ly += 8;
+                block(x, ly, tr("OPTIONS"), opt, 15);
+            }
+            ly += 8;
+            const bool on = set_zone_ == 1 && set_row_ == 5;
+            const std::string t = net_testing_ ? std::string(tr("Test en cours…")) : std::string(tr("Tester les ports"));
+            const int bw = Surface::measure(t, body) + 56;
+            if (on) s.outline(x - 4, ly - 4, bw + 8, 60, color::accent, 30, 3);
+            s.rect(x, ly, bw, 52, color::panel2, 26);
+            s.text(font_, x + 28, ly + 10, t, body, color::text);
+            ly += 66;
+            if (net_test_["ports"].is_array()) {  // résultat : ce qui répond depuis le réseau local
+                for (const auto& r : net_test_["ports"].items()) {
+                    const std::string st = r["state"].as_string();
+                    const std::uint32_t c = st == "open" ? color::ok : st == "closed" ? color::bad : color::muted;
+                    const std::string what = r["what"].as_string() == "web" ? tr("Page web et liaison") : r["what"].as_string() == "discovery" ? tr("Découverte")
+                                           : r["what"].as_string() == "wan" ? tr("PS5 à distance") : std::string("BitTorrent");
+                    const std::string state = st == "open" ? tr("répond") : st == "closed" ? tr("ne répond pas") : st == "off" ? tr("désactivée") : tr("pas encore dans le moteur");
+                    s.rect(x, ly + 10, 12, 12, c, 6);
+                    s.text(font_, x + 24, ly, trf("%s · %s %lld : %s", what.c_str(), r["proto"].as_string().c_str(), static_cast<long long>(r["port"].as_int()), state.c_str()), small, c, cw2 - 24);
+                    ly += 32;
+                }
+                para(s, font_, x, ly + 4, tr("Vu depuis cette console. Depuis Internet : ouvrir le port sur la box, puis essayer depuis l'extérieur."), small, color::muted, cw2, 2, 28);
+            }
             break;
         }
         case sec_general:
@@ -6219,7 +7197,7 @@ void Ui::draw_settings(Surface& s) {
             break;
         }
         case sec_sources: {
-            heading(tr("Sources et émulateurs"), tr("Automatique : réglages de chaque émulateur, sinon ses dossiers habituels. Croix pour régler à la main."));
+            heading(tr("Sources et émulateurs"), tr("Automatique : réglages de chaque émulateur, sinon ses dossiers habituels. Réglable à la main."));
             int idx = -1;
             for (const auto& e : snap_->emulators) {
                 if (!e.installed) continue;
@@ -6256,7 +7234,7 @@ void Ui::draw_settings(Surface& s) {
         }
         case sec_accounts: {
             if (tk_open_) {  // « Tout reprendre sur ce compte » : la partie de la console contre la meilleure copie de l'identifiant
-                heading(trf("Tout reprendre sur %s", tk_target_name_.c_str()).c_str(), tr("Pour chaque jeu, la partie la plus avancée est cochée. L2 : cocher · Croix : reprendre · Rond : annuler."));
+                heading(trf("Tout reprendre sur %s", tk_target_name_.c_str()).c_str(), tr("Pour chaque jeu, la partie la plus avancée est cochée."));
                 if (tk_loading_) { s.text(font_, x, y + 10, tr("Lecture…"), large, color::muted); break; }
                 const auto& games = tk_["games"];
                 if (!games.size()) { s.text(font_, x, y + 10, tr("Aucune copie de cet identifiant à reprendre."), large, color::muted); break; }
@@ -6290,7 +7268,7 @@ void Ui::draw_settings(Surface& s) {
                 }
                 break;
             }
-            heading(tr("Utilisateurs"), tr("Un formatage ou une autre console donne un nouvel identifiant. Croix : le renommer ou le rattacher."));
+            heading(tr("Utilisateurs"), tr("Un formatage ou une autre console donne un nouvel identifiant : on peut le renommer ou le rattacher."));
             if (!players_at_ || now_ - players_at_ > 30000) {
                 players_at_ = now_;
                 model_.command("GET", "/api/v2/players", "", [this](const std::string& e, const std::string& body) {
@@ -6337,8 +7315,69 @@ void Ui::draw_settings(Surface& s) {
             }
             break;
         }
+        case sec_storage: {  // Paramètres › Où ranger : un choix par défaut par action, puis « demander à chaque fois »
+            if (!switches_loaded_ || now_ - switches_loaded_ > 10000) load_remotes();
+            heading(tr("Où ranger"), tr("Le choix par défaut de chaque action. À chaque action, Backup Center vous le propose en premier."));
+            const int cw2 = (w - 24) / 2;
+            struct Row { const char* k; std::string v; const char* why; };
+            const std::vector<Row> left = {
+                {N_("Sauvegardes (jeux, parties, applis)"), where_label(snap_->default_place), N_("Sauvegarder, sauvegardes de nuit, plans")},
+                {N_("Téléchargements"), where_label(snap_->net["dl_place"].as_string().empty() ? std::string("internal") : snap_->net["dl_place"].as_string()), N_("liens de partage et BitTorrent")},
+                {N_("Envoyer vers… (Bibliothèque, Transferts)"), send_place().empty() ? std::string(tr("Demander à chaque fois")) : where_label(send_place()), N_("jeux cochés, copies entre appareils")},
+            };
+            const std::vector<Row> right = {
+                {N_("Demander où ranger"), ask_where() ? std::string(tr("Oui (le défaut en premier)")) : std::string(tr("Non (toujours le défaut)")), N_("à chaque sauvegarde, téléchargement ou envoi")},
+                {N_("Gérer les appareils"), tr("Appareils"), N_("ajouter un disque, un NAS, un nuage, une Switch")},
+            };
+            const int top = y;
+            auto block = [&](int bx, int& by, const char* title, const std::vector<Row>& rows, int first_row) {
+                s.text(font_, bx, by, title, small, color::accent);
+                by += 32;
+                int row = first_row;
+                for (const Row& r : rows) {
+                    const bool on = set_zone_ == 1 && set_row_ == row;
+                    s.rect(bx, by, cw2, 78, on ? color::panel2 : color::panel, 16);
+                    s.outline(bx, by, cw2, 78, on ? color::accent : color::line, 16, on ? 3 : 1);
+                    const std::string v = r.v + " ›";
+                    const int vw = std::min(cw2 / 2, Surface::measure(v, small));
+                    s.text(font_, bx + 20, by + 10, tr(r.k), small, color::text, cw2 - vw - 56);
+                    s.text(font_, bx + cw2 - 20 - vw, by + 10, v, small, color::accent, cw2 / 2);
+                    s.text(font_, bx + 20, by + 44, tr(r.why), small, color::muted, cw2 - 40);
+                    by += 86;
+                    ++row;
+                }
+            };
+            int ly = top, ry = top;
+            block(x, ly, tr("PAR DÉFAUT, POUR CHAQUE ACTION"), left, 0);
+            block(x + cw2 + 24, ry, tr("À CHAQUE ACTION"), right, 3);
+            // Ce que la fenêtre propose : toutes les familles d'appareils, avec leur nombre.
+            ly = std::max(ly, ry) + 20;
+            s.text(font_, x, ly, tr("PROPOSÉS DANS « OÙ RANGER ? »"), small, color::accent);
+            ly += 40;
+            const auto devs = tr_devices();
+            struct Fam { const char* name; int image; int n; };
+            Fam fams[5] = {{N_("Cette PS5"), dev_internal, 0}, {N_("Autres PS5"), dev_internal, 0}, {"Switch", dev_switch, 0}, {"NAS", dev_nas, 0}, {N_("Nuage"), dev_cloud, 0}};
+            for (const auto& d : devs) {
+                if (d.kind == "internal" || d.kind == "usb") ++fams[0].n;
+                else if (d.kind == "peer") ++fams[1].n;
+                else if (d.kind == "switch") ++fams[2].n;
+                else if (d.kind == "share" || d.kind == "add" || d.kind == "ps5") continue;
+                else if (cloud_proto(d.kind)) ++fams[4].n;
+                else ++fams[3].n;
+            }
+            const int fw = (w - 2 * 16) / 3;  // deux rangées (3 + 2) : les noms tiennent
+            for (int i = 0; i < 5; ++i) {
+                DevCard c;
+                c.dev = fams[i].image;
+                c.name = tr(fams[i].name);
+                c.line = fams[i].n == 0 ? std::string(tr("aucun")) : trf("%d endroit(s)", fams[i].n);
+                c.img = 64;
+                device_card(s, c, x + (i % 3) * (fw + 16), ly + (i / 3) * (96 + 16), fw, 96, false);
+            }
+            break;
+        }
         case sec_devices:
-            heading(tr("Appareils"), tr("Disques, NAS, Switch et consoles se règlent dans l'onglet Appareils (Croix pour y aller)."));
+            heading(tr("Appareils"), tr("Disques, NAS, Switch et consoles se règlent dans l'onglet Appareils."));
             heading(tr("Associer un téléphone ou un ordinateur"), tr("Parcourez et lancez vos sauvegardes depuis un appareil du même réseau."));
             card(320);
             s.text(font_, x + 24, y + 20, std::string("1   ") + tr("Ouvrez cette adresse dans un navigateur"), body, color::muted);
@@ -6348,7 +7387,7 @@ void Ui::draw_settings(Surface& s) {
             s.text(font_, x + 24, y + 262, tr("Le code change quand le moteur redémarre. Les appareils associés le restent."), small, color::muted);
             break;
         case sec_ignored: {
-            heading(tr("Éléments ignorés"), tr("Jeux, applications, homebrews et ROM qui ne sont plus sauvegardés ni proposés. Croix : ne plus ignorer."));
+            heading(tr("Éléments ignorés"), tr("Jeux, applications, homebrews et ROM qui ne sont plus sauvegardés ni proposés."));
             const auto rows = ignored_rows(*snap_, unignored_);
             for (auto it = unignored_.begin(); it != unignored_.end();) {  // les réglages relus ne l'ont plus : oublié
                 bool still = std::find(snap_->ignored.begin(), snap_->ignored.end(), *it) != snap_->ignored.end();
@@ -6371,7 +7410,7 @@ void Ui::draw_settings(Surface& s) {
                 cover(s, found ? *found : stand_in, x + 10, y + 8, 60, false);
                 s.text(font_, x + 88, y + 8, found ? found->title : tid, body, color::text, w - 420);
                 s.text(font_, x + 88, y + 44, tid, small, color::muted, w - 420);
-                const char* act = tr("Croix : ne plus ignorer");
+                const char* act = tr("Ne plus ignorer");
                 s.text(font_, x + w - 24 - Surface::measure(act, small), y + 26, act, small, f ? color::accent : color::muted);
                 y += 86;
             }
@@ -6433,6 +7472,9 @@ void Ui::draw_settings(Surface& s) {
                     case 2: label = tr("Redémarrer le moteur"); detail = tr("les sauvegardes en cours reprennent ensuite"); break;
                     case 3: label = tr("Redémarrer l'application"); detail = tr("elle se rouvre toute seule"); break;
                     case 5: label = tr("Démarrage du moteur"); detail = tr("à l'ouverture, avec la console"); break;
+                    case 11: label = tr("Montage des jeux"); detail = tr("ShadowMountPlus, Kraken Mount"); break;
+                    case 12: label = tr("Outils de la console"); detail = tr("lancer, arrêter"); break;
+                    case 13: label = tr("Bibliothèques de jeux"); detail = tr("jeux à installer : NAS, nuage, USB"); break;
                     case 8: label = trf("Revenir à la version %s", u.previous.c_str()); detail = tr("si la version actuelle pose problème"); break;
                     case 9: label = tr("Versions disponibles"); detail = tr("choisir une version à installer"); break;
                     case 7: label = tr("Alimentation de la console"); detail = tr("redémarrer, éteindre"); break;
@@ -6701,7 +7743,14 @@ void Ui::draw_settings(Surface& s) {
             kv(tr("Adresse web"), address_, y + 108);
         }
     }
-    draw_footer(s, {{0, tr("Valider")}, {1, tr("Retour au menu")}, {-1, tr("L1 / R1  onglets")}});
+    if (set_zone_ == 0 && set_back_tab_ >= 0)  // venu par R3 : Rond ramène à l'écran d'avant
+        draw_footer(s, {{0, tr("Ouvrir")}, {-1, tr("Haut / bas : rubriques")}, {1, trf("Retour : %s", tr(tab_names[set_back_tab_])).c_str()}});
+    else if (set_zone_ == 0) draw_footer(s, {{0, tr("Ouvrir")}, {-1, tr("Haut / bas : rubriques")}, {-1, tr("L1 / R1 : onglets")}});  // ○ ne fait rien dans le menu
+    else if (set_section_ == sec_accounts && tk_open_) draw_footer(s, {{0, tr("Reprendre")}, {-1, tr("L2 : cocher")}, {1, tr("Annuler")}});  // Tout reprendre sur ce compte
+    else if (set_section_ == sec_storage && set_zone_ == 1) draw_footer(s, {{0, tr("Choisir")}, {-1, tr("Haut / bas")}, {-1, tr("Gauche / droite : colonne")}, {1, tr("Retour au menu")}});
+    else if (set_section_ == sec_network && set_zone_ == 1) draw_footer(s, {{0, set_row_ == 5 ? tr("Tester") : tr("Choisir")}, {-1, tr("Haut / bas")}, {-1, tr("Gauche / droite : colonne")}, {1, tr("Retour au menu")}});
+    else if (set_section_ == sec_general && set_row_ >= 1) draw_footer(s, {{-1, tr("Gauche / droite : changer")}, {0, tr("Valeur suivante")}, {1, tr("Retour au menu")}});
+    else draw_footer(s, {{0, tr("Valider")}, {1, tr("Retour au menu")}, {-1, tr("L1 / R1 : onglets")}});
 }
 
 void Ui::draw_engine_overlay(Surface& s) {
@@ -6777,22 +7826,25 @@ void Ui::draw_changelog(Surface& s, const std::vector<ChangelogEntry>& list, int
 
 void Ui::draw_whats_new(Surface& s) {
     s.rect(0, 0, 1920, 1080, color::shadow);
-    const int x = 300, w = 1320, top = 120, h = 840;
-    s.rect(x, top, w, h, color::panel, 28);
-    s.outline(x, top, w, h, color::line, 28, 2);
-    s.text(font_, x + 48, top + 36, tr("Quoi de neuf"), title, color::text);
-    int y = top + 140;
-    draw_changelog(s, whats_new_, x + 48, y, w - 96, top + h - 176);
+    // Même modèle que les autres fenêtres (charte §4.6) : bandeau du titre, contenu, une ligne de soutien, puis l'aide
+    // dans la fenêtre sous un trait (pas de bouton à part ni de touche isolée).
+    const int x = 300, w = 1320, top = 110, h = 860;
+    window_frame(s, x, top, w, h);
+    s.text(font_, x + 48, top + 28, tr("Quoi de neuf"), large, color::text);
+    int cy = top + 120;
+    draw_changelog(s, whats_new_, x + 48, cy, w - 96, top + h - 64 - 96);
     // Une seule ligne, jamais une fenêtre de plus : le soutien est dans Paramètres.
-    s.text(font_, x + 48, top + h - 158, "♥", small, rgb(255, 94, 91));
-    para(s, font_, x + 82, top + h - 158, tr("PS5 Backup Center reste gratuit. Si l'appli vous aide, vous pouvez soutenir son développement : Paramètres › Soutenir le projet."), small, color::muted, w - 130, 2, 30);
-    const int cw = std::max(220, Surface::measure(tr("Compris"), body) + 64);
-    s.rect(x + 48, top + h - 76, cw, 52, color::accent2, 26);
-    s.text(font_, x + 80, top + h - 66, tr("Compris"), body, color::text);
-    icon(s, 0, x + 70 + cw, top + h - 64, color::muted);
+    const int sy = top + h - 64 - 84;
+    s.rect(x + 24, sy - 14, w - 48, 2, color::line, 1);
+    s.text(font_, x + 48, sy, "\xE2\x99\xA5", small, rgb(255, 94, 91));
+    para(s, font_, x + 82, sy, tr("PS5 Backup Center reste gratuit. Si l'appli vous aide, vous pouvez soutenir son développement : Paramètres › Soutenir le projet."), small, color::muted, w - 130, 2, 30);
+    s.rect(0, 990, 1920, 90, color::bg);  // l'aide de l'écran du dessous s'efface : celle de la fenêtre suffit
+    help_in(x, top, w, h);
+    draw_footer(s, {{0, tr("Compris")}, {1, tr("Fermer")}});
 }
 
 void Ui::draw(Surface& s) {
+    footer_box_ = {};  // une aide « dans la fenêtre » ne vaut que pour la fenêtre qui l'a demandée
     animating_ = false;  // remis à vrai par ce qui bouge encore (défilement, roue de chargement)
     s.backdrop();
     if (tab_ != home && tab_ != library) draw_header(s);  // ces deux-là posent d'abord leur fond
@@ -6804,14 +7856,22 @@ void Ui::draw(Surface& s) {
         case backups: draw_backups_tab(s); break;
         case synchro: draw_synchro(s); break;
         case transfers: draw_transfers(s); break;
+        case downloads: draw_downloads(s); break;
         case tasks: draw_tasks(s); break;
         case settings: draw_settings(s); break;
         default: break;
     }
+    dl_notify();  // téléchargements : fini, lien qui expire (sur tous les écrans)
     if (sheet_) draw_sheet(s);
     if (rsheet_) draw_remote_sheet(s);
     draw_quit_hint(s);
     if (engine_choice_needed()) draw_engine_overlay(s);
+    if (menus_open_) draw_menus(s);
+    if (!popup_ && !popup_back_.empty()) popup_back_.clear();  // plus de fenêtre ouverte : la chaîne est finie
+    if (td_open_) draw_torrent_detail(s);
+    if (mag_open_) draw_magnet(s);
+    if (sh_open_) draw_share(s);
+    if (wh_open_) draw_where(s);
     if (popup_) draw_popup(s);
     if (mg_preview_) draw_mg_preview(s);
     if (mg_ign_open_) draw_mg_ignore(s);
@@ -7030,6 +8090,94 @@ void Ui::draw_remote_sheet(Surface& s) {
         y += 72;
     }
     draw_footer(s, {{0, tr("Choisir")}, {1, tr("Retour")}});
+}
+
+}  // namespace app
+
+namespace app {
+
+// Fermer ce qui est ouvert par-dessus l'écran (pavé tactile, R3, L3) : rien n'est annulé en cours de route.
+void Ui::close_overlays() {
+    popup_back_.clear();
+    whats_new_.clear(); popup_ = false; sheet_ = false; rsheet_ = false; br_open_ = false; pe_open_ = false; pp_open_ = false; em_open_ = false; ed_open_ = false; cl_open_ = false; td_open_ = false; mag_open_ = false; sh_open_ = false; wh_open_ = false;
+    mg_preview_ = false; mg_ign_open_ = false; mg_tidy_open_ = false; sy_pick_ = false; loupe_ = false; menus_open_ = false;
+}
+
+// L3 : la barre du haut s'allonge sur deux rangées, sur place (tous les menus, Paramètres compris) : on descend à un
+// menu au lieu de défiler L1 / R1. Croix : y aller ; Rond ou L3 : la barre redevient comme avant.
+void Ui::input_menus(std::uint32_t k) {
+    const int n = static_cast<int>(tab_count), cols = (n + 1) / 2;
+    if (k & key::circle) { menus_open_ = false; return; }
+    if (k & (key::left | key::l1)) menus_sel_ = (menus_sel_ + n - 1) % n;
+    if (k & (key::right | key::r1)) menus_sel_ = (menus_sel_ + 1) % n;
+    if ((k & key::down) && menus_sel_ < cols) menus_sel_ = std::min(n - 1, menus_sel_ + cols);
+    if ((k & key::up) && menus_sel_ >= cols) menus_sel_ -= cols;
+    if (k & key::cross) {
+        menus_open_ = false;
+        set_back_tab_ = -1;
+        tab_ = static_cast<Tab>(std::clamp(menus_sel_, 0, n - 1));
+        bar_ = false;
+        if (tab_ == settings) set_zone_ = 0;
+    }
+}
+
+void Ui::draw_menus(Surface& s) {
+    // La barre du haut elle-même, allongée sur place : même verre, mêmes L1 / R1, même trait sous l'onglet actif ;
+    // seulement deux rangées au lieu d'une. Croix : on y va et la barre redevient une seule rangée.
+    const int n = static_cast<int>(tab_count), cols = (n + 1) / 2, top = 34, rh = 50, h = 2 * rh + 6;  // s'arrête au-dessus du texte de la page
+    int px0 = hdr_px0_, px1 = hdr_px1_;
+    std::vector<int> cwv(static_cast<std::size_t>(cols), 0);
+    for (int i = 0; i < n; ++i) cwv[static_cast<std::size_t>(i % cols)] = std::max(cwv[static_cast<std::size_t>(i % cols)], Surface::measure(tr(tab_names[i]), body) + 22);
+    int used = 0;
+    for (int w : cwv) used += w + 2;
+    // Pas la place (deuxième rangée plus longue) : la barre s'étire jusqu'au cœur et recouvre proprement l'état du moteur.
+    if (px1 - px0 - 116 < used) px1 = std::max(1920 - margin - 56 - 140 - 16, std::min(1920 - margin, px0 + used + 116));
+    const int a0 = px0 + 58, a1 = px1 - 58, spare = std::max(0, (a1 - a0 - used) / cols);
+    s.rect(0, top + h + 10, 1920, 1080 - top - h - 10, rgb(0, 0, 0, 60), 0);  // le reste juste un peu en retrait
+    s.rect(px0, top, px1 - px0, h, color::bg, 28);                         // opaque : rien ne passe dessous
+    s.rect(px0, top, px1 - px0, h, rgb(255, 255, 255, 16), 28);
+    s.outline(px0, top, px1 - px0, h, rgb(255, 255, 255, 22), 28, 1);
+    s.rect(px0 + 10, 48, 40, 28, rgb(255, 255, 255, 18), 8);
+    s.text(font_, px0 + 16, 49, "L1", small, color::muted);
+    s.rect(px1 - 50, 48, 40, 28, rgb(255, 255, 255, 18), 8);
+    s.text(font_, px1 - 44, 49, "R1", small, color::muted);
+    int active = 0, dl = 0;
+    for (const auto& t : snap_->tasks) if (in_group(t.state, 0)) { ++active; if (t.origin == "download") ++dl; }
+    for (int i = 0; i < n; ++i) {
+        const int c = i % cols, w = cwv[static_cast<std::size_t>(c)] + spare;
+        int x = a0;
+        for (int j = 0; j < c; ++j) x += cwv[static_cast<std::size_t>(j)] + spare + 2;
+        const int y = top + 4 + (i / cols) * rh;
+        const bool cur = i == static_cast<int>(tab_), sel = i == menus_sel_;
+        const char* name = tr(tab_names[i]);
+        const int tw = Surface::measure(name, body);
+        if (cur) {  // l'onglet où l'on est : verre éclairé et trait lumineux, comme dans la barre
+            s.rect(x, y, w, 42, rgb(255, 255, 255, 34), 21);
+            s.rect(x + (w - tw) / 2 - 2, y + 36, tw + 4, 8, rgb(124, 196, 255, 70), 4);
+            s.rect(x + (w - tw) / 2, y + 37, tw, 4, color::accent, 2);
+        }
+        if (sel) s.outline(x - 2, y - 2, w + 4, 46, color::accent, 23, 3);  // le choix en cours
+        s.text(font_, x + (w - tw) / 2, y + 3, name, body, cur || sel ? color::text : rgb(160, 180, 204));
+        const int badge = i == downloads ? dl : i == tasks ? active : 0;
+        if (badge) { char b[8]; std::snprintf(b, sizeof b, "%d", badge); s.rect(x + w - 14, y - 6, 26, 24, color::accent2, 12); s.text(font_, x + w - 6, y - 5, b, small, color::text); }
+    }
+    s.rect(0, 980, 1920, 100, color::bg, 0);  // l'aide de l'écran du dessous ne déborde pas sous celle-ci
+    draw_footer(s, {{0, tr("Aller")}, {-1, tr("Flèches : choisir")}, {1, tr("Fermer")}, {-1, tr("L3 : fermer")}});
+}
+
+
+// Adresse publique de la console (liens de partage par Internet) : redemandée à l'ouverture de l'appli, ou à la main
+// (Paramètres › Réseau, Triangle dans la fenêtre d'un lien). Le moteur la garde 10 minutes ; « Actualiser » la redemande.
+void Ui::refresh_public_address(bool say) {
+    model_.command("POST", "/api/v2/public-address", "{\"refresh\":true}", [this, say](const std::string& e, const std::string& body) {
+        Json j;
+        const bool ok = e.empty() && Json::parse(body, j);
+        const std::string h = ok ? j["host"].as_string() : std::string();
+        post_ui([this, h, say] {
+            pub_addr_ = h;
+            if (say) toast(h.empty() ? std::string(tr("Adresse publique inconnue : la console n'a pas pu la demander")) : trf("Adresse publique : %s", h.c_str()));
+        });
+    });
 }
 
 }  // namespace app

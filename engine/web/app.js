@@ -9,10 +9,10 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const KINDS = { game_ps5: "PS5", game_ps4: "PS4", app: T("Application"), rom: "ROM" };
 const PARTS = { game: T("Jeu"), update: T("Mise à jour"), dlc: T("DLC"), save: T("Sauvegarde"), state: T("États"), config: T("Configuration"), app: T("Application") };
 const STATES = { queued: T("En attente"), running: T("En cours"), paused: T("En pause"), done: T("Terminée"), failed: T("Échec"), cancelled: T("Annulée") };
-const TASK_KINDS = { transfer: T("Transfert"), link_send: T("Envoi vers une autre PS5"), compress: T("Compression"), uncompress: T("Décompression"), full_backup: T("Sauvegarde complète"), make_image: T("Création d'image"),
+const TASK_KINDS = { transfer: T("Transfert"), link_send: T("Envoi vers une autre PS5"), compress: T("Compression"), uncompress: T("Décompression"), full_backup: T("Sauvegarde complète"), make_image: T("Création d'image"), make_pkg: T("Création d'un paquet .pkg"),
   extract_image: T("Extraction d'image"), validate_image: T("Vérification d'image"), read_speed_test: T("Test de vitesse"), build_ampr_index: T("Index AMPR"),
   set_read_only: T("Lecture seule"), backup: T("Sauvegarde"), restore: T("Restauration"), restore_save: T("Restauration"), import_switch: T("Synchro Switch"), export_switch: T("Synchro Switch"),
-  files_copy: T("Fichiers · copie"), files_move: T("Fichiers · déplacement"), files_delete: T("Fichiers · suppression"), game_uninstall: T("Désinstallation") };
+  files_copy: T("Fichiers · copie"), files_move: T("Fichiers · déplacement"), files_delete: T("Fichiers · suppression"), game_uninstall: T("Désinstallation"), install_job: T("Installation") };
 // Thèmes : mêmes palettes que la télé (app/src/gfx.cpp) ; les couleurs vivent dans app.css ([data-theme=…]).
 // Aperçu : fond haut / bas, carte, texte, accent, accent 2.
 const THEMES = [
@@ -68,13 +68,21 @@ function toast(msg) {
 const cleanTitle = (t) => (t || "").replace(/\s*[([][^)\]]*[)\]]/g, "").trim() || t || "";
 
 async function api(path, opts = {}) {
-  const r = await fetch("/api/v2" + path, { ...opts, headers: { "X-PBC-Token": state.token, ...(opts.body ? { "Content-Type": "application/json" } : {}) } });
+  // Comme la télé : un délai large (celui de ses demandes lentes), et un message traduit si la console ne répond pas,
+  // plutôt que le texte brut du navigateur (« Failed to fetch »).
+  const ctl = typeof AbortController !== "undefined" && !opts.signal ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), path.startsWith("/sync/") ? 90000 : 60000) : 0;
+  let r;
+  try { r = await fetch("/api/v2" + path, { ...opts, ...(ctl ? { signal: ctl.signal } : {}), headers: { "X-PBC-Token": state.token, ...(opts.body ? { "Content-Type": "application/json" } : {}) } }); }
+  catch (e) { throw new Error(T("l'appareil ne répond pas (délai dépassé)")); }
+  finally { clearTimeout(timer); }
   if (r.status === 401) {  // jeton refusé (appareil oublié) : on repart sur l'appairage
     state.token = ""; try { localStorage.removeItem("pbc-token"); } catch (e) {}
     showPair(); throw new Error(T("non associé"));
   }
   const ct = r.headers.get("Content-Type") || "";
-  const data = ct.includes("json") ? await r.json() : null;
+  let data = null;
+  if (ct.includes("json")) { try { data = await r.json(); } catch (e) { if (r.ok) throw new Error(T("Réponse illisible")); } }
   if (!r.ok) throw new Error((data && data.error) || T("erreur %d", r.status));
   return data;
 }
@@ -86,9 +94,16 @@ function ask(title, html, ok = T("Continuer"), cancel = T("Annuler")) {
     const box = document.createElement("div");
     box.className = "modal";
     box.innerHTML = `<div class="dialog"><h2>${esc(title)}</h2>${html}<div class="actions"><button class="primary" data-r="1">${esc(ok)}</button>${cancel ? `<button class="secondary" data-r="0">${esc(cancel)}</button>` : ""}</div></div>`;
+    box.setAttribute("role", "dialog"); box.setAttribute("aria-modal", "true"); box.setAttribute("aria-label", title);
+    const before = document.activeElement;  // le focus revient au bouton d'origine à la fermeture
+    // La réponse d'abord, la fenêtre retirée juste après : le code qui attend la réponse lit encore ses champs (#id).
+    const done = (v) => { resolve(v); setTimeout(() => { box.remove(); if (before && before.focus) before.focus({ preventScroll: true }); }, 0); };
+    box.cancel = () => done(false);  // Échap passe par la même annulation que le bouton « Annuler » (audit Codex)
     document.body.appendChild(box);
-    box.querySelectorAll("[data-r]").forEach((b) => b.onclick = () => { box.remove(); resolve(b.dataset.r === "1"); });
-    box.onclick = (e) => { if (e.target === box) { box.remove(); resolve(false); } };
+    box.querySelectorAll("[data-r]").forEach((b) => b.onclick = () => done(b.dataset.r === "1"));
+    box.onclick = (e) => { if (e.target === box) done(false); };
+    const first = box.querySelector("[data-r='1']");
+    if (first) first.focus({ preventScroll: true });
   });
 }
 
@@ -108,7 +123,7 @@ async function deleteConsoleSave(anchor, tid, title, done) {
       if (!(await ask(T("Supprimer la sauvegarde de « %s » ?", title), `<p>${esc(a.status === "console_newer"
         ? T("La partie active est plus récente que vos sauvegardes : sauvegardez-la d'abord (fiche › Sauvegarder), puis supprimez.")
         : T("Aucune copie dans Sauvegardes : sauvegardez-la d'abord (fiche › Sauvegarder), puis supprimez."))}</p>`, T("Supprimer quand même…")))) return;
-      if (!(await holdAsk(T("Supprimer DÉFINITIVEMENT la sauvegarde de « %s » (%s) ?", title, a.name),
+      if (!(await holdAsk(T("Supprimer définitivement la sauvegarde de « %s » (%s) ?", title, a.name),
         `<p>${esc(T("C'est la partie active sur la console, pas une copie de l'onglet Sauvegardes."))} ${esc(T("Aucune sauvegarde à jour ne pourra la remettre. Seule une copie de sécurité brute est gardée sur la console (dossier de l'application)."))}</p>`,
         T("Maintenir 5 s pour supprimer")))) return;
       force = true;
@@ -147,6 +162,7 @@ function holdAsk(title, html, label) {
     btn.onpointerdown = (e) => { e.preventDefault(); t0 = performance.now(); raf = requestAnimationFrame(tick); };
     btn.onpointerup = btn.onpointerleave = btn.onpointercancel = stop;
     box.querySelector("[data-r]").onclick = () => { stop(); box.remove(); resolve(false); };
+    box.cancel = () => { stop(); box.remove(); resolve(false); };  // Échap = Annuler (comme ask())
     box.onclick = (e) => { if (e.target === box) { stop(); box.remove(); resolve(false); } };
   });
 }
@@ -173,7 +189,12 @@ function selBar(n, actions = [], cancel = null, info = "") {
 // Compatibilité (constat, pas un verdict — le minimum déclaré n'est qu'un indice), comme sur la télé.
 function compatStateText(c) {
   const who = c.console || T("cette console");
-  const label = { system_ok: T("Compatible : système suffisant"), verified: T("Compatibilité vérifiée"), backport_present: T("Backport nécessaire : présent"),
+  // Les vrais chiffres quand ils comptent : SDK des exécutables (ou du backport) face au système de la console (comme la télé).
+  const rs = c.reasons || [], exe = rs.find((r) => r.code === "exe_sdk"), need = rs.find((r) => r.code === "needs_system"), decl = rs.find((r) => r.code === "declared");
+  const label = c.state === "backport_insufficient" ? T("Ne se lancera pas : backport fait pour le SDK %s, trop récent", need ? need.sdk : "")
+    : c.state === "no_backport" && exe && exe.fits === false ? T("Ne se lancera pas : jeu en SDK %s, aucun backport", exe.sdk)
+    : c.state === "no_backport" && decl ? T("Risque de ne pas fonctionner : le jeu demande le système %s, aucun backport", decl.declared)
+    : { system_ok: T("Compatible : système suffisant"), verified: T("Compatibilité vérifiée"), backport_present: T("Backport nécessaire : présent"),
     no_backport: T("Risque de ne pas fonctionner : aucun backport"), incompatible_known: T("Incompatibilité connue") }[c.state] || T("Informations insuffisantes");
   return c.firmware ? T("%s (%s, système %s)", label, who, c.firmware) : T("%s (%s)", label, who);
 }
@@ -188,9 +209,10 @@ function compatReasons(c) {
     format_failed: () => T(".%s ne s'est pas monté sur cette console : image non compressée conseillée", r.ext),
     unreadable: () => T("image non lisible ici"),
     no_firmware: () => T("système de la console inconnu"),
+    needs_system: () => T("backport en SDK %s, système %s trop ancien", r.sdk, r.firmware),
   }[r.code] || (() => ""))()).filter(Boolean);
 }
-function compatClass(c) { return { system_ok: "ok", verified: "ok", backport_present: "warn", no_backport: "bad", incompatible_known: "bad" }[c.state] || "muted"; }
+function compatClass(c) { return { system_ok: "ok", verified: "ok", backport_present: "warn", no_backport: "bad", backport_insufficient: "bad", incompatible_known: "bad" }[c.state] || "muted"; }
 function compatBackportText(c) {
   const bp = c.backport || {}, n = (bp.game_libs || []).length;
   const parts = n ? [bp.game_libs_sdk ? T("fakelib du jeu, %d bibliothèque(s), SDK %s", n, bp.game_libs_sdk) : T("fakelib du jeu, %d bibliothèque(s)", n)] : [];
@@ -207,25 +229,32 @@ async function systemOk(path, body, title) {
   let note = T("« %s » demande le système %s ; %s est en %s.", title, j.required, who, j.firmware);
   if (j.state === "backport_present") note += " " + T("Il faut un backport, et il existe : %s.", compatBackportText(j));
   else if (j.state === "no_backport") note += " " + T("Aucun backport trouvé : le jeu risque de ne pas fonctionner. PS5 Center pourra aider (fonctions expérimentales de backport).");
+  else if (j.state === "backport_insufficient") note += " " + T("Le backport trouvé est fait pour un système plus récent que celui de cette console : le jeu ne se lancera pas.");
   return ask(compatStateText(j), `<p class="hint">${esc(note)}</p>`, T("Continuer quand même"));
 }
 
 // Format d'un jeu installé (envoi à une PS5, installation depuis une copie), comme sur la télé.
-function chooseFormat(anchor, then) {
+function chooseFormat(anchor, then, title) {
   setTimeout(() => openMenu(anchor, [
     { label: T("Automatique (selon le système de la console)"), run: () => then("auto") },
     { label: T("Compressé (.ffpfsc) · prend moins de place"), run: () => then("ffpfsc") },
     { label: T("Image non compressée (.exfat) · pour les anciens systèmes"), run: () => then("exfat") },
     { label: T("Tel quel (comme la copie)"), run: () => then("keep") },
-  ]), 0);
+  ], "", title), 0);
 }
 
-function openMenu(anchor, actions) {
+// title : la ligne en haut du menu (« Envoyer « … » à… »), comme le titre des menus de la télé ;
+// note : la phrase sous le menu, comme celle des menus de la télé (popup_note_).
+function openMenu(anchor, actions, note, title) {
   closeMenu();
   if (!actions.length) return;
+  // Même rangement que la télé (charte §4.6) : ce qui efface en bas, en rouge, après un trait ; l'ordre des autres est gardé.
+  const erases = (a) => a.cls === "bad" || a.cls === "danger";
+  actions = [...actions.filter((a) => !erases(a)), ...actions.filter(erases)];
+  const firstBad = actions.findIndex(erases);
   const m = document.createElement("div");
   m.className = "popmenu"; m.id = "popmenu"; m.setAttribute("role", "menu");
-  m.innerHTML = actions.map((a, i) => `<button role="menuitem" data-mi="${i}" class="${a.cls || ""}" ${a.disabled ? "disabled" : ""}>${esc(a.label)}${a.hint ? `<small class="mi-hint">${esc(a.hint)}</small>` : ""}</button>`).join("");
+  m.innerHTML = (title ? `<p class="mi-title">${esc(title)}</p>` : "") + actions.map((a, i) => `${i === firstBad && i > 0 ? '<hr class="mi-sep">' : ""}<button role="menuitem" data-mi="${i}" class="${erases(a) ? "bad" : a.cls || ""}" ${a.disabled ? "disabled" : ""}>${esc(a.label)}${a.hint ? `<small class="mi-hint">${esc(a.hint)}</small>` : ""}</button>`).join("") + (note ? `<p class="mi-note">${esc(note)}</p>` : "");
   document.body.appendChild(m);
   const r = anchor.getBoundingClientRect(), w = m.offsetWidth, h = m.offsetHeight;
   m.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + "px";
@@ -274,6 +303,11 @@ async function refresh(force = false) {
   try {
     const st = await (await fetch("/api/v2/status")).json();
     state.status = st;
+    if (state.tab === "downloads" && !document.querySelector(".modal, .popmenu")) {  // torrents : débit et avancement en direct
+      const before = JSON.stringify(state.torrents || {});
+      await loadTorrents();
+      if (JSON.stringify(state.torrents) !== before) render();
+    }
     const eng = $("#engine-state");
     eng.className = "engine ok";
     // Mise à jour installée pendant que la page est ouverte : on recharge (sinon on garde l'ancienne page).
@@ -332,7 +366,7 @@ function updateProgress(u) {
 // dernière date de moins d'une minute, ou si « Rechercher automatiquement » est à Non).
 function autoCheckUpdates() { if (state.token) post("/update/check", { auto: true }).catch(() => {}); }
 function setTab(tab) {
-  if (tab === "settings" && state.tab !== "settings") autoCheckUpdates();
+  if (tab === "settings" && state.tab !== "settings") { autoCheckUpdates(); state.prevTab = state.tab; }  // fermer y ramène (comme la télé)
   state.tab = tab;
   $$("[data-tab]").forEach((x) => x.classList.toggle("active", x.dataset.tab === tab));
   const b = $(`#tabs [data-tab=${tab}]`);
@@ -340,7 +374,14 @@ function setTab(tab) {
   window.scrollTo(0, 0);
   render(true);
 }
-$$("[data-tab]").forEach((b) => b.onclick = () => { mg.back = ""; if (b.dataset.tab === state.tab && state.tab === "backups") mg.game = ""; setTab(b.dataset.tab); });
+$$("[data-tab]").forEach((b) => b.onclick = () => {
+  mg.back = "";
+  if (b.dataset.tab === state.tab && state.tab === "backups") mg.game = "";
+  if (b.dataset.tab === "settings" && state.tab === "settings") return closeSettings();  // la roue, de nouveau : on referme
+  setTab(b.dataset.tab);
+});
+// Fermer les Paramètres ramène à l'onglet d'avant (comme Rond à la télé).
+function closeSettings() { setTab(state.prevTab && state.prevTab !== "settings" ? state.prevTab : "home"); }
 $("#search-btn").onclick = openSearch;
 function render(force = false) {
   // Ne pas effacer un champ en cours de saisie quand le moteur change d'état.
@@ -353,7 +394,8 @@ function render(force = false) {
   $$("[data-scroll]").forEach((el) => { scrolls[el.dataset.scroll] = el.scrollLeft; });
   closeMenu();
   selBar(0);  // chaque écran remet sa barre d'actions s'il a une sélection
-  ({ home, library, saves: partiesView, backups: backupsTab, synchro: synchroView, transfers, devices: devicesView, tasks, settings })[state.tab]();
+  ({ home, library, saves: partiesView, backups: backupsTab, synchro: synchroView, transfers, downloads: downloadsView, devices: devicesView, tasks, settings })[state.tab]();
+  dlNotify();
   $$("[data-scroll]").forEach((el) => { if (scrolls[el.dataset.scroll]) el.scrollLeft = scrolls[el.dataset.scroll]; });
 }
 
@@ -392,7 +434,9 @@ function coverHtml(it, big = false) {
   const ph = placeholderHtml(it).replace(/'/g, "&#39;");
   const img = it.has_cover ? `<img loading="lazy" src="${coverUrl(it, big ? 512 : 384)}" onerror="this.outerHTML='${ph.replace(/"/g, "&quot;")}'">` : placeholderHtml(it);
   const [short, tone] = familyBadge(it);
-  const badges = big ? "" : `<div class="badges"><span class="badge" style="background:${tone}">${esc(short)}</span></div>`;
+  // Arrivé par Orbit / BlackBox (étape 3) : une pastille de plus, à leur couleur.
+  const via = it.via ? `<span class="badge" style="background:${it.via.app === "blackbox" ? "#1a6aa8" : "#b4561a"}">${esc(it.via.app_name)}</span>` : "";
+  const badges = big ? "" : `<div class="badges"><span class="badge" style="background:${tone}">${esc(short)}</span>${via}</div>`;
   return `<div class="cover">${img}${badges}</div>`;
 }
 // Jaquette : un clic ouvre la fiche ; avec « sel » (Bibliothèque), une case à cocher et un menu « ⋯ » sur la jaquette.
@@ -446,6 +490,15 @@ function homeTodo() {
   const goSave = () => { state.party.player = ""; state.party.view = "todo"; state.party.sel.clear(); setTab("saves"); };
   const save = me ? ov.entries.filter((e) => e.account === me.key && (e.status === "console_newer" || e.status === "not_backed_up") && !ignored(e.item)).map((e) => ({ item: e.item, title: e.title })) : [];
   if (save.length) cards.push({ eyebrow: T("À SAUVEGARDER"), title: T("%d jeu(x)", save.length), tone: "warn", games: save, go: goSave });
+  {  // Orbit / BlackBox (étape 3, comme la télé) : des jeux amenés, pas encore sauvegardés
+    const ar = state.arrivals || {}, un = (ar.items || []).filter((a) => !a.later);
+    if (!state.arrivalsAt || Date.now() - state.arrivalsAt > 30000) loadArrivals();
+    if (ar.new_count > 0 && un.length) {
+      const apps = [...new Set(un.map((a) => a.app_name))], who = apps.length === 1 ? apps[0] : "Orbit / BlackBox";
+      cards.push({ eyebrow: T("ARRIVÉS PAR %s", who.toUpperCase()), title: T("%d nouveau(x) jeu(x)", un.length), tone: "warn",
+        games: un.map((a) => ({ item: a.item || "title:" + a.title_id, title_id: a.title_id, title: [a.title, T(a.place_label || "")].concat(a.pkg ? [".pkg"] : []).join(" · ") })), go: (b) => openArrivals(b) });
+    }
+  }
   // Copie plus récente que la partie sur la console (jouée ailleurs) : à restaurer ? (comme la télé)
   const onAcc = ov ? (ov.accounts || []).filter((a) => a.on_console).map((a) => a.key) : [];
   const newer = ov ? ov.entries.filter((e) => onAcc.includes(e.account) && e.status === "backup_newer" && !ignored(e.item)).map((e) => ({ item: e.item, title: e.title })) : [];
@@ -468,38 +521,45 @@ function homeTodo() {
         go: async () => { try { await post("/update/install", {}); toast(T("Téléchargement de la mise à jour…")); refresh(true); } catch (e) { toast(e.message); } } });
     else if (u.engine_restart_needed && u.installed)
       cards.push({ eyebrow: T("MISE À JOUR"), title: T("%s installée", u.installed), tone: "ok", games: [{ item: "", logo: true, title: (from ? from + " · " : "") + T("Relancer le moteur") }],
-        go: async () => { try { await post("/update/restart-engine", {}); toast(T("Relance du moteur…")); } catch (e) { toast(T("Relance refusée : %s — la nouvelle version sera active au prochain démarrage de la console", e.message)); } } });
+        go: async () => {
+          // Comme la télé : dire ce qui tourne, vers quoi, et que rien n'est perdu, avant de relancer.
+          if (!await ask(T("Mise à jour %s installée", u.installed), `<p class="hint">${esc(T("Le moteur tourne encore en %s. Il se relance en quelques secondes pour passer en %s ; rien n'est perdu, le jeu en cours n'est pas touché.", (state.status || {}).version || "—", u.installed))}</p>`,
+            T("Relancer le moteur maintenant"), T("Plus tard"))) return;
+          try { await post("/update/restart-engine", {}); toast(T("Relance du moteur…")); } catch (e) { toast(T("Relance refusée : %s — la nouvelle version sera active au prochain démarrage de la console", e.message)); } } });
   }
   // Synchro des copies (comme la télé) : en cours, sinon l'état avec chaque autre PS5.
   if (typeof syncState !== "undefined") {
     const ss = syncState.status;
     if (ss.state === "running") cards.push({ eyebrow: T("SYNCHRO DES SAUVEGARDES"), title: T("%d / %d copie(s)", ss.done || 0, ss.total || 0), tone: "task-move",
       games: [{ item: "", title: ss.current || ss.name || "", progress: ss.total ? Math.floor(((ss.done || 0) * 1000) / ss.total) : -1, eta: "" }], go: () => setTab("backups") });
-    else if (syncState.plans.length) {  // une seule carte Synchro : à mettre à niveau d'abord, puis au même niveau, puis une ligne pour les autres
+    else if (syncState.plans.length && !syncHidden()) {  // une seule carte Synchro : à mettre à niveau d'abord, puis au même niveau, puis une ligne pour les autres
       let need = 0, first = null, sameFirst = null;
-      const games = [], same = [], idle = [];
+      const games = [], same = [], idle = [], autos = [], acked = syncAcked();
       for (const p of syncState.plans) {
+        const pp = (SY.parties || {})[p.plan.peer];  // synchro automatique des dernières 24 h : en premier dans la bulle
+        if (pp && pp.auto_last && pp.auto_last.at > Date.now() / 1000 - 86400) autos.push({ item: "", dev: String(p.plan.peer || "").startsWith("remote:") ? "nas" : "ps5", title: partiesAutoLine(pp.auto_last, p.name) });
         const titles = p.plan.titles || [], chosen = titles.filter((t) => t.followed).length, n = titles.filter(syNeeds);
         if (!chosen) { idle.push({ item: "", dev: String(p.plan.peer || "").startsWith("remote:") ? "nas" : "ps5", title: T("%s · aucun jeu choisi", p.name) }); continue; }
-        if (n.length) { need += n.length; first = first || p; for (const t of n) if (games.length < 12) games.push({ item: "title:" + t.title_id, title_id: t.title_id, title: (t.state === "pull" ? "↓ " : "↑ ") + t.title + " · " + p.name }); continue; }
+        if (n.length) { need += n.length; first = first || p; for (const t of n) if (games.length < 12) games.push({ item: "title:" + t.title_id, title_id: t.title_id, title: (acked.size && !acked.has(syncTitleKey(p.plan.peer, t)) ? T("nouveau") + " · " : "") + (t.state === "pull" ? "↓ " : "↑ ") + t.title + " · " + p.name }); continue; }
         same.push({ item: "", dev: String(p.plan.peer || "").startsWith("remote:") ? "nas" : "ps5", title: T("%s : les mêmes sauvegardes des deux côtés", p.name) });
         sameFirst = sameFirst || p;
       }
       const idleLine = idle;  // chaque appareil défile avec son image
       const head = syncState.plans.length > 1 ? T("SYNCHRO · %d cibles disponibles", syncState.plans.length) : T("SYNCHRO");
       const open = (p) => () => { if (p) SY.dev = p.plan.peer; SY.pick = null; setTab("synchro"); };
-      if (need) cards.push({ eyebrow: head, title: T("%d jeu(x) à mettre à niveau", need), tone: "warn", games: [...games, ...idleLine], go: open(first) });
-      else if (same.length) cards.push({ eyebrow: head, title: T("Tout est au même niveau"), tone: "ok", games: [...same, ...idleLine], go: open(sameFirst) });
-      else cards.push({ eyebrow: head, title: T("Aucun jeu choisi"), tone: "info", games: idleLine, go: open(syncState.plans[0]) });
+      if (need) cards.push({ eyebrow: head, title: T("%d jeu(x) à mettre à niveau", need), tone: "warn", games: [...autos, ...games, ...idleLine], go: open(first), ack: true });
+      else if (same.length) cards.push({ eyebrow: head, title: T("Tout est au même niveau"), tone: "ok", games: [...autos, ...same, ...idleLine], go: open(sameFirst), ack: true });
+      else cards.push({ eyebrow: head, title: T("Aucun jeu choisi"), tone: "info", games: idleLine, go: open(syncState.plans[0]), ack: true });
     }
   }
   // Tâches : une bulle par sorte (compression, transfert, décompression…), en cours d'abord, avec l'avancement.
   const live = state.tasks.filter((t) => t.state === "running" || t.state === "queued" || t.state === "paused");
   for (const kind of [...new Set(live.map((t) => TASK_KINDS[t.type] || T("Tâche")))]) {
     const mine = live.filter((t) => (TASK_KINDS[t.type] || T("Tâche")) === kind), run = mine.filter((t) => t.state === "running"), wait = mine.filter((t) => t.state !== "running");
-    const ty = mine[0].type, fam = ["transfer", "import_switch", "export_switch", "link_send"].includes(ty) ? "task-move" : ["compress", "uncompress", "make_image", "extract_image", "validate_image"].includes(ty) ? "task-pack" : "task";
+    const ty = mine[0].type, fam = ["transfer", "import_switch", "export_switch", "link_send"].includes(ty) ? "task-move" : ["compress", "uncompress", "make_image", "make_pkg", "extract_image", "validate_image"].includes(ty) ? "task-pack" : "task";
     cards.push({ eyebrow: kind, title: !run.length ? T("%d en attente", wait.length) : wait.length ? T("%d en cours", run.length) + " · " + T("%d en attente", wait.length) : T("%d en cours", run.length), tone: fam,
-      games: [...run, ...wait].map((t) => ({ item: t.item || "", title: cleanTitle((t.title || "").split(" · ").pop()) || kind,
+      // Téléchargement depuis un lien reçu : le logo de son service (MEGA, Google Drive…), comme la télé.
+      games: [...run, ...wait].map((t) => ({ item: t.item || "", svc: t.item ? "" : ((state.places.find((p) => p.id === t.from_place && p.readonly) || {}).service || ""), title: cleanTitle((t.title || "").split(" · ").pop()) || kind,
         progress: taskPhase(t) ? Math.floor(taskPhase(t).f * 1000) : t.state === "running" && t.progress && t.progress.bytes_total ? Math.floor((Math.min(t.progress.bytes_done, t.progress.bytes_total) * 1000) / t.progress.bytes_total) : -1,
         phase: taskPhase(t) ? taskPhase(t).text : "",
         eta: taskPhase(t) ? "" : t.state === "running" && t.bytes_per_second > 0 && t.progress && t.progress.bytes_total ? duration((t.progress.bytes_total - t.progress.bytes_done) / t.bytes_per_second) : "" })),
@@ -509,7 +569,7 @@ function homeTodo() {
 }
 const todoName = (g) => ("progress" in g ? g.phase ? g.phase + " · " : (g.progress >= 0 ? `${Math.floor(g.progress / 10)} % · ` + (g.eta ? T("reste") + " " + g.eta + " · " : "") : T("En attente") + " · ") : "") + cleanTitle(g.title);
 const todoBar = (g) => ("progress" in g ? `<span class="todo-bar"><i style="width:${Math.max(2, g.progress / 10)}%"></i></span>` : "");
-const todoImg = (g) => (g.logo ? `<span class="logo big" aria-hidden="true"></span>` : g.item ? mgCover(g) : `<span class="dev-ico">${g.dev === "nas" ? ICONS.nas : ICONS.ps5}</span>`);  // mise à jour : notre logo
+const todoImg = (g) => (g.logo ? `<span class="logo big" aria-hidden="true"></span>` : g.item ? mgCover(g) : g.svc ? `<span class="dev-ico">${cloudIcon(g.svc)}</span>` : `<span class="dev-ico">${g.dev === "nas" ? ICONS.nas : ICONS.ps5}</span>`);  // mise à jour : notre logo
 const todoDots = (n, at) => (n > 1 ? `<span class="todo-dots">${Array.from({ length: Math.min(n, 8) }, (_, d) => `<i class="${d === at % 8 ? "on" : ""}"></i>`).join("")}</span>` : "");
 // Toutes les 3 s : chaque bulle « À faire » passe au jeu suivant (jaquette, nom, points), sans redessiner la page.
 setInterval(() => {
@@ -568,13 +628,35 @@ function receivePeerGame(anchor, peer, g) {
     run: () => chooseFormat(anchor, (format) => pickAccount(anchor, "", T("cette console"), async (uid) => {
       try { await post("/link/pull-game", { peer: peer.instance, item: g.key, place: p.id, format, user_id: uid }); toast(T("« %s » arrive de %s (suivi dans Tâches) ; le jeu apparaît sur l'accueil une fois l'application fermée", g.title, peer.name)); }
       catch (e) { toast(e.message); }
-    })) })));
+    }), T("Format de « %s » sur %s", g.title, p.type === "internal" ? T("Interne") : p.label)) })));
 }
 // ---- Onglet Synchro (comme la télé) ----
 // À gauche les appareils ; à droite où on en est et UN bouton « Mettre à niveau » ; dessous des sections séparées
 // (Sauvegardes active ; Parties, Applis, DLC, Réglages bientôt). « Choisir les jeux » : un interrupteur par jeu.
 const SY = { dev: "", pick: null, filter: 0, sort: 0, versions: false, vsel: new Set() };
 // Un jeu choisi a-t-il quelque chose à échanger ? (sauvegardes, ou le jeu entier une seule fois s'il est demandé)
+// Carte Synchro de l'Accueil acquittée (« Pas maintenant ») : ce qu'elle montrait, gardé par la console (comme la télé).
+// Elle reste cachée tant qu'elle ne montre rien de plus ; une synchro en cours s'affiche toujours.
+const syncTitleKey = (peer, t) => peer + "|" + t.title_id + "|" + t.state + "|" + Math.max(t.here_at || 0, t.there_at || 0);
+function syncCardKeys() {
+  const out = [];
+  for (const p of (typeof syncState !== "undefined" ? syncState.plans : [])) {
+    const titles = p.plan.titles || [], n = titles.filter(syNeeds);
+    for (const t of n) out.push(syncTitleKey(p.plan.peer, t));
+    if (!titles.some((t) => t.followed)) out.push(p.plan.peer + "|idle");
+    else if (!n.length) out.push(p.plan.peer + "|same");
+  }
+  return out;
+}
+const syncAcked = () => new Set(((state.settings || {}).home_ack || {}).sync || []);
+function syncHidden() { const a = syncAcked(); return a.size > 0 && syncCardKeys().every((k) => a.has(k)); }
+async function syncAck(on) {
+  try {
+    state.settings = await post("/settings", { home_ack: on ? { sync: syncCardKeys() } : {} });
+    toast(on ? T("Synchro masquée sur l'Accueil : elle reviendra s'il y a du nouveau") : T("Carte Synchro réaffichée sur l'Accueil"));
+    render();
+  } catch (e) { toast(e.message); }
+}
 const syNeeds = (t) => t.followed && (t.pull || t.push || (t.send_full && (t.full_push_bytes || t.full_pull_bytes)));
 function syDay(ts) {
   if (!ts) return "";
@@ -624,17 +706,40 @@ function synchroDraw() {
   if (SY.pp) { partiesDraw(); return; }
   if (SY.pick) { synchroPickDraw(); return; }
   const devs = synchroDevices();
-  const head = `<h1>${T("Synchro")}</h1><p class="hint tab-help">${esc(T("Vos appareils au même niveau, sans jamais rien recopier deux fois."))}</p>`;
+  const head = `<h1>${T("Synchro")}</h1><p class="hint tab-help">${esc(T("Vos appareils au même niveau, sans jamais rien recopier deux fois."))}</p>` +
+    (syncAcked().size ? `<p class="hint sy-acked">${esc(T("Carte de l'Accueil masquée : elle reviendra s'il y a du nouveau"))} <button class="link" id="sy-unack">${esc(T("Réafficher la carte Synchro sur l'Accueil"))}</button></p>` : "");
   if (!devs.length) { $("#view").innerHTML = head + `<p class="hint">${esc(T("Aucun appareil avec qui se synchroniser : jumelez une autre PS5 (Appareils) ou ajoutez une Switch."))}</p>`; return; }
   if (!devs.some((d) => d.id === SY.dev)) SY.dev = devs[0].id;
   const d = devs.find((x) => x.id === SY.dev);
   const count = (pl) => { const t = (pl && pl.titles) || []; return { chosen: t.filter((x) => x.followed).length, need: t.filter(syNeeds) }; };
+  // Comme la télé : les services du nuage regroupés dans une carte « Nuage · N › », ouverte d'un clic (ou si l'un est choisi).
+  const placeOf = (id) => state.places.find((p) => p.id === id) || {};
+  const isCloud = (x) => x.kind === "nas" && ["s3", "gdrive", "onedrive", "dropbox", "mega"].includes(placeOf(x.id).protocol);
+  // Comme la télé (sy_devices) : plusieurs Switch, plusieurs NAS ou plusieurs services du nuage se regroupent chacun
+  // dans une carte de famille « … N › », ouverte d'un clic (ou d'office si l'un des siens est choisi).
+  const famOf = (x) => x.kind === "switch" ? "switch" : isCloud(x) ? "cloud" : x.kind === "nas" ? "nas" : "";
+  const famSize = {};
+  for (const x of devs) { const f = famOf(x); if (f) famSize[f] = (famSize[f] || 0) + 1; }
+  SY.famOpen = SY.famOpen || {};
+  // Comme la télé : à la première ouverture, si le premier appareil fait partie d'une famille (2 Switch, 2 NAS…), la carte de
+  // la famille est choisie, fermée, et le panneau dit ce qu'elle contient ; un appareil choisi ensuite garde sa famille ouverte.
+  if (SY.famSel === undefined) SY.famSel = famOf(d) && famSize[famOf(d)] > 1 ? famOf(d) : "";
+  if (!SY.famSel && SY.famFor !== d.id) { SY.famFor = d.id; if (famOf(d)) SY.famOpen[famOf(d)] = true; }  // l'appareil choisi reste visible
+  const devIcon = (x) => x.kind === "switch" ? ICONS.switch : isCloud(x) ? cloudIcon(placeOf(x.id).protocol, placeOf(x.id).service) : x.kind === "nas" ? ICONS.nas : ICONS.ps5;
+  const groupBtn = (f) => `<button class="sy-dev sy-group ${SY.famOpen[f] ? "open" : ""}" data-sy-fam="${f}" title="${esc(f === "cloud" ? T("Voir les services et choisir celui à synchroniser ›") : T("Voir les appareils et choisir celui à synchroniser ›"))}"><span class="dev-ico">${f === "switch" ? ICONS.switch : f === "cloud" ? ICONS.cloud : ICONS.nas}</span><span class="grow"><b>${esc(f === "switch" ? "Switch" : f === "cloud" ? T("Nuage") : "NAS")} <span class="fam-n">${famSize[f]} ›</span></b><span class="hint accent">${esc(f === "cloud" ? T("Voir les services ›") : T("Voir les appareils ›"))}</span></span></button>`;
+  const shownFam = new Set();
   const list = devs.map((x) => {
+    const f = famOf(x);
+    if (!f || famSize[f] < 2) return syDevBtn(x);
+    const lead = shownFam.has(f) ? "" : (shownFam.add(f), groupBtn(f));  // la carte de famille à la place de son premier élément
+    return lead + (SY.famOpen[f] ? syDevBtn(x) : "");
+  }).join("") + `<button class="sy-card" id="sy-games"><b>${esc(T("Jeux entiers ›"))}</b><p class="hint">${esc(T("Copier, compresser, envoyer un jeu : c'est l'onglet Transferts."))}</p></button>`;
+  function syDevBtn(x) {
     let sub = T("Switch · avec Eden"), tone = "";
     if (x.kind === "nas" && !syPlanOf(x.id)) sub = T("NAS · lecture…");
     if (x.kind !== "switch") { const pl = syPlanOf(x.id); if (!pl) sub = x.kind === "nas" ? T("NAS · lecture…") : T("lecture…"); else { const c = count(pl); sub = !c.chosen ? T("aucun jeu choisi") : c.need.length ? T("%d à mettre à jour", c.need.length) : T("au même niveau"); tone = !c.chosen ? "" : c.need.length ? "warn" : "ok"; } }
-    return `<button class="sy-dev ${x.id === SY.dev ? "chosen" : ""}" data-sy="${esc(x.id)}"><span class="dev-ico">${x.kind === "switch" ? ICONS.switch : x.kind === "nas" ? ICONS.nas : ICONS.ps5}</span><span class="grow"><b>${esc(x.name)}</b><span class="hint ${tone}">${esc(sub)}</span></span></button>`;
-  }).join("") + `<button class="sy-card" id="sy-games"><b>${esc(T("Jeux entiers ›"))}</b><p class="hint">${esc(T("Copier, compresser, envoyer un jeu : c'est l'onglet Transferts."))}</p></button>`;
+    return `<button class="sy-dev ${x.id === SY.dev ? "chosen" : ""}" data-sy="${esc(x.id)}"><span class="dev-ico">${devIcon(x)}</span><span class="grow"><b>${esc(x.name)}</b><span class="hint ${tone}">${esc(sub)}</span></span></button>`;
+  }
   // Où on en est, et un bouton
   let eyebrow = T("AVEC %s", d.name), title = "", sub = "", btn = T("Mettre à niveau"), last = "", tone = "";
   const st = syncState.status, running = d.kind !== "switch" && st.peer === d.id && st.state === "running";
@@ -676,8 +781,22 @@ function synchroDraw() {
       ${order.map((i) => [...soon[i], i]).map(([n, txt, col, msg, i]) => d.kind === "nas" && i >= 2 ? `<div class="sy-card soon" data-soon="${esc(T("Cette section se synchronise avec une autre PS5, pas avec un NAS."))}"><div class="sy-h"><i style="--c:${col}"></i><b>${esc(n)}</b><span class="sy-chip">${esc(T("Entre deux PS5"))}</span></div><p class="hint">${esc(T("Cette section se synchronise avec une autre PS5, pas avec un NAS."))}</p></div>`
         : i === 4 ? partiesCard(d, n, col, 3) : i === 3 ? configCard(d, n, col) : i === 2 ? dlcCard(d, n, col) : i <= 1 ? partiesCard(d, n, col, i) : `<div class="sy-card soon" data-soon="${esc(msg)}"><div class="sy-h"><i style="--c:${col}"></i><b>${esc(n)}</b><span class="sy-chip">${esc(T("Bientôt"))}</span></div><p class="hint">${esc(txt)}</p></div>`).join("")}</div>`;
   }
-  $("#view").innerHTML = head + `<div class="sy-page"><div class="sy-devs">${list}</div><div class="sy-main">${hero}${secs}</div></div>`;
-  $$("[data-sy]").forEach((b) => b.onclick = () => { SY.dev = b.dataset.sy; SY.pick = null; synchroDraw(); });
+  // Famille choisie et fermée : son résumé à la place du panneau d'un appareil (« Switch · 2 cibles », les noms, l'invite).
+  const fsel = SY.famSel && !SY.famOpen[SY.famSel] ? SY.famSel : "";
+  const famPanel = fsel ? `<div class="sy-hero sy-fam-panel"><div class="grow"><h2>${esc(T("%s · %d cibles", fsel === "switch" ? "Switch" : fsel === "cloud" ? T("Nuage") : "NAS", famSize[fsel]))}</h2>
+      <p class="hint">${esc(devs.filter((x) => famOf(x) === fsel).map((x) => x.name).join(" · "))}</p>
+      <p class="accent">${esc(fsel === "cloud" ? T("Voir les services et choisir celui à synchroniser ›") : T("Voir les appareils et choisir celui à synchroniser ›"))}</p></div></div>` : "";
+  $("#view").innerHTML = head + `<div class="sy-page"><div class="sy-devs">${list}</div><div class="sy-main">${famPanel || hero + secs}</div></div>`;
+  if (fsel) { const g = $(`[data-sy-fam="${fsel}"]`); if (g) g.classList.add("chosen"); }
+  $$("[data-sy]").forEach((b) => b.onclick = () => { SY.dev = b.dataset.sy; SY.pick = null; SY.famSel = ""; synchroDraw(); });
+  $$("[data-sy-fam]").forEach((b) => b.onclick = () => {
+    const f = b.dataset.syFam;
+    if (SY.famSel === f && !SY.famOpen[f]) { SY.famOpen[f] = true; SY.famSel = ""; }  // choisie : un clic l'ouvre
+    else if (SY.famOpen[f]) { SY.famOpen[f] = false; SY.famSel = f; }               // ouverte : un clic la referme (résumé)
+    else SY.famSel = f;                                                               // autre famille : on la choisit
+    synchroDraw();
+  });
+  if ($("#sy-unack")) $("#sy-unack").onclick = async () => { await syncAck(false); synchroDraw(); };
   $$("[data-soon]").forEach((b) => b.onclick = () => toast(b.dataset.soon));
   if ($("#sy-saves")) $("#sy-saves").onclick = () => synchroOpenPick(d.id);
   if ($("#sy-parties")) $("#sy-parties").onclick = () => partiesOpen(d.id, 0);
@@ -696,8 +815,11 @@ function synchroDraw() {
   if ($("#sy-games")) $("#sy-games").onclick = () => setTab("transfers");
 }
 // « Mettre à niveau » : où ranger les sauvegardes ? Plusieurs disques (là-bas ou ici) → on demande (comme la télé).
-function syStartFollowed(d, anchor) {
+async function syStartFollowed(d, anchor) {
   const pl = syPlanOf(d.id) || {}, need = (pl.titles || []).filter(syNeeds);
+  // Le bouton propose, il ne lance pas d'un coup (charte §1), comme la télé.
+  const up = need.filter((t) => t.push > 0).length, down = need.filter((t) => t.pull > 0).length;
+  if (!await ask(T("Mettre à niveau avec %s ?", d.name), `<p class="hint">${esc(T("%d jeu(x) : %d vers %s, %d vers cette PS5. Rien n'est jamais recopié deux fois.", need.length, up, d.name, down))}</p>`, T("Mettre à niveau"))) return;
   const toPeer = need.some((t) => t.push || (t.send_full && t.full_push_bytes)), toHere = need.some((t) => t.pull || (t.send_full && t.full_pull_bytes));
   const first = (list, id) => [...list.filter((p) => p.id === id), ...list.filter((p) => p.id !== id)];
   const there = first(state.places.filter((p) => p.type === "peer" && p.id.startsWith("peer:" + d.id + ":")), pl.peer_place);
@@ -716,13 +838,13 @@ async function loadParties(peer, nas) {
   SY.partiesAt = Date.now();
   SY.parties = SY.parties || {};
   SY.parties[peer] = { loading: true };
-  try { SY.parties[peer] = await api(`/sync/parties/plan?peer=${encodeURIComponent(peer)}`); } catch (e) { SY.parties[peer] = { error: e.message }; }
+  try { SY.parties[peer] = await api(`/sync/parties/plan?peer=${encodeURIComponent(peer)}`); } catch (e) { SY.parties[peer] = { error: e.message || T("réponse illisible") }; }
   SY.apps = SY.apps || {};
-  try { SY.apps[peer] = await api(`/sync/apps/plan?peer=${encodeURIComponent(peer)}`); } catch (e) { SY.apps[peer] = { error: e.message }; }
+  try { SY.apps[peer] = await api(`/sync/apps/plan?peer=${encodeURIComponent(peer)}`); } catch (e) { SY.apps[peer] = { error: e.message || T("réponse illisible") }; }
   SY.dlc = SY.dlc || {};
-  if (!nas) try { SY.dlc[peer] = await api(`/sync/dlc/plan?peer=${encodeURIComponent(peer)}`); } catch (e) { SY.dlc[peer] = { error: e.message }; }  // DLC : entre deux PS5
+  if (!nas) try { SY.dlc[peer] = await api(`/sync/dlc/plan?peer=${encodeURIComponent(peer)}`); } catch (e) { SY.dlc[peer] = { error: e.message || T("réponse illisible") }; }  // DLC : entre deux PS5
   SY.emu = SY.emu || {};
-  if (!nas) try { SY.emu[peer] = await api(`/sync/emu/plan?peer=${encodeURIComponent(peer)}`); } catch (e) { SY.emu[peer] = { error: e.message }; }  // émulateurs : entre deux PS5
+  if (!nas) try { SY.emu[peer] = await api(`/sync/emu/plan?peer=${encodeURIComponent(peer)}`); } catch (e) { SY.emu[peer] = { error: e.message || T("réponse illisible") }; }  // émulateurs : entre deux PS5
   try { SY.pstatus = await api("/sync/parties/status"); } catch (e) { /* rien */ }
   if (state.tab === "synchro" && !SY.pick && !SY.pp) synchroDraw();
 }
@@ -762,10 +884,14 @@ function dlcDraw() {
       chip = `<span class="sy-chip warn">${esc([dn ? "↓ " + dn : "", up ? "↑ " + up : ""].filter(Boolean).join("   "))}</span>`;
     }
     const miss = [...(t.missing_here_list || []).map((x) => T("Manque ici : %s", lbl(x))), ...(t.missing_there_list || []).map((x) => T("Manque sur %s : %s", name, lbl(x)))];
-    const lib = t.library || [], libtxt = lib.length ? T("Paquets rangés ici : %d (%s)", lib.length, [...new Set(lib.map((x) => x.place))].join(", ")) : "";
+    // Comme la télé : la ligne dit combien de paquets et où ; la suivante (le détail de la télé) donne chacun avec son endroit, sa taille
+    // et son type (4 au plus, puis « … et N autre(s) »).
+    const lib = t.library || [], pkg = (x) => `${x.file} (${x.place}, ${size(x.bytes || 0)}, ${x.kind === "dlc" ? T("DLC") : x.kind === "game_or_update" ? T("jeu ou mise à jour") : T("type inconnu")})`;
+    const libtxt = lib.length ? T("Paquets rangés ici : %d (%s)", lib.length, [...new Set(lib.map((x) => x.place))].join(", ")) : "";
+    const libdet = lib.length ? T("Paquets rangés ici : %s.", lib.slice(0, 4).map(pkg).join(" · ") + (lib.length > 4 ? " · " + T("… et %d autre(s)", lib.length - 4) : "")) : "";
     if (t.state === "same" && lib.length) chip = `<span class="sy-chip info">${esc(T("paquet rangé ici : pour l'installeur"))}</span>`;
     return `<div class="sy-item"><div class="thumb">${mgCover({ item: "title:" + t.title_id, title_id: t.title_id, title: t.title })}</div>
-      <div class="grow"><b>${esc(t.title)}</b><div class="hint">${esc(det)}</div>${miss.length ? `<div class="hint small">${esc(miss.slice(0, 6).join(" · ") + (miss.length > 6 ? " · " + T("… et %d autre(s)", miss.length - 6) : ""))}</div>` : ""}${libtxt ? `<div class="hint small" title="${esc(lib.map((x) => x.file + " · " + size(x.bytes || 0)).join("\n"))}">${esc(libtxt)}</div>` : ""}</div>${chip}</div>`;
+      <div class="grow"><b>${esc(t.title)}</b><div class="hint">${esc(det)}</div>${miss.length ? `<div class="hint small">${esc(miss.slice(0, 6).join(" · ") + (miss.length > 6 ? " · " + T("… et %d autre(s)", miss.length - 6) : ""))}</div>` : ""}${libtxt ? `<div class="hint small accent">${esc(libtxt)}</div><div class="hint small">${esc(libdet)}</div>` : ""}</div>${chip}</div>`;
   };
   const stores = ((pl && pl.stores) || []).map((x) => x.label).join(", ");
   $("#view").innerHTML = `<div class="sy-top"><h1>${esc(T("DLC et mises à jour"))}</h1><span class="hint">${esc(T("avec %s", name))}</span>
@@ -787,6 +913,16 @@ function dlcDraw() {
     if (u.length && await ask(T("Compléter les DLC et mises à jour ?"), `<p class="hint">${esc(note)}</p>`, T("Compléter sur %s · %lld jeu(x) · %s", name, u.length, size(bu)))) await run("there");
   };
 }
+// Synchro automatique des parties (maquette docs/maquettes/synchro-auto.html), comme la télé.
+const partiesAutoLabel = (a) => a === "close" ? T("À la fermeture d'un jeu") : a === "close_night" ? T("À la fermeture et chaque nuit à 4 h") : T("Non");
+function partiesAutoLine(last, name) {
+  if (!last || !last.at) return "";
+  const age = Math.max(0, Math.floor(Date.now() / 1000) - last.at);
+  const ago = age < 3600 ? T("il y a %d min", Math.floor(age / 60)) : age < 86400 ? T("il y a %d h", Math.floor(age / 3600)) : syDay(last.at);
+  if (last.error) return T("Synchro automatique vers %s : %s", name, last.error) + " · " + ago;
+  const ts = last.titles || [];
+  return T("Mis à niveau automatiquement : %s ↔ %s", ts.length === 1 ? ts[0] : T("%d jeu(x)", ts.length), name) + " · " + ago;
+}
 function partiesCard(d, n, col, sec) {
   const pp = (sec === 3 ? SY.emu || {} : sec ? SY.apps || {} : SY.parties || {})[d.id], ps = SY.pstatus || {};
   let line = T("lecture…"), tone = "";
@@ -804,7 +940,7 @@ async function partiesOpen(peer, sec, keepFilter) {
   if (!keepFilter && (!SY.pp || SY.pp.sec !== sec)) SY.pf = 0;
   SY.pp = { peer, plan: null, sec };
   partiesDraw();
-  try { SY.pp.plan = await api(`/sync/${sec === 3 ? "emu" : sec === 2 ? "dlc" : sec ? "apps" : "parties"}/plan?peer=${encodeURIComponent(peer)}`); } catch (e) { if (SY.pp) SY.pp.plan = { error: e.message }; }
+  try { SY.pp.plan = await api(`/sync/${sec === 3 ? "emu" : sec === 2 ? "dlc" : sec ? "apps" : "parties"}/plan?peer=${encodeURIComponent(peer)}`); } catch (e) { if (SY.pp) SY.pp.plan = { error: e.message || T("réponse illisible") }; }
   if (SY.pp) partiesDraw();
 }
 function partiesDraw() {
@@ -848,6 +984,9 @@ function partiesDraw() {
       : apps ? T("Les applis installées sur chaque PS5. Même version : rien. Plus récente d'un côté : elle remplace l'ancienne de l'autre côté — jamais deux versions, jamais de retour en arrière. Une appli en image (.ffpkg, .exfat) se met à jour par Transferts.")
       : T("Les parties qui sont SUR les consoles, celles que vous reprenez en lançant le jeu. La plus récente gagne ; celle qu'elle remplace est d'abord sauvegardée. Jamais pendant que le jeu tourne."))}</p>
     ${pl && !pl.error && !apps && pl.nas ? `<p class="hint">${esc(T("Compte : la partie de chaque compte de cette PS5 est comparée à sa dernière copie sur le NAS."))}</p>` : ""}
+    ${pl && !pl.error && !apps && !emu ? `<div class="actions"><span class="hint">${esc(T("Automatique"))}</span><select id="pp-auto">${["off", "close", "close_night"].map((a) => `<option value="${a}" ${(pl.auto || "off") === a ? "selected" : ""}>${esc(partiesAutoLabel(a))}</option>`).join("")}</select>
+      <span class="hint">${esc(T("À la fermeture d'un jeu suivi, la partie qu'on vient de jouer part 1 min après. La nuit : tous les jeux suivis, dans les deux sens, si aucun n'est ouvert. La partie remplacée est toujours sauvegardée avant ; un conflit attend votre choix."))}</span>
+      ${partiesAutoLine(pl.auto_last, name) ? `<span class="hint">${esc(partiesAutoLine(pl.auto_last, name))}</span>` : ""}</div>` : ""}
     ${pl && !pl.error && !apps && !emu && !pl.nas ? `<div class="actions"><span class="hint">${esc(T("Compte ici :"))}</span><select id="pp-here"><option value="">${esc(T("le même compte PSN des deux côtés (automatique)"))}</option>${(pl.here_accounts || []).map((a) => `<option value="${esc(a.key)}" ${a.key === pl.here_account ? "selected" : ""}>${esc(a.name + " (" + a.user_id + ")")}</option>`).join("")}</select>
       <span class="hint">${esc(T("Compte sur %s :", name))}</span><select id="pp-there"><option value="">${esc(T("automatique"))}</option>${(pl.there_accounts || []).map((a) => `<option value="${esc(a.key)}" ${a.key === pl.there_account ? "selected" : ""}>${esc(a.name + " (" + a.user_id + ")")}</option>`).join("")}</select></div>` : ""}
     <div class="actions">${filt.map(([lbl], i) => `<button class="${i === SY.pf ? "primary" : "secondary"} small" data-ppf="${i}">${esc(lbl)}</button>`).join("")}</div>
@@ -861,6 +1000,7 @@ function partiesDraw() {
   $$("[data-ppm]").forEach((c) => c.onchange = () => prefs({ apps_mode: { [c.dataset.ppm]: c.value } }));
   const acc = () => { const h = $("#pp-here").value, t = $("#pp-there").value; if ((h && t) || (!h && !t)) prefs({ here_account: h, there_account: t }); };
   if ($("#pp-here")) { $("#pp-here").onchange = acc; $("#pp-there").onchange = acc; }
+  if ($("#pp-auto")) $("#pp-auto").onchange = () => { const v = $("#pp-auto").value; prefs({ auto: v }); toast(T("Automatique : %s", partiesAutoLabel(v))); };
   $("#pp-all").onclick = () => prefs({ follow_all: !(titles.length && titles.every((t) => t.followed)) });
   $$("[data-ppk]").forEach((b) => b.onclick = () => { const t = titles.find((x) => x.title_id === b.dataset.ppk); prefs({ follow: { [t.title_id]: !t.followed } }); });
   $("#pp-go").onclick = async () => {
@@ -950,15 +1090,37 @@ function synchroVersionsDraw(name) {
 // Backups disponibles (comme la télé) : des copies existent (ici, NAS, autre PS5) mais le jeu ou sa sauvegarde n'est pas
 // sur cette console. Un clic : leurs versions, pour restaurer ou récupérer.
 // Les endroits qui ont vraiment une de ces sauvegardes : « Ici », « NAS », le nom de l'autre PS5 (comme la télé).
+// Stockage dans le nuage (Google Drive, Backblaze…) : son nom de service, pas « NAS » (comme la télé).
+function cloudName(place) {
+  const p = state.places.find((x) => x.id === place && ["s3", "gdrive", "onedrive", "dropbox", "mega", "share"].includes(x.protocol));
+  return p ? p.label : "";
+}
 function bkWhere(list) {
-  let here = false, nas = false;
+  let here = false, nas = false, cloud = false;
   const peers = [];
   for (const g of list) for (const c of g.copies || []) {
     if (c.on_peer) { if (c.peer_name && !peers.includes(c.peer_name)) peers.push(c.peer_name); }
-    else if (String(c.place || "").startsWith("remote:")) nas = true;
+    else if (String(c.place || "").startsWith("remote:")) { if (cloudName(c.place)) cloud = true; else nas = true; }
     else here = true;
   }
-  return [...(here ? [T("Ici")] : []), ...(nas ? ["NAS"] : []), ...peers].join(" · ");
+  return [...(here ? [T("Ici")] : []), ...(nas ? ["NAS"] : []), ...(cloud ? [T("Nuage")] : []), ...peers].join(" · ");
+}
+// « Dans le nuage » (comme la télé) : tout ce qui a une copie complète sur un stockage dans le nuage, installé ici ou
+// non, avec la liste de ses services.
+function cloudShelf() {
+  const sum = (typeof mg !== "undefined" && mg.sum) || null, games = [], services = [];
+  for (const g of (sum && sum.games) || []) {
+    if (g.other_account || games.length >= 24) continue;
+    let inCloud = false;
+    for (const c of g.copies || []) {
+      const n = c.on_peer ? "" : cloudName(c.place);
+      if (!n || c.complete === false) continue;
+      inCloud = true;
+      if (!services.includes(n)) services.push(n);
+    }
+    if (inCloud) games.push(g);
+  }
+  return { games, away: services.join(" · ") };
 }
 function backupsAvailable() {
   const sum = (typeof mg !== "undefined" && mg.sum) || null;
@@ -1000,7 +1162,7 @@ function heroHtml() {
     else if (e.status === "not_backed_up") { why = T("À SAUVEGARDER · JAMAIS SAUVEGARDÉ"); tone = "warn"; }
     else if (e.status === "up_to_date") { why = T("SAUVEGARDE À JOUR"); tone = "ok"; }
     const b = (e.backups || []).slice().sort((x, y) => y.created_unix - x.created_unix)[0];
-    if (b) last = T("Dernière sauvegarde : %s", new Date(b.created_unix * 1000).toLocaleDateString(I18N.code)) + ` · ${b.place_label}`;
+    if (b) last = T("Dernière sauvegarde : %s", mgDate(b.created_unix, false)) + ` · ${b.place_label}`;
   }
   const go = it.kind === "app" ? T("Sauvegarder l'application…") : it.kind === "rom" ? T("Sauvegarder la ROM…") : T("Sauvegarder le jeu…");
   return `<section class="hero" id="hero">
@@ -1038,9 +1200,11 @@ function home() {
   if (!state.overview || Date.now() - state.overviewAt > 15000) loadOverview().then(() => { if (state.tab === "home") render(); });
   if (state.overview && !mg.sum && !mg.loadP && !mg.error) mgReady();  // « À faire » : doublons et copies à vérifier
   if (!state.items.length) { $("#view").innerHTML = `<div class="empty"><div class="icon">⌕</div>${T("Votre collection apparaît ici dès le premier relevé.")}</div>`; return; }
-  const todo = homeTodo(), recent = recentPlayed(), bkAvail = backupsAvailable();
+  const todo = homeTodo(), recent = recentPlayed(), bkAvail = backupsAvailable(), inCloud = cloudShelf();
+  loadGamelib(() => { if (state.tab === "home") home(); });
+  const glMiss = gamelibMissing();
   const todoHtml = todo.length ? todo.map((c, i) => `<button class="todo ${c.tone}" data-todo="${i}"><span class="todo-img">${todoImg(c.games[0])}</span>
-      <span class="grow"><span class="eyebrow">${esc(c.eyebrow)}</span><b>${esc(c.title)}</b><span class="hint todo-name">${esc(todoName(c.games[0]))}</span>${todoBar(c.games[0])}${"progress" in c.games[0] ? "" : todoDots(c.games.length, 0)}</span></button>`).join("")
+      <span class="grow"><span class="eyebrow">${esc(c.eyebrow)}</span><b>${esc(c.title)}</b><span class="hint todo-name">${esc(todoName(c.games[0]))}</span>${todoBar(c.games[0])}${"progress" in c.games[0] ? "" : todoDots(c.games.length, 0)}</span>${c.ack ? `<span class="todo-more" data-todo-ack="${i}" role="button" tabindex="0" title="${esc(T("Actions"))}">⋯</span>` : ""}</button>`).join("")
     : mg.sum ? `<div class="todo ok done"><span class="todo-img"><span class="dev-ico">${ICONS.ps5}</span></span><span class="grow"><b>${T("Rien à faire : tout est en ordre")}</b><span class="hint">${T("Pas de doublon, pas de copie à vérifier, aucune tâche en cours.")}</span></span></div>`
     : `<div class="loading small">${SPIN}${T("Lecture des sauvegardes…")}</div>`;
   $("#view").innerHTML = heroHtml() + (state.overview ? "" : `<div class="loading small">${SPIN}${T("Lecture de l'état des sauvegardes…")}</div>`) +
@@ -1053,6 +1217,11 @@ function home() {
     (bkAvail.length ? `<section class="shelf"><div class="shelf-head"><h2>${T("Sauvegardes disponibles")} <span class="n">${bkAvail.length}</span> ${bkWhere(bkAvail) ? `<span class="tag info away">${esc(bkWhere(bkAvail))}</span>` : ""}</h2></div>
       <div class="shelf-row" data-scroll="home-bk">${bkAvail.map((g, i) => `<div class="tile" data-bk="${i}" tabindex="0" role="button">${mgCover(g)}<div class="name">${esc(cleanTitle(g.title))}</div>
         <div class="meta">${esc(mgPlaces(g))}</div></div>`).join("")}</div></section>` : "") +
+    (inCloud.games.length ? `<section class="shelf"><div class="shelf-head"><h2>${T("Dans le nuage")} <span class="n">${inCloud.games.length}</span> ${inCloud.away ? `<span class="tag info away">${esc(inCloud.away)}</span>` : ""}</h2></div>
+      <div class="shelf-row" data-scroll="home-cloud">${inCloud.games.map((g, i) => `<div class="tile" data-cl="${i}" tabindex="0" role="button">${mgCover(g)}<div class="name">${esc(cleanTitle(g.title))}</div>
+        <div class="meta">${esc(mgPlaces(g))}</div></div>`).join("")}</div></section>` : "") +
+    (glMiss.length ? `<section class="shelf"><div class="shelf-head"><h2>${T("À installer")} <span class="n">${glMiss.length}</span> <span class="tag info away">${esc([...new Set(glMiss.map((g) => g.place_label))].join(" · "))}</span></h2></div>
+      <div class="shelf-row" data-scroll="home-gl">${glMiss.slice(0, 24).map(gamelibTile).join("")}</div></section>` : "") +
     peerGames.filter((p) => p.games && p.games.length).map((p, pi) => `<section class="shelf"><div class="shelf-head"><h2>${esc(T("%s · jeux installés", p.name))} <span class="n">${p.games.length}</span> <span class="tag info away">${esc(T("sur l'autre PS5"))}</span></h2></div>
       <div class="shelf-row" data-scroll="home-peer-${pi}">${p.games.slice(0, 24).map((g, gi) => `<div class="tile" data-pg="${pi}:${gi}" tabindex="0" role="button">${mgCover({ item: (g.kind === "game_ps4" ? "tid:ps4:" : "tid:ps5:") + g.title_id, title_id: g.title_id, title: g.title, kind: g.kind })}<div class="name">${esc(cleanTitle(g.title))}</div>
         <div class="meta">${esc(size(g.bytes || 0))}</div></div>`).join("")}</div></section>`).join("") +
@@ -1070,8 +1239,16 @@ function home() {
   const pbk = peerBackups();
   $$("[data-pbk]", $("#view")).forEach((t) => t.onclick = () => { const [pi, gi] = t.dataset.pbk.split(":").map(Number); const g = pbk[pi] && pbk[pi].games[gi]; if (g) openVersions({ key: g.item, title_id: g.title_id }); });
   $$("[data-bk]", $("#view")).forEach((t) => t.onclick = () => { const g = bkAvail[+t.dataset.bk]; if (g) openVersions({ key: g.item, title_id: g.title_id }); });
-  $$("[data-tm]", $("#view")).forEach((b) => b.onclick = (e) => { e.stopPropagation(); const it = state.items.find((i) => i.key === b.dataset.tm); if (it) openMenu(b, itemActions([it])); });
-  $$("[data-todo]").forEach((b) => b.onclick = () => todo[+b.dataset.todo].go());
+  $$("[data-cl]", $("#view")).forEach((t) => t.onclick = () => { const g = inCloud.games[+t.dataset.cl]; if (g) openVersions({ key: g.item, title_id: g.title_id }); });
+  $$("[data-gl]", $("#view")).forEach((t) => t.onclick = () => { const g = glMiss[+t.dataset.gl]; if (g) openGamelibGame(t, g); });
+  $$("[data-tm]", $("#view")).forEach((b) => b.onclick = (e) => { e.stopPropagation(); const it = state.items.find((i) => i.key === b.dataset.tm); if (it) openMenu(b, itemActions([it]), "", it.title); });
+  $$("[data-todo]").forEach((b) => b.onclick = () => todo[+b.dataset.todo].go(b));
+  $$("[data-todo-ack]").forEach((b) => b.onclick = (e) => {  // carte Synchro : « Pas maintenant »
+    e.stopPropagation();
+    const c = todo[+b.dataset.todoAck];
+    openMenu(b, [{ label: T("Ouvrir Synchro"), run: () => c.go() },
+      { label: T("Pas maintenant : masquer jusqu'à du nouveau"), hint: T("Elle revient seule si un jeu, une partie ou un appareil de plus est à synchroniser. Une synchro en cours reste toujours affichée."), run: () => syncAck(true) }]);
+  });
   state.todo = todo;
   if ($("#home-parties")) $("#home-parties").onclick = () => setTab("saves");
 }
@@ -1104,8 +1281,11 @@ function library() {
   const first = items.find((i) => i.has_cover);
   const shelves = libraryShelves(items);
   const sel = state.libSel;
+  loadGamelib(() => { if (state.tab === "library" && !state.libPeer) library(); });
+  const glLib = !f.app && !f.place && (!f.kind || f.kind === "game_ps5" || f.kind === "game_ps4")
+    ? gamelibMissing().filter((g) => (!f.kind || g.kind === f.kind) && (!f.q || fold(g.title + " " + g.title_id).includes(fold(f.q)))) : [];
   $("#view").innerHTML = `<div class="banner" id="lib-banner" ${first ? `style="background-image:url('${coverUrl(first, 512)}')"` : ""}></div>
-    <h1>${T("Bibliothèque")}<small>${T("%d sur %d", items.length, state.items.length)} · ${st.scanning ? T("actualisation…") : st.scanned_at ? T("relevé %s", new Date(st.scanned_at * 1000).toLocaleTimeString(I18N.code)) : T("premier relevé…")}</small></h1>
+    <h1>${T("Bibliothèque")}<small>${T("%d sur %d", items.length, state.items.length)} · ${st.scanning ? T("actualisation…") : st.scanned_at ? T("relevé %s", mgTime(st.scanned_at)) : T("premier relevé…")}</small></h1>
     <div class="filters">
       <div class="pills">${kinds.map(([k, l]) => `<button data-kind="${k}" class="${f.kind === k ? "active" : ""}">${l}</button>`).join("")}</div>
       <select id="f-app"><option value="">${T("Émulateur")}</option>${apps.map((a) => `<option value="${esc(a)}" ${f.app === a ? "selected" : ""}>${esc(a)}</option>`).join("")}</select>
@@ -1117,7 +1297,9 @@ function library() {
     <div class="${sel.size ? "selecting" : ""}">${items.length ? shelves.map((s, si) => `<section class="lib-shelf"><h2>${esc(s.title)} <span class="n">${s.items.length}</span>
       ${allBoxHtml("lib-all-" + si, s.items.filter((i) => sel.has(i.key)).length, s.items.length).replace("<label", `<label data-shelf="${si}"`)}</h2>
       <div class="grid">${s.items.map((it) => tileHtml(it, sel)).join("")}</div></section>`).join("")
-      : `<div class="empty"><div class="icon">⌕</div>${T("Aucun élément ne correspond à ces filtres.")}</div>`}</div>`;
+      : `<div class="empty"><div class="icon">⌕</div>${T("Aucun élément ne correspond à ces filtres.")}</div>`}
+    ${glLib.length ? `<section class="lib-shelf"><h2>${T("À installer")} <span class="n">${glLib.length}</span> <span class="tag info away">${esc([...new Set(glLib.map((g) => g.place_label))].join(" · "))}</span></h2>
+      <div class="grid">${glLib.map(gamelibTile).join("")}</div></section>` : ""}</div>`;
   $$(".pills button[data-kind]").forEach((b) => b.onclick = () => { f.kind = b.dataset.kind; library(); });
   $("#f-app").onchange = (e) => { f.app = e.target.value; library(); };
   $("#f-place").onchange = (e) => { f.place = e.target.value; library(); };
@@ -1125,6 +1307,7 @@ function library() {
   $("#rescan").onclick = async () => { try { await post("/scan"); toast(T("Actualisation demandée")); } catch (e) { toast(e.message); } };
   bindConsoleSelect();
   bindTiles($("#view"));
+  $$("[data-gl]", $("#view")).forEach((t) => t.onclick = () => { const g = glLib[+t.dataset.gl]; if (g) openGamelibGame(t, g); });
   $$(".tile[data-key]").forEach((t) => t.onmouseenter = () => {
     const it = state.items.find((i) => i.key === t.dataset.key), b = $("#lib-banner");
     if (it && it.has_cover && b) b.style.backgroundImage = `url('${coverUrl(it, 512)}')`;
@@ -1137,7 +1320,7 @@ function library() {
     setAllBox(box, s.items.filter((i) => sel.has(i.key)).length, s.items.length);
     box.onchange = () => { for (const it of s.items) box.checked ? sel.add(it.key) : sel.delete(it.key); library(); };
   });
-  $$("[data-tm]").forEach((b) => b.onclick = (e) => { e.stopPropagation(); const it = state.items.find((i) => i.key === b.dataset.tm); if (it) openMenu(b, itemActions([it])); });
+  $$("[data-tm]").forEach((b) => b.onclick = (e) => { e.stopPropagation(); const it = state.items.find((i) => i.key === b.dataset.tm); if (it) openMenu(b, itemActions([it]), "", it.title); });
   const picked = state.items.filter((i) => sel.has(i.key));
   selBar(picked.length, itemActions(picked, true), () => { sel.clear(); library(); });
 }
@@ -1275,13 +1458,21 @@ const canUninstall = (it) => ["game_ps5", "game_ps4", "app"].includes(it.kind) &
 // Trois validations : ce qui va se passer + garder (par défaut) ou supprimer l'image ; « définitif » si l'image part ;
 // taper DESINSTALLER. Le travail se fait dans le moteur de la console qui a le jeu (ici, ou une PS5 jumelée).
 async function uninstallGame(inst, consoleName, tid, title, detail) {
+  // Comme la télé : d'abord, comment ce jeu se désinstalle (ShadowMountPlus ou la console) et ce qui peut partir avec.
+  let info = {};
+  try { info = await api(inst ? `/link/peer-uninstall-info?instance=${encodeURIComponent(inst)}&title_id=${encodeURIComponent(tid)}` : `/games/uninstall-info?title_id=${encodeURIComponent(tid)}`); } catch (e) { info = {}; }
+  const kind = "kind" in info ? info.kind : "image", byConsole = info.by === "console";
   window.__unDel = "0";
   const head = consoleName ? T("Désinstaller %s de %s ?", title, consoleName) : T("Désinstaller %s de cette PS5 ?", title);
-  const html = `<p class="hint">${esc(T("Vos parties sont sauvegardées d'abord (copie restaurable) et restent sur la console."))}<br>${esc(T("Le jeu est retiré de ShadowMountPlus puis désinstallé."))}${detail ? "<br>" + esc(detail) : ""}</p>
-    <label><input type="radio" name="un-img" checked onchange="window.__unDel='0'"> ${esc(T("Désinstaller et garder l'image"))}</label><br>
-    <label><input type="radio" name="un-img" onchange="window.__unDel='1'"> ${esc(T("Désinstaller et supprimer l'image"))}</label>`;
+  const how = kind === "pkg" ? T("Lancé depuis son .pkg (Kraken) : la console le désinstalle elle-même.")
+    : byConsole ? T("Installé par la console : elle le désinstalle elle-même ; rien d'autre à supprimer.") : T("Le jeu est retiré de ShadowMountPlus puis désinstallé.");
+  const keep = { pkg: T("Désinstaller et garder le .pkg"), folder: T("Désinstaller et garder le dossier"), image: T("Désinstaller et garder l'image") }[kind];
+  const drop = { pkg: T("Désinstaller et supprimer le .pkg"), folder: T("Désinstaller et supprimer le dossier"), image: T("Désinstaller et supprimer l'image") }[kind];
+  const html = `<p class="hint">${esc(T("Vos parties sont sauvegardées d'abord (copie restaurable) et restent sur la console."))}<br>${esc(how)}${detail ? "<br>" + esc(detail) : ""}</p>
+    ${keep ? `<label><input type="radio" name="un-img" checked onchange="window.__unDel='0'"> ${esc(keep)}</label><br>
+    <label><input type="radio" name="un-img" onchange="window.__unDel='1'"> ${esc(drop)}</label>` : ""}`;
   if (!await ask(head, html, T("Continuer"))) return;
-  const del = window.__unDel === "1";
+  const del = !!keep && window.__unDel === "1";
   if (del && !await ask(T("Définitif"), `<p>${esc(T("Définitif : pas de corbeille."))}</p>`, T("Continuer"))) return;
   window.__unOk = "";
   if (!await ask(T("Dernière confirmation"), `<p>${esc(T("Tapez DESINSTALLER pour confirmer."))}</p><input class="input" autocomplete="off" oninput="window.__unOk=this.value">`, T("Désinstaller"))) return;
@@ -1309,18 +1500,128 @@ function itemActions(list, bar = false) {
   const one = list.length === 1 ? list[0] : null, out = [];
   const done = () => { state.libSel.clear(); refresh(true); if (state.tab === "library") library(); };
   if (one && !bar) out.push({ label: T("Ouvrir la fiche"), run: () => openItem(one) });
-  if (one && !bar) out.push({ label: T("Toutes les versions"), run: () => openVersions(one) });
+  if (one && !bar) out.push({ label: T("Détails"), run: () => openVersions(one) });
+  if (one && !bar) out.push({ label: T("Comparer"), run: () => openCompare({ key: one.key, title_id: one.title_id }) });
   const live = list.filter((i) => !i.ignored), gone = list.filter((i) => i.ignored);
   if (live.length) out.push({ label: T("Ignorer…"), cls: bar ? "danger" : "bad", run: () => ignoreDialog(live.map(ignoreTarget), -1, done) });
-  if (gone.length) out.push({ label: T("Ne plus ignorer"), run: async () => {
+  if (gone.length) out.push({ label: one && !bar ? T("Sauvegarder de nouveau") : T("Ne plus ignorer"), run: async () => {  // comme la télé
     for (const it of gone) { const t = ignoreTarget(it); try { await post("/ignore", { [t.field]: t.value, on: false }); } catch (e) { toast(e.message); } }
     toast(gone.length > 1 ? T("%d élément(s) ne sont plus ignorés", gone.length) : T("« %s » n'est plus ignoré", gone[0].title)); state.overview = null; done();
   } });
   if (one && !bar && hasConsoleSave(one.title_id)) out.push({ label: T("Supprimer la partie de la console…"), cls: "bad", run: () => deleteConsoleSave(document.body, one.title_id, one.title, done) });
   if (one && !bar && canUninstall(one)) out.push({ label: T("Désinstaller de cette PS5…"), cls: "bad", run: () => uninstallGame("", "", one.title_id, one.title, one.image_type || "") });
+  if (!bar && state.tab === "library") out.push({ label: T("Tout cocher"), run: () => {  // comme la télé : tout ce qui est affiché
+    $$("#view [data-tm]").forEach((b) => state.libSel.add(b.dataset.tm));
+    library();
+  } });
   const movable = list.filter((i) => i.components && i.components.length && !i.key.startsWith("save:"));
+  if (movable.length) out.push({ label: T("Envoyer vers…"), run: () => sendTo(movable) });
   if (movable.length) out.push({ label: T("Copier vers…"), run: () => copyTo(movable) });
   return out;
+}
+// « Où ranger ? » : les endroits possibles, par famille, le défaut en premier (comme sur la télé).
+// filter : 0 sauvegardes (ni Switch, ni lien reçu, ni NAS « synchro seulement »), 2 « Envoyer vers… » (tous les appareils).
+function whereOptions(filter, def) {
+  const devs = trDevices().filter((d) => d.kind !== "ps5" && d.kind !== "share" && (filter !== 0 || (d.kind !== "switch" && !state.places.some((p) => p.id === d.id && (p.use === "sync" || p.readonly)))));
+  const cloudy = (t) => t === "s3" || t === "gdrive" || t === "onedrive" || t === "dropbox" || t === "mega";
+  const fams = [[T("Cette PS5"), (d) => d.kind === "internal" || d.kind === "usb"], [T("Autres PS5"), (d) => d.kind === "peer"], ["Switch", (d) => d.kind === "switch"],
+    ["NAS", (d) => !cloudy(d.kind) && !["internal", "usb", "peer", "switch"].includes(d.kind)], [T("Nuage"), (d) => cloudy(d.kind)]];
+  const opt = (id, name) => `<option value="${esc(id)}" ${id === def ? "selected" : ""}>${esc(id === def ? T("%s (par défaut)", name) : name)}</option>`;
+  let html = filter === 0 ? opt("auto", T("Automatique (premier disque USB, sinon interne)")) : "";
+  for (const [name, test] of fams) {
+    const list = devs.filter(test);
+    if (list.length) html += `<optgroup label="${esc(name)}">${list.map((d) => opt(d.id, d.name)).join("")}</optgroup>`;
+  }
+  // Comme la télé : la dernière famille, AUTRE CHOSE, ajoute un service sans quitter le choix.
+  return html + `<optgroup label="${esc(T("AUTRE CHOSE"))}"><option value="__add">${esc(T("+ Ajouter un service"))}</option></optgroup>`;
+}
+// « + Ajouter un service » dans un choix d'endroit : on revient à la valeur d'avant (rien n'est enregistré), puis on ouvre l'ajout.
+document.addEventListener("focusin", (e) => { if (e.target.tagName === "SELECT") e.target.dataset.prev = e.target.value; }, true);
+document.addEventListener("change", (e) => {
+  const s = e.target;
+  if (s.tagName !== "SELECT" || s.value !== "__add") return;
+  e.stopImmediatePropagation(); e.stopPropagation();
+  s.value = s.dataset.prev && s.dataset.prev !== "__add" ? s.dataset.prev : (s.options[0] || {}).value || "";
+  addService();
+}, true);
+
+const destName = (id) => id === "auto" ? T("Automatique") : ((trDevices().find((d) => d.id === id) || {}).name || (id === "internal" ? T("Interne") : id));
+// « Où ranger ? » (comme la télé, ask_where_then) : des cartes par famille, le choix par défaut en premier. Avec
+// « Demander où ranger : Non » (Paramètres › Où ranger), rien ne s'ouvre : le défaut est pris tout de suite.
+// filter : 0 sauvegardes (ni Switch, ni lien reçu, ni NAS « synchro seulement »), 1 téléchargements (disques de cette
+// console), 2 « Envoyer vers… » (tous les appareils). Rend l'identifiant choisi, ou "" si on ferme.
+function askWhere(title, note, def, filter) {
+  const st = state.settings || {};
+  if (st.ask_where === false) {
+    let id = def || (filter === 0 ? "auto" : (state.places.find((p) => p.type === "internal") || {}).id || "");
+    if (filter !== 0 && id === "auto") id = (state.places.find((p) => p.type === "internal") || {}).id || "";
+    return Promise.resolve(id);
+  }
+  const cloudy = (k) => ["s3", "gdrive", "onedrive", "dropbox", "mega"].includes(k);
+  const allowed = (d) => {
+    if (d.kind === "ps5" || d.kind === "share") return false;
+    if (filter === 1) return d.kind === "internal" || d.kind === "usb";
+    if (filter === 0) return d.kind !== "switch" && !state.places.some((p) => p.id === d.id && (p.use === "sync" || p.readonly));
+    return true;
+  };
+  const devs = trDevices().filter(allowed);
+  const card = (id, name, sub, icon, isDef, light) => ({ id, name, sub, icon, isDef, light });
+  const secs = [];
+  const autoCard = card("auto", T("Automatique"), T("premier disque USB, sinon interne"), ICONS.usb);
+  const devCard = (d) => card(d.id, d.name, d.hasFree ? `${d.sub} · ${T("%s libres", size(d.free))}` : d.sub, d.cloud || ICONS[d.icon || "nas"]);
+  const defDev = def === "auto" && filter === 0 ? autoCard : devs.find((d) => d.id === def) ? devCard(devs.find((d) => d.id === def))
+    : def === "internal" ? (devs.find((d) => d.kind === "internal") && devCard(devs.find((d) => d.kind === "internal"))) : null;
+  if (defDev) secs.push([T("PAR DÉFAUT"), [{ ...defDev, isDef: true }]]);
+  const add = (t, c) => { if (defDev && c.id === defDev.id) return; const sec = secs.find((x) => x[0] === t); if (sec) sec[1].push(c); else secs.push([t, [c]]); };
+  if (filter === 0 && (!defDev || defDev.id !== "auto")) add(T("CETTE PS5"), autoCard);
+  for (const d of devs) {
+    if (d.kind === "internal" || d.kind === "usb") add(T("CETTE PS5"), devCard(d));
+    else if (d.kind === "peer") { const [con, disk] = d.name.includes(" · ") ? d.name.split(" · ") : [d.name, d.name]; add(T("AUTRE PS5 · %s", con), card(d.id, disk, T("%s libres", size(d.free)), ICONS[/USB/.test(disk) ? "usb" : "ps5"])); }
+    else if (d.kind === "switch") add("SWITCH", devCard(d));
+    else if (cloudy(d.kind)) add(T("NUAGE"), devCard(d));
+    else add("NAS", devCard(d));
+  }
+  const rank = (t) => t === T("PAR DÉFAUT") ? 0 : t === T("CETTE PS5") ? 1 : t === "SWITCH" ? 3 : t === "NAS" ? 4 : t === T("NUAGE") ? 5 : 2;
+  secs.sort((a, b) => rank(a[0]) - rank(b[0]));
+  if (filter !== 1) secs.push([T("AUTRE CHOSE"), [card("__add", T("+ Ajouter un service"), T("NAS, nuage, Switch, PS5…"), ICONS.cloud, false, true)]]);
+  const html = `<p class="hint">${esc(note || "")}</p>${secs.map(([t, cs]) => `<div class="tr-label ${t === T("PAR DÉFAUT") ? "accent" : ""}">${esc(t)}</div>
+    <div class="where-cards">${cs.map((c) => `<button class="tr-dev where-card ${c.isDef ? "chosen" : ""} ${c.light ? "light" : ""}" data-where="${esc(c.id)}"><span class="dev-ico">${c.icon || ""}</span><span class="grow"><b>${esc(c.name)}</b><span class="hint">${esc(c.sub || "")}</span></span></button>`).join("")}</div>`).join("")}`;
+  // Comme la télé : on choisit une carte (le défaut est déjà choisi), puis « Ranger ici » ; un double-clic va plus vite.
+  return new Promise((resolve) => {
+    let picked = defDev ? defDev.id : "";
+    const p = ask(title, html, T("Ranger ici"), T("Fermer"));
+    const box = $$(".modal").pop();
+    box.querySelector(".dialog").classList.add("wide");
+    const cards = box.querySelectorAll("[data-where]");
+    cards.forEach((b) => {
+      b.onclick = () => { picked = b.dataset.where; cards.forEach((x) => x.classList.toggle("chosen", x === b)); if (picked === "__add") box.querySelector("[data-r='1']").click(); };
+      b.ondblclick = () => { picked = b.dataset.where; box.querySelector("[data-r='1']").click(); };
+    });
+    p.then((ok) => {
+      if (!ok) { resolve(""); return; }
+      if (picked === "__add") { addService(); resolve(""); return; }
+      resolve(picked);
+    });
+  });
+}
+// Envoyer vers… : vers un disque de cette console, une copie vérifiée ; ailleurs (NAS, nuage, autre PS5), une sauvegarde vérifiée.
+async function sendTo(list) {
+  const s = state.settings || {};
+  const def = s.send_place || (s.default_place && s.default_place !== "auto" ? s.default_place : (state.places.find((p) => p.type === "internal") || {}).id || "");
+  const place = await askWhere(T("Envoyer %d élément(s) vers…", list.length), T("Copiés puis vérifiés, comme une sauvegarde. Rien n'est retiré de la console."), def, 2);
+  if (!place) return;
+  const d = trDevices().find((x) => x.id === place);
+  if (!d) { toast(T("Destination introuvable (disque débranché ?)")); return; }
+  if (d.kind === "switch") { toast(T("Vers une Switch : passez par Transferts › Synchroniser (jeux et parties des émulateurs).")); return; }
+  for (const it of list) {
+    const body = d.kind === "internal" || d.kind === "usb"
+      ? { type: "transfer", mode: "copy", item: it.key, to: place, saves: false, verify: true, verify_mode: "quick", compress: false }
+      : { type: "backup", item: it.key, parts: [], place };
+    try { await post("/tasks", body); } catch (e) { toast(e.message); }
+  }
+  state.libSel.clear();
+  toast(T("%d élément(s) envoyé(s) vers %s : suivez-les dans Transferts › Transferts en cours", list.length, d.name));
+  refresh(true); if (state.tab === "library") library();
 }
 // Copier vers… : Transferts, depuis la PS5, éléments déjà cochés ; il reste à choisir la destination.
 function copyTo(list) {
@@ -1339,27 +1640,38 @@ function openItem(it) {
     <label class="part"><input type="checkbox" data-part="${c.part}" checked><span class="label">${esc(c.label || PARTS[c.part])}</span><span class="size">${size(c.bytes)}</span></label>`).join("");
   const total = it.components.reduce((a, c) => a + c.bytes, 0);
   // Destinations : interne, disques USB, appareils réseau (NAS / FTP). Une Switch est une source, pas une destination.
-  const dests = state.places.filter((p) => p.type !== "switch" && p.use !== "sync");  // NAS « Synchro seulement » : pas une destination
   const game = it.kind === "game_ps5" || it.kind === "game_ps4";
   $("#sheet-panel").innerHTML = `
     <div class="panel-head">${coverHtml(it, true)}
       <div><div class="eyebrow">${esc(kindLabel(it))}${it.title_id ? " · " + esc(it.title_id) : ""}</div>
         <h3>${esc(it.title)}${it.ignored ? ` <span class="tag warn">${T("Ignoré")}</span>` : ""}</h3>
-        <div class="chips"><span class="chip">${esc(placeLabel(it.place))}</span>${it.image_type ? `<span class="chip">${esc(it.image_type)}</span>` : ""}${it.apps.map((a) => `<span class="chip">${esc(a)}</span>`).join("")}</div></div></div>
+        <div class="chips"><span class="chip">${esc(placeLabel(it.place))}</span>${it.image_type ? `<span class="chip">${esc(it.image_type)}</span>` : ""}${it.apps.map((a) => `<span class="chip">${esc(a)}</span>`).join("")}${it.via ? `<span class="chip">${esc(T("Arrivé par %s", it.via.app_name))}</span>${it.via.saved ? "" : `<span class="chip warn">${T("Pas encore sauvegardé")}</span>`}` : ""}</div></div></div>
     <div id="it-compat" class="compat"></div>
-    <h2>${T("Que sauvegarder ?")}</h2>
-    <div class="parts">${parts}</div>
-    <div class="actions">
-      <select id="dest"><option value="auto">${T("Automatique (premier disque USB, sinon interne)")}</option>${dests.map((p) => `<option value="${esc(p.id)}">${esc(p.label)} · ${p.remote || p.type === "ftp" ? T("réseau") : T("%s libres", size(p.free))}</option>`).join("")}</select>
-      <button class="primary" id="go">${T("Sauvegarder (%s)", size(total))}</button>
-      <button class="secondary" id="close">${T("Fermer")}</button>
+    <div class="sheet-cols">
+      <div class="sheet-left"><h2>${T("Sauvegarde")}</h2>
+        <div class="parts">${parts}</div>
+        <input type="hidden" id="dest" value="${esc((state.settings || {}).default_place || "auto")}">
+        <div class="act-lines" role="group" aria-label="${T("Sauvegarde")}">
+          <button class="primary go-dest" id="go">${T("Sauvegarder (%s)", size(total))}<small id="dest-line">${esc(T("Destination : %s", destName((state.settings || {}).default_place || "auto")))}</small></button>
+          <button id="it-plans">${T("Plans programmés…")}<small class="mi-hint ok" id="it-plans-n"></small></button>
+          <button id="it-versions">${T("Détails")}<small class="mi-hint">${T("Toutes les versions, comparer")}</small></button>
+          ${it.ignored ? `<button id="it-ignore">${T("Sauvegarder de nouveau")}</button>` : ""}
+          ${!it.ignored || hasConsoleSave(it.title_id) || canUninstall(it) ? '<hr class="mi-sep">' : ""}
+          ${!it.ignored ? `<button class="bad" id="it-ignore">${T("Ne plus sauvegarder…")}</button>` : ""}
+          ${hasConsoleSave(it.title_id) ? `<button class="bad" id="it-delsave">${T("Supprimer la partie de la console…")}</button>` : ""}
+          ${canUninstall(it) ? `<button class="bad" id="it-uninstall">${T("Désinstaller…")}</button>` : ""}</div>
+        <p class="hint">${T("La sauvegarde continue même si vous fermez cette page ou l'application sur la télé.")}</p></div>
+      <div class="sheet-right"><h2>${(game || it.kind === "rom") && !it.key.startsWith("save:") ? T("Le jeu") : T("Actions")}</h2>
+        <div class="act-lines" role="group" aria-label="${T("Actions")}">
+          ${game ? `<button id="it-install" hidden>${T("Installer…")}<small class="mi-hint">${T("le monter là où il est, ou sur un autre disque ou une autre PS5")}</small></button>` : ""}
+          <button id="it-send">${T("Envoyer à une PS5…")}</button>
+          <button id="it-share">${T("Partager ma copie…")}</button>
+          ${game ? `<button id="it-tools">${T("Outils de l'image…")}<small class="mi-hint">${T("vérifier, compresser, créer un .pkg…")}</small></button>` : ""}
+          <button id="it-browse">${T("Parcourir")}</button></div>
+        <div class="actions"><button class="secondary" id="dest-pick">${T("Destination")}</button><button class="secondary" id="close">${T("Fermer")}</button></div>
+      </div>
     </div>
-    <div class="actions"><button class="secondary" id="it-versions">${T("Toutes les versions")}</button><button class="secondary" id="it-plans">${T("Plans de ce jeu…")}<span class="hint" id="it-plans-n"></span></button><button class="secondary" id="it-browse">${T("Parcourir l'emplacement")}</button><button class="secondary" id="it-send">${T("Envoyer à une PS5…")}</button>
-      <button class="${it.ignored ? "secondary" : "danger"}" id="it-ignore">${it.ignored ? T("Sauvegarder de nouveau") : T("Ne plus sauvegarder…")}</button>
-      ${hasConsoleSave(it.title_id) ? `<button class="danger" id="it-delsave">${T("Supprimer la partie de la console…")}</button>` : ""}
-      ${canUninstall(it) ? `<button class="danger" id="it-uninstall">${T("Désinstaller…")}</button>` : ""}</div>
-    <p class="hint">${T("La sauvegarde continue même si vous fermez cette page ou l'application sur la télé.")}</p>
-    ${game ? `<h2>${T("Outils de l'image")}</h2><div id="img-tools">${loading(T("Lecture des images…"))}</div>` : ""}
+    ${game ? `<div id="img-tools-wrap" hidden><h2>${T("Outils de l'image")}</h2><div id="img-tools">${loading(T("Lecture des images…"))}</div></div>` : ""}
     <table class="info">
       <tr><td>${T("Emplacement")}</td><td>${esc(placeLabel(it.place))}</td></tr>
       <tr><td>${T("Format")}</td><td>${esc(it.image_type || "—")}</td></tr>
@@ -1376,14 +1688,32 @@ function openItem(it) {
   };
   $$(".part input").forEach((x) => x.onchange = upd);
   $("#close").onclick = closeSheet;
+  // Comme la télé : « Sauvegarder » demande où (le défaut en premier) si « Demander où ranger » est sur Oui ;
+  // « Destination » change seulement le choix proposé.
+  const setDest = (id) => { $("#dest").value = id; $("#dest-line").textContent = T("Destination : %s", destName(id)); };
+  $("#dest-pick").onclick = async () => {
+    const id = await askWhere(T("Sauvegarder « %s » où ?", it.title), T("Le défaut des sauvegardes est proposé en premier (Paramètres › Où ranger)."), $("#dest").value, 0);
+    if (id) setDest(id);
+  };
   $("#go").onclick = async () => {
     const chosen = [...new Set(sel())], all = [...new Set(it.components.map((c) => c.part))];
+    const place = await askWhere(T("Sauvegarder « %s » où ?", it.title), T("Le défaut des sauvegardes est proposé en premier (Paramètres › Où ranger)."), $("#dest").value, 0);
+    if (!place) return;
     try {
-      await post("/tasks", { type: "backup", item: it.key, parts: chosen.length === all.length ? [] : chosen, place: $("#dest").value });
+      await post("/tasks", { type: "backup", item: it.key, parts: chosen.length === all.length ? [] : chosen, place });
       closeSheet(); toast(T("Sauvegarde ajoutée aux tâches")); refresh(true);
     } catch (e) { toast(e.message); }
   };
   $("#it-plans").onclick = () => itemPlans(it);
+  // « Installer… » (comme la télé) : seulement si le jeu est une image ou un dossier (pas installé par la console).
+  if ($("#it-install")) loadImages().then((m) => {
+    const g = m.get(it.key), b = $("#it-install");
+    if (!g || !b || g.storage === "native") return;
+    b.hidden = false;
+    b.onclick = (ev) => openInstall(ev.currentTarget, g.path, it.title, g.size || 0, g.container === "pkg");
+  });
+  // « Outils de l'image… » (comme la ligne de la télé) : ouvre les outils sous la fiche.
+  if ($("#it-tools")) $("#it-tools").onclick = () => { const w = $("#img-tools-wrap"); w.hidden = !w.hidden; if (!w.hidden) w.scrollIntoView({ behavior: "smooth", block: "start" }); };
   // Compatibilité avec cette console : identité du jeu (version, SDK des exécutables, minimum déclaré) et état.
   if (it.kind === "game_ps5" || it.kind === "app") api(`/compat?item=${encodeURIComponent(it.key)}`).then((c) => {
     const el = $("#it-compat");
@@ -1396,6 +1726,7 @@ function openItem(it) {
     el.innerHTML = `<div class="${compatClass(c)}">● ${esc(compatStateText(c))}</div>${idl ? `<div class="hint">${esc(idl)}</div>` : ""}<div class="hint">${esc(bl)}</div>${peers}`;
   }).catch(() => {});
   $("#it-versions").onclick = () => openVersions(it);
+  $("#it-share").onclick = (ev) => shareFromSheet(ev.currentTarget, it);
   // Envoyer ce jeu à une PS5 jumelée : copie vérifiée sur son disque, puis installation et sauvegarde re-signée là-bas.
   $("#it-send").onclick = (ev) => {
     const peers = state.places.filter((p) => p.type === "peer");
@@ -1412,15 +1743,15 @@ function openItem(it) {
         setTimeout(() => openMenu(btn, [
           { label: T("Envoyer (le jeu n'est gardé qu'une fois, installé)"), run: () => go(false) },
           { label: T("Envoyer et garder aussi une copie de secours là-bas"), run: () => go(true) },
-        ]), 0);
+        ], "", T("Envoyer « %s »", it.title)), 0);
       });
-    }) })));
+    }, T("Format de « %s » sur %s", it.title, p.label)) })), "", T("Envoyer « %s » à…", it.title));
     // Le jeu (installé là-bas avec sa sauvegarde), ou seulement sa sauvegarde, comme sur la télé.
     if (!it.components.some((c) => c.part === "save")) return disks();
     openMenu(btn, [
       { label: T("Le jeu, installé là-bas avec sa sauvegarde"), run: () => setTimeout(disks, 0) },
       { label: T("Sa sauvegarde seulement"), run: () => sendSaveToPeer(btn, it.key, it.title, "") },
-    ]);
+    ], "", it.title);
   };
   if ($("#it-delsave")) $("#it-delsave").onclick = (ev) => deleteConsoleSave(ev.currentTarget, it.title_id, it.title, () => { closeSheet(); refresh(true); });
   if ($("#it-uninstall")) $("#it-uninstall").onclick = () => uninstallGame("", "", it.title_id, it.title, it.image_type || "");
@@ -1432,7 +1763,7 @@ function openItem(it) {
   };
   (state.plans ? Promise.resolve(state.plans) : loadPlans()).then((pl) => {
     const n = pl.filter((x) => (x.items || []).includes(it.key)).length, el = $("#it-plans-n");
-    if (el && n) el.textContent = " · " + T("dans %d plan(s)", n);
+    if (el && n) el.textContent = T("dans %d plan(s)", n);
   });
   $("#it-browse").onclick = async () => {
     const loc = await itemLocation(it);
@@ -1443,6 +1774,7 @@ function openItem(it) {
 }
 // Où vit l'élément sur la console : dossier de la ROM, image ou dossier du jeu, sinon son inscription.
 async function itemLocation(it) {
+  if (it.location) return it.location;  // calculé par le moteur (même réponse que la télé)
   const dir = (p) => { const i = p.lastIndexOf("/"); return i <= 0 ? "/" : p.slice(0, i); };
   for (const c of it.components) {
     if (c.sources && c.sources.length) return c.sources[0].dir ? c.sources[0].source : dir(c.sources[0].source);
@@ -1456,7 +1788,26 @@ async function itemLocation(it) {
 }
 function closeSheet() { $("#sheet").classList.add("hidden"); }
 $("#sheet").onclick = (e) => { if (e.target.id === "sheet") closeSheet(); };
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") { if ($("#popmenu")) return closeMenu(); const m = $$(".modal").pop(); if (m) m.remove(); else closeSheet(); } });
+// Toutes les fenêtres s'ouvrent et se ferment de la même façon (charte §4.6, comme la télé) : à l'ouverture, le focus
+// entre dans la fenêtre ; à la fermeture (bouton, Échap, clic dehors), il revient exactement où on était.
+new MutationObserver((muts) => {
+  for (const m of muts) {
+    for (const n of m.addedNodes) if (n.nodeType === 1 && n.classList.contains("modal") && !n._from) {
+      n._from = document.activeElement;
+      n.setAttribute("role", "dialog"); n.setAttribute("aria-modal", "true");
+      setTimeout(() => { if (n.isConnected && !n.contains(document.activeElement)) { const f = n.querySelector("input, select, textarea, button.primary, button"); if (f) f.focus({ preventScroll: true }); } }, 0);
+    }
+    for (const n of m.removedNodes) if (n.nodeType === 1 && n.classList.contains("modal") && n._from && n._from.isConnected && n._from.focus) n._from.focus({ preventScroll: true });
+  }
+}).observe(document.body, { childList: true });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if ($("#popmenu")) return closeMenu();
+  const m = $$(".modal").pop();
+  if (m) { if (m.cancel) m.cancel(); else m.remove(); return; }
+  if (!$("#sheet").classList.contains("hidden")) return closeSheet();
+  if (state.tab === "settings" && !/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || "")) closeSettings();  // comme Rond à la télé
+});
 
 // Images des jeux (/images) : comment et où vit chaque jeu (installé, dossier, image .ffpfsc…).
 async function loadImages(force = false) {
@@ -1470,13 +1821,17 @@ async function loadImages(force = false) {
   return loadImages.p;
 }
 function imageActions(g) {
+  const st = g.storage;
+  return st === "native" ? imageActions0(g) : [["install", T("Installer…")], ...imageActions0(g)];  // le monter là où il est, ou ailleurs
+}
+function imageActions0(g) {
   const st = g.storage, ct = g.container;
   if (st === "native") return [["speed", T("Test de vitesse de lecture")], ["native", T("Copier / déplacer : par le menu Stockage de la PS5")]];
   if (st === "image" && ct === "ffpfsc") return [["validate", T("Vérifier l'image")], ["repair", T("Vérifier et réparer")], ["uncompress", T("Décompresser en dossier")],
-    ["uncompress_exfat", T("Décompresser en image .exfat")], ["read_only", T("Lecture seule (ShadowMount)")], ["speed", T("Test de vitesse de lecture")], ["transfer", T("Copier ou déplacer vers un autre disque…")]];
+    ["uncompress_exfat", T("Décompresser en image .exfat")], ["make_pkg", T("Créer un paquet .pkg (Kraken)")], ["read_only", T("Lecture seule (ShadowMount)")], ["speed", T("Test de vitesse de lecture")], ["transfer", T("Copier ou déplacer vers un autre disque…")]];
   if (st === "image") return [["validate", T("Vérifier l'image")], ["extract", T("Extraire en dossier")], ...(ct !== "ffpkg" ? [["compress", T("Compresser en .ffpfsc")]] : []),
-    ["speed", T("Test de vitesse de lecture")], ["transfer", T("Copier ou déplacer vers un autre disque…")]];
-  return [["compress", T("Compresser en .ffpfsc")], ["make_image", T("Créer une image .exfat")], ["ampr", T("Construire l'index AMPR")],
+    ["make_pkg", T("Créer un paquet .pkg (Kraken)")], ["speed", T("Test de vitesse de lecture")], ["transfer", T("Copier ou déplacer vers un autre disque…")]];
+  return [["compress", T("Compresser en .ffpfsc")], ["make_pkg", T("Créer un paquet .pkg (Kraken)")], ["make_image", T("Créer une image .exfat")], ["ampr", T("Construire l'index AMPR")],
     ["speed", T("Test de vitesse de lecture")], ["transfer", T("Copier ou déplacer vers un autre disque…")]];
 }
 const storageText = (g) => g.storage === "native" ? T("installé (natif)") : g.storage === "image" ? T("image .%s", g.container) : T("dossier");
@@ -1486,7 +1841,7 @@ async function imageTools(it) {
   if (!box) return;
   const g = m.get(it.key);
   if (!g) { box.innerHTML = `<p class="hint">${T("Aucune image ni dossier de jeu trouvé pour ce jeu.")}</p>`; return; }
-  const where = g.disk && g.disk.label ? g.disk.label : "";
+  const where = g.disk && g.disk.label ? T(g.disk.label) : "";
   // Le vrai disque du jeu (l'image peut être sur une clé USB alors que l'inscription est sur l'interne).
   const chip = $("#sheet-panel .panel-head .chip");
   if (chip && where) chip.textContent = where;
@@ -1498,14 +1853,76 @@ async function imageTools(it) {
     openBrowser({ title: it.title, start: dir });
   };
   $("[data-tools]", box).onclick = (ev) => openMenu(ev.currentTarget, [
-    ...imageActions(g).map(([a, l]) => ({ label: l, hint: ({ validate: T("relit tout et contrôle chaque bloc, sans rien modifier"), repair: T("contrôle, puis corrige les blocs abîmés"), uncompress: T("recrée le dossier du jeu à côté"), uncompress_exfat: T("image non compressée, pour les consoles qui ne lisent pas le .ffpfsc"), read_only: T("l'image est montée sans écriture (conseillé pour APR-EMU)"), speed: T("mesure la vitesse de lecture du disque du jeu"), transfer: T("vers un autre disque, copie vérifiée"), extract: T("recrée le dossier du jeu à côté"), compress: T("prend moins de place, se lance tel quel"), make_image: T("regroupe le dossier en une seule image"), ampr: T("pour les jeux APR-EMU : prépare leur index") })[a], run: () => runImageTool(it, g, a) })),
+    ...imageActions(g).map(([a, l]) => ({ label: l, hint: ({ validate: T("relit tout et contrôle chaque bloc, sans rien modifier"), repair: T("contrôle, puis corrige les blocs abîmés"), uncompress: T("recrée le dossier du jeu à côté"), uncompress_exfat: T("image non compressée, pour les consoles qui ne lisent pas le .ffpfsc"), read_only: T("l'image est montée sans écriture (conseillé pour APR-EMU)"), speed: T("mesure la vitesse de lecture du disque du jeu"), transfer: T("vers un autre disque, copie vérifiée"), install: T("le monter là où il est, ou sur un autre disque ou une autre PS5"), extract: T("recrée le dossier du jeu à côté"), compress: T("prend moins de place, se lance tel quel"), make_image: T("regroupe le dossier en une seule image"), make_pkg: T("un seul fichier compressé et vérifié, à côté ; l'original reste"), ampr: T("pour les jeux APR-EMU : prépare leur index") })[a], run: () => runImageTool(it, g, a) })),
     { label: T("Parcourir le dossier"), run: browse },
   ]);
 }
 const TOOL_NAMES = { validate: T("Vérifier l'image"), repair: T("Vérifier et réparer"), uncompress: T("Décompresser en dossier"), uncompress_exfat: T("Décompresser en image .exfat"),
   read_only: T("Lecture seule (ShadowMount)"), speed: T("Test de vitesse de lecture"), extract: T("Extraire en dossier"), compress: T("Compresser en .ffpfsc"),
-  make_image: T("Créer une image .exfat"), ampr: T("Construire l'index AMPR") };
-async function runImageTool(it, g, a) {
+  make_image: T("Créer une image .exfat"), make_pkg: T("Créer un paquet .pkg (Kraken)"), ampr: T("Construire l'index AMPR") };
+// « Installer… » (maquette docs/maquettes/installer.html), comme la télé : le monter là où il est, ou l'installer sur un autre
+// disque (copie vérifiée, garder ou retirer l'original) ou sur une autre PS5 (dans son dossier de jeux).
+function openInstall(anchor, path, name, bytes, pkg) {
+  const disks = (state.places || []).filter((p) => p.type === "internal" || p.type === "usb");
+  let mine = null;
+  for (const p of disks) if (p.mount && path.startsWith(p.mount + "/") && (!mine || p.mount.length > mine.mount.length)) mine = p;
+  if (!mine) mine = disks.find((p) => p.type === "internal") || null;
+  const here = mine ? mine.label : T("ce disque"), need = (bytes || 0) + 512 * 1024 * 1024;
+  const task = async (body) => {
+    try {
+      const pl = await post("/images/plan", body);
+      if (pl && pl.ok === false) { toast(pl.error || T("Opération impossible")); return; }
+      await post("/tasks", body); toast(T("Ajouté aux tâches : suivez-le dans Transferts › Transferts en cours")); state.packagesAt = 0; refresh(true);
+    } catch (e) { toast(e.message); }
+  };
+  const acts = [{ label: T("Le monter là où il est (%s)", here), run: async () => {
+    try {
+      const j = await post("/install/here", { path });
+      toast(j.by === "krakenmount" ? T("Rangé dans le dossier de jeux : Kraken Mount le monte et l'inscrit") : j.by === "smp_ours" ? T("Rangé dans le dossier de jeux : notre ShadowMount intégré le monte et l'inscrit") : j.by === "smp_theirs" ? T("Rangé dans le dossier de jeux : ShadowMountPlus le monte et l'inscrit dès que l'application est fermée sur la télé") : pkg ? T("Préparation lancée : le jeu apparaîtra sur l'écran d'accueil et se lancera depuis son .pkg") : j.already ? T("Déjà installé : dans le dossier de jeux, monté par ShadowMount") : T("Rangé dans le dossier de jeux de ce disque : ShadowMount le monte dans quelques secondes"));
+      state.packagesAt = 0; state.appsDlAt = 0; refresh(true);
+    } catch (e) { toast(e.message); }
+  } }];
+  if (pkg) acts.push({ label: T("Installer par la console (comme un jeu du Store)"), run: async () => {
+    if (!await ask(T("Installer « %s » par la console ?", name), `<p class="hint">${esc(T("La console recopie le jeu dans son stockage, à l'endroit choisi dans ses réglages (Stockage) : il faut la place du jeu entier. Le paquet reste où il est ; on pourra le libérer après. Jamais pendant une partie."))}</p>`, T("Oui, installer"), T("Annuler"))) return;
+    try { await post("/packages/install", { path }); toast(T("Installation demandée : la console l'installe en arrière-plan (sa notification montre l'avancement)")); } catch (e) { toast(e.message); }
+  } });
+  for (const p of state.places || []) {
+    if (p.readonly || (mine && p.id === mine.id)) continue;
+    const local = p.type === "internal" || p.type === "usb";
+    if (!local && p.type !== "peer") continue;
+    const small = bytes && p.free && p.free < need;
+    acts.push({ label: T("L'installer sur %s", p.label) + " · " + (small ? T("%s libres · trop petit", size(p.free)) : p.free ? T("%s libres", size(p.free)) : ""), run: async () => {
+      if (small) { toast(T("Pas assez de place sur %s", p.label)); return; }
+      if (!local) {
+        try { await post("/packages/send", { path, place: p.id, game: true }); toast(T("Ajouté aux tâches : suivez-le dans Transferts › Transferts en cours")); refresh(true); } catch (e) { toast(e.message); }
+        return;
+      }
+      const dir = (p.mount === "/user" || !p.mount ? "/data" : p.mount) + "/homebrew";
+      openMenu(anchor, [{ label: T("Le garder (deux exemplaires)"), run: () => task({ type: "transfer", source: path, target_dir: dir, mode: "copy" }) },
+        { label: T("Le retirer une fois la copie vérifiée"), run: () => task({ type: "transfer", source: path, target_dir: dir, mode: "move" }) },
+        { label: T("Annuler"), run: () => {} }], "", T("Après la copie, que fait-on de l'original ?"));
+    } });
+  }
+  if (pkg) for (const p of state.places || []) {  // un paquet : l'envoyer et l'y faire installer par sa console, en une fois
+    if (p.readonly || p.type !== "peer" || (bytes && p.free && p.free < need)) continue;
+    acts.push({ label: T("L'envoyer sur %s et l'y installer", p.label), run: async () => {
+      try { await post("/packages/send", { path, place: p.id, install: true }); toast(T("Envoi lancé : l'autre PS5 l'installera une fois la copie vérifiée")); refresh(true); } catch (e) { toast(e.message); }
+    } });
+  }
+  acts.push({ label: T("Annuler"), run: () => {} });
+  openMenu(anchor, acts, pkg ? T("Paquet .pkg Kraken : « Le monter là où il est » le lance depuis le paquet, sans rien décompresser — par Kraken Mount s'il est installé, sinon par notre version intégrée (Paramètres › Montage des jeux). Ou : l'installer par la console, ou ailleurs.")
+    : T("Monté par ShadowMount : rien n'est décompressé, le jeu se lance depuis l'image ou le dossier. Sur un autre disque ou une autre PS5 : copie vérifiée, puis montée."), T("Installer « %s »", name));
+}
+async function runImageTool(it, g, a, lvl) {
+  if (a === "install") { openInstall($("[data-tools]") || document.body, g.path, it.title, g.size || 0, g.container === "pkg"); return; }
+  // Paquet .pkg : d'abord la compression (comme la télé).
+  if (a === "make_pkg" && lvl === undefined) {
+    const anchor = $("[data-tools]") || document.body;
+    openMenu(anchor, [{ label: T("Rapide (conseillé)"), run: () => runImageTool(it, g, a, 1) }, { label: T("Sans compression (le plus sûr)"), run: () => runImageTool(it, g, a, 0) },
+      { label: T("Plus petit (plus lent)"), run: () => runImageTool(it, g, a, 2) }, { label: T("Annuler"), run: () => {} }],
+      T("Le paquet est relu et vérifié avant d'être gardé ; l'original reste. Sans compression : plus gros, mais lu par toutes les consoles."), T("Créer un paquet .pkg (Kraken)"));
+    return;
+  }
   if (a === "native") { toast(T("Jeu installé par la PS5 : Réglages › Stockage pour le déplacer, ou extrayez-le d'abord en dossier.")); return; }
   if (a === "transfer") {  // Transferts, source = disque du jeu, jeu déjà coché
     const tr = state.tr, devs = trDevices();
@@ -1518,8 +1935,8 @@ async function runImageTool(it, g, a) {
   }
   const bodies = { validate: { type: "validate_image" }, repair: { type: "validate_image", repair: true }, uncompress: { type: "uncompress", to: "folder" },
     uncompress_exfat: { type: "uncompress", to: "exfat" }, read_only: { type: "set_read_only" }, speed: { type: "read_speed_test", seconds: 20 },
-    extract: { type: "extract_image" }, compress: { type: "compress" }, make_image: { type: "make_image" }, ampr: { type: "build_ampr_index" } };
-  const body = { ...bodies[a], item: it.key };
+    extract: { type: "extract_image" }, compress: { type: "compress" }, make_image: { type: "make_image" }, make_pkg: { type: "make_pkg", pkg_level: 1 }, ampr: { type: "build_ampr_index" } };
+  const body = { ...bodies[a], item: it.key, ...(a === "make_pkg" ? { pkg_level: lvl } : {}) };
   // D'abord le plan (place nécessaire, jeu en cours, image montée…), puis la tâche.
   let p;
   try { p = await post("/images/plan", body); } catch (e) { toast(e.message); return; }
@@ -1583,9 +2000,9 @@ function openBrowser({ title, start, remote = "", config = null, pick = null, fi
 // Images d'appareils : les mêmes que l'app télé (engine/web/devices/*.png, tirées de make_devices.py).
 const DEVICE_FILES = { ps5: "internal", internal: "internal", usb: "usb", switch: "switch", consoles: "consoles", nas: "nas",
   network: "network", cloud: "cloud", synology: "synology", qnap: "qnap", x: "x", youtube: "youtube", reddit: "reddit", discord: "discord",
-  gdrive: "svc-gdrive", dropbox: "svc-dropbox", onedrive: "svc-onedrive", b2: "svc-b2", aws: "svc-aws" };
+  gdrive: "svc-gdrive", dropbox: "svc-dropbox", onedrive: "svc-onedrive", b2: "svc-b2", aws: "svc-aws", mega: "svc-mega" };
 // Logo du service dans le nuage (comme la télé) ; sinon le nuage.
-const cloudIcon = (type, service) => ICONS[type === "s3" ? (service === "b2" ? "b2" : service === "aws" ? "aws" : "cloud") : (type === "gdrive" || type === "dropbox" || type === "onedrive") ? type : "cloud"];
+const cloudIcon = (type, service) => ICONS[type === "s3" ? (service === "b2" ? "b2" : service === "aws" ? "aws" : "cloud") : (type === "gdrive" || type === "dropbox" || type === "onedrive" || type === "mega") ? type : "cloud"];
 const ICONS = new Proxy({}, { get: (_, k) => `<img class="dev-img" src="/devices/${DEVICE_FILES[k] || "network"}.png" alt="">` });
 function devCardHtml(p) {
   const def = state.settings.default_place === p.id;
@@ -1599,16 +2016,34 @@ function devCardHtml(p) {
     <div><b>${T("%s libres", size(p.free))}</b> <span class="hint">${T("sur %s", size(p.total))}</span></div>
     <div class="dev-actions">${links.join("")}${def ? "" : `<button data-default="${esc(p.id)}">${T("Destination par défaut")}</button>`}<button data-browse-place="${esc(p.id)}">${T("Parcourir")}</button></div></div></div>`;
 }
+// Partage reçu : nom de son service, et combien de temps il reste.
+const SHARE_SVC = { mega: "MEGA", gdrive: "Google Drive", dropbox: "Dropbox", onedrive: "OneDrive" };
+// Partage reçu : combien de temps il reste.
+const shareLeft = (c) => {
+  if (!c.expires) return T("gardé jusqu'à ce que vous l'enleviez");
+  const d = Math.ceil((c.expires - Date.now() / 1000) / 86400);
+  return d <= 1 ? T("expire aujourd'hui") : T("expire dans %d j", d);
+};
+function shareCardHtml(r) {
+  const c = r.config || {};
+  return `<div class="dev"><div class="dev-ico">${cloudIcon(c.host)}</div><div class="dev-body">
+    <div class="title"><b>${esc(r.name)}</b><span class="tag share">${T("Partage")}</span></div>
+    <div class="hint">${esc(SHARE_SVC[c.host] || c.host || "")} · ${T("lecture seule")}</div>
+    <div class="dev-line"><span class="tag share">${esc(shareLeft(c))}</span></div>
+    <div class="dev-actions"><button class="go" data-go-backups="${esc(r.id)}">${T("Ses sauvegardes")}</button><button data-browse-remote="${esc(r.id)}">${T("Parcourir")}</button>
+      <button data-share-keep="${esc(r.id)}">${T("Garder plus longtemps")}</button><button class="danger" data-share-drop="${esc(r.id)}" data-name="${esc(r.name)}">${T("Retirer ce partage")}</button></div></div></div>`;
+}
 function remoteCardHtml(r) {
+  if (r.type === "share") return shareCardHtml(r);
   const sw = r.type === "switch", c = r.config || {};
   const links = sw ? [`<button class="go" data-go-party="switch:${esc(r.id)}">${T("Ses parties")}</button>`, `<button class="go" data-go-sync="switch:${esc(r.id)}">${T("Synchroniser")}</button>`]
     : [`<button class="go" data-go-backups="${esc(r.id)}">${T("Ses sauvegardes")}</button>`, `<button class="go" data-go-sync="nas:${esc(r.id)}">${T("Synchroniser")}</button>`];
   const drive = r.type === "gdrive" || r.type === "onedrive" || r.type === "dropbox";
-  const s3 = r.type === "s3" || drive;  // stockage dans le nuage : service et compte plutôt qu'une adresse
-  const where = drive ? esc(c.bucket || "") : s3 ? `${c.service === "b2" ? "Backblaze B2" : c.service === "other" ? esc(c.host || "") : "Amazon S3"}${c.region ? " · " + esc(c.region) : ""} · ${esc(c.bucket || "")}`
+  const s3 = r.type === "s3" || r.type === "mega" || drive;  // stockage dans le nuage : service et compte plutôt qu'une adresse
+  const where = drive || r.type === "mega" ? esc(c.bucket || c.user || "") : s3 ? `${c.service === "b2" ? "Backblaze B2" : c.service === "other" ? esc(c.host || "") : "Amazon S3"}${c.region ? " · " + esc(c.region) : ""} · ${esc(c.bucket || "")}`
     : `${esc(c.host || "")}:${esc(c.port || "")}`;
   return `<div class="dev"><div class="dev-ico">${sw ? ICONS.switch : s3 ? cloudIcon(r.type, c.service) : ICONS.nas}</div><div class="dev-body">
-    <div class="title"><b>${esc(r.name)}</b><span class="tag ${sw ? "sw" : "info"}">${sw ? "Switch" : drive ? (r.type === "gdrive" ? "Drive" : r.type === "dropbox" ? "Dropbox" : "OneDrive") : s3 ? (c.service === "b2" ? "B2" : "S3") : r.type === "webdav" ? "WebDAV" : "FTP"}</span></div>
+    <div class="title"><b>${esc(r.name)}</b><span class="tag ${sw ? "sw" : "info"}">${sw ? "Switch" : drive ? (r.type === "gdrive" ? "Drive" : r.type === "dropbox" ? "Dropbox" : "OneDrive") : r.type === "mega" ? "MEGA" : s3 ? (c.service === "b2" ? "B2" : "S3") : r.type === "webdav" ? "WebDAV" : "FTP"}</span></div>
     <div class="hint">${where}${c.root && c.root !== "/" ? " · " + esc(c.root) : ""}</div>
     <div class="dev-line">${sw ? T("Un joueur : ses parties et leur synchro avec Eden") : `<span class="tag ${r.use === "sync" ? "off" : "ok"}">${T("Sauvegardes")}</span><span class="tag ${r.use === "backups" ? "off" : "ok"}">${T("Synchro")}</span>`}</div>
     <div class="dev-actions">${links.join("")}<button data-edit-remote="${esc(r.id)}">${T("Régler")}</button><button data-browse-remote="${esc(r.id)}">${T("Parcourir")}</button></div></div></div>`;
@@ -1678,8 +2113,9 @@ function peerCardHtml(p) {
   return `<div class="dev"><div class="dev-ico">${ICONS.ps5}</div><div class="dev-body">
     <div class="title"><b>${esc(p.name || p.host)}</b><span class="tag ${p.online ? "ok" : "muted"}">${p.online ? T("En ligne") : T("Hors ligne")}</span></div>
     <div class="hint">${esc(p.remote ? wanWhere(p) : T("PS5 jumelée · %s", p.host))}</div>
+    ${!p.online && !p.remote ? `<div class="hint">${esc(T("Ses disques s'affichent quand elle est allumée."))}</div>` : ""}
     <div class="dev-line">${T("Envoyez-lui des sauvegardes : Sauvegardes › un jeu › ⋯ › « Envoyer à … »")}</div>
-    <div class="dev-actions"><button class="go" data-peer-disks="${esc(p.instance)}">${T("Voir ses disques")}</button>${p.remote ? `<button data-peer-wantest="${esc(p.instance)}" data-name="${esc(p.name || p.host)}">${T("Tester la connexion")}</button>` : ""}<button data-peer-forget="${esc(p.instance)}" data-name="${esc(p.name || p.host)}">${T("Oublier cette console…")}</button></div></div></div>`;
+    <div class="dev-actions">${p.online ? `<button class="go" data-peer-disks="${esc(p.instance)}">${T("Voir ses disques")}</button>` : ""}${p.remote ? `<button data-peer-wantest="${esc(p.instance)}" data-name="${esc(p.name || p.host)}">${T("Tester la connexion")}</button>` : ""}<button data-peer-forget="${esc(p.instance)}" data-name="${esc(p.name || p.host)}">${T("Oublier cette console…")}</button></div></div></div>`;
 }
 const wanWhere = (p) => ((p.wan_host || p.seen_ip) ? T("par Internet · %s", p.wan_host || p.seen_ip) : T("par Internet · elle nous appelle")) + (p.lan_ip ? " · " + T("locale %s", p.lan_ip) : "");
 const wanDirLabel = (p, name) => p.wan_dir === "out" ? T("Cette PS5 appelle %s", name) : p.wan_dir === "in" ? T("%s appelle cette PS5", name) : T("Automatique");
@@ -1709,6 +2145,78 @@ const ADD_DEVICES = [["ps5", "PlayStation 5", T("une autre PS5")], ["ps5", T("PS
   ["switch", "Switch", T("réseau ou USB")], ["synology", "Synology", "NAS"], ["qnap", "QNAP", "NAS"], ["network", "FTP / SMB", T("PC, serveur")], ["cloud", T("Cloud"), T("Drive, OneDrive, S3…")]];
 // Appareils (ex-Destinations) : cartes avec images et barres d'espace, raccourcis directs (Ses parties, Ses backups,
 // Synchroniser) ; les réglages de connexion vivent ici seulement (disque par défaut, téléphones et ordinateurs associés).
+// Appareils (comme la télé) : une rangée de familles — Cette PS5 (interne, USB), chaque NAS ou Switch, le Nuage (tous
+// les services), les autres PS5 — puis, sous la famille choisie, ses cartes détaillées avec leurs actions.
+const CLOUD_TYPES = ["s3", "gdrive", "onedrive", "dropbox", "mega"];
+function devFamilies(places) {
+  // Comme la télé : les liens de partage reçus (MEGA, Drive…) font partie du Nuage, avec leur logo et leur fin.
+  const rem = state.remotes;
+  const cloud = rem.filter((r) => CLOUD_TYPES.includes(r.type) || r.type === "share");
+  const fams = [{ id: "ps5", name: T("Cette PS5"), icon: ICONS.ps5, n: places.length,
+    sub: places.map((p) => (p.type === "internal" ? T("Interne") : p.label)).join(" · "),
+    sub2: T("%s libres", size(places.reduce((a, p) => a + (p.free || 0), 0))), detail: () => places.map(devCardHtml).join("") }];
+  // Comme la télé : un NAS ou une Switch seuls ont leur carte ; à plusieurs, une seule carte de famille « Voir les appareils › ».
+  const famOf = (r) => (r.type === "switch" ? "switch" : "nas");
+  const local = rem.filter((x) => !CLOUD_TYPES.includes(x.type) && x.type !== "share"), grouped = new Set();
+  for (const r of local) {
+    const f = famOf(r), same = local.filter((x) => famOf(x) === f);
+    if (same.length > 1) {
+      if (grouped.has(f)) continue;
+      grouped.add(f);
+      fams.push({ id: f, name: f === "switch" ? "Switch" : "NAS", icon: f === "switch" ? ICONS.switch : ICONS.nas, n: same.length, sub: same.map((x) => x.name).join(" · "),
+        sub2: T("Voir les appareils ›"), detail: () => same.map(remoteCardHtml).join("") });
+      continue;
+    }
+    fams.push({ id: "r:" + r.id, name: r.name, icon: r.type === "switch" ? ICONS.switch : ICONS.nas, n: 1,
+      sub: r.type === "switch" ? "Switch" : `${(r.config || {}).host || ""}`, tag: r.type === "switch" ? "" : (r.type === "webdav" ? "WebDAV" : r.type === "smb" ? "SMB" : "FTP"),
+      detail: () => remoteCardHtml(r) });
+  }
+  if (cloud.length) fams.push({ id: "cloud", name: T("Nuage"), icon: ICONS.cloud, n: cloud.length, sub: cloud.map((r) => r.name).join(" · "),
+    sub2: T("Voir les services ›"), detail: () => cloud.map(remoteCardHtml).join("") });
+  const peers = peerCardsHtml();
+  // Comme la télé : une seule autre PS5 a sa propre carte (son nom, « Hors ligne », « PS5 jumelée · adresse », la phrase
+  // d'attente) ; plusieurs : la famille « Autres PS5 ».
+  const lp = state.linkPeers || [];
+  if (peers && lp.length === 1) {
+    const p = lp[0];
+    fams.push({ id: "peers", name: p.name || p.host, icon: ICONS.ps5, n: 1, tag: p.online ? "" : T("Hors ligne"),
+      sub: p.remote ? T("PS5 à distance · %s", p.wan_host || p.seen_ip || "") : T("PS5 jumelée · %s", p.host || ""),
+      sub2: p.online ? "" : (p.remote ? T("Options : tester la connexion") : T("Ses disques s'affichent quand elle est allumée.")), detail: () => peers });
+  } else if (peers) fams.push({ id: "peers", name: T("Autres PS5"), icon: ICONS.ps5, n: lp.length, sub: lp.map((p) => p.name || p.host).join(" · "), detail: () => peers });
+  return fams;
+}
+function devFamiliesHtml(places) {
+  const fams = devFamilies(places);
+  if (!fams.some((f) => f.id === state.devFam)) state.devFam = "";
+  const open = fams.find((f) => f.id === state.devFam);
+  return `<div class="dev-fams">${fams.map((f) => `<button class="dev-fam ${f.id === state.devFam ? "chosen" : ""}" data-fam="${esc(f.id)}">
+      <span class="dev-ico">${f.icon}</span><span class="grow"><span class="fam-top"><b>${esc(f.name)}</b>${f.tag ? `<span class="tag info">${esc(f.tag)}</span>` : f.n > 1 ? `<span class="fam-n">${f.n} ›</span>` : ""}</span>
+      <span class="hint">${esc(f.sub || "")}</span>${f.sub2 ? `<span class="fam-sub2">${esc(f.sub2)}</span>` : ""}</span></button>`).join("")}</div>
+    ${open ? `<div class="devs dev-open">${open.detail()}</div>` : `<p class="hint">${esc(T("Choisissez un appareil : ses actions s'ouvrent ici."))}</p>`}`;
+}
+
+// Cartes d'appareils (comme la télé) : Croix = « Destination par défaut » ou « Régler », Triangle = « Parcourir » restent
+// des boutons ; le reste (ses sauvegardes, ses parties, synchroniser, garder, retirer, oublier…) passe dans « ≡ Actions »,
+// le menu de la touche ≡, titré du nom de l'appareil. Les boutons d'origine gardent leur action (le menu les déclenche).
+function menuizeDevActions(root) {
+  const keepSel = "[data-default],[data-edit-remote],[data-browse-place],[data-browse-remote],[data-dl-open]";
+  root.querySelectorAll(".dev .dev-actions").forEach((box) => {
+    if (box.dataset.menu) return;
+    box.dataset.menu = "1";
+    const btns = [...box.querySelectorAll("button")];
+    const peer = btns.some((b) => b.matches("[data-peer-forget]"));
+    const keep = peer ? btns.slice(0, 1) : btns.filter((b) => b.matches(keepSel));
+    const rest = btns.filter((b) => !keep.includes(b));
+    if (!rest.length) return;
+    rest.forEach((b) => { b.hidden = true; });
+    const title = ((box.closest(".dev") || box).querySelector(".title b") || {}).textContent || "";
+    const m = document.createElement("button");
+    m.className = "secondary dev-menu";
+    m.textContent = "≡ " + T("Actions");
+    m.onclick = (ev) => { ev.stopPropagation(); openMenu(m, rest.map((b) => ({ label: b.textContent.trim(), cls: b.classList.contains("danger") ? "bad" : "", run: () => b.click() })), "", title); };
+    box.appendChild(m);
+  });
+}
 function devicesView() {
   if (!state.devicesAt || Date.now() - state.devicesAt > 30000) {
     state.devicesAt = Date.now();
@@ -1720,23 +2228,15 @@ function devicesView() {
     }).catch(() => {});
   }
   const places = state.places.filter((p) => p.type === "usb" || p.type === "internal");
-  $("#view").innerHTML = `<h1>${T("Appareils")}</h1><p class="sub">${T("Chaque appareil dit à quoi il sert, avec des raccourcis directs. Les disques sont reconnus par leur témoin, même s'ils changent de port USB.")}</p>
-    <div class="devs">${places.map(devCardHtml).join("")}${state.remotes.map(remoteCardHtml).join("")}${peerCardsHtml()}</div>
+  $("#view").innerHTML = `<h1>${T("Appareils")}</h1><p class="sub">${T("Vos disques, NAS, nuages, Switch et PS5.")}</p>
+    ${devFamiliesHtml(places)}
     <h2 class="eyebrow-h">${T("Ajouter un appareil")}</h2>
     <div class="adds">${ADD_DEVICES.map(([ico, name, sub], i) => { const brand = ico === "synology" || ico === "qnap";  // le logo porte déjà le nom
-      return `<button class="add${brand ? " add-brand" : ""}${ico === "cloud" || ico === "network" ? " add-wide" : ""}" data-add="${i}"><span class="dev-ico">${ICONS[ico]}</span><b>${esc(name)}</b><span class="hint">${esc(sub)}</span></button>`; }).join("")}</div>
-    <h2 class="eyebrow-h">${T("Disque par défaut")}</h2><p class="sub">${T("Les nouvelles sauvegardes vont sur ce disque, dans le dossier « PBC Backup ».")}</p>
-    <div class="two-col">
-      <label class="radio"><input type="radio" name="dp" value="auto" ${state.settings.default_place === "auto" ? "checked" : ""}><span class="grow"><b>${T("Choisir automatiquement")}</b><br><span class="hint">${T("Le premier disque USB, sinon le stockage interne")}</span></span></label>
-      ${state.places.filter((p) => p.type !== "switch").map((p) => `<label class="radio"><input type="radio" name="dp" value="${esc(p.id)}" ${state.settings.default_place === p.id ? "checked" : ""}><span class="grow"><b>${esc(p.label)}</b><br><span class="hint">${esc(p.mount)}</span></span><span class="hint">${p.remote || p.type === "ftp" ? T("réseau") : T("%s libres sur %s", size(p.free), size(p.total))}</span></label>`).join("")}
-    </div>
-    <h2 class="eyebrow-h">${T("Téléphones et ordinateurs associés")}</h2><p class="sub">${T("Ouvrez cette adresse sur un appareil du même réseau, puis saisissez le code affiché sur la télé.")}</p>
-    <div class="card"><div class="kv">${T("Adresse")}<b>${esc(location.origin)}</b></div></div>
-    ${state.devices.length ? `<div class="list">${state.devices.map((d) => `<div class="row"><div><div class="t">${esc(d.name)}</div><div class="d">${esc(T("Depuis le %s", new Date(d.created).toLocaleDateString(I18N.code)))}</div></div><div class="btns"><button data-forget="${esc(d.id)}">${T("Oublier")}</button></div></div>`).join("")}</div>` : `<p class="sub">${T("Aucun.")}</p>`}`;
+      return `<button class="add${brand ? " add-brand" : ""}${ico === "cloud" || ico === "network" ? " add-wide" : ""}" data-add="${i}"><span class="dev-ico">${ICONS[ico]}</span><b>${esc(name)}</b><span class="hint">${esc(sub)}</span></button>`; }).join("")}</div>`;
   $$("[data-default]").forEach((b) => b.onclick = async () => {
     try { state.settings = await post("/settings", { default_place: b.dataset.default }); toast(T("Destination par défaut enregistrée")); devicesView(); } catch (e) { toast(e.message); }
   });
-  $$("input[name=dp]").forEach((r) => r.onchange = async () => { try { state.settings = await post("/settings", { ...state.settings, default_place: r.value }); toast(T("Disque par défaut enregistré")); devicesView(); } catch (e) { toast(e.message); } });
+  $$("[data-fam]").forEach((b) => b.onclick = () => { state.devFam = state.devFam === b.dataset.fam ? "" : b.dataset.fam; devicesView(); });
   $$("[data-forget]").forEach((b) => b.onclick = async () => { try { await post(`/devices/${b.dataset.forget}/forget`); state.devicesAt = 0; } catch (e) { toast(e.message); } devicesView(); });
   $$("[data-go-party]").forEach((b) => b.onclick = () => { const v = b.dataset.goParty; state.party.player = v === "ps5" ? "" : v; state.party.sel.clear(); setTab("saves"); });
   $$("[data-go-backups]").forEach((b) => b.onclick = () => { mg.place = b.dataset.goBackups; mg.view = 0; mg.game = ""; mg.back = ""; mg.gsel.clear(); setTab("backups"); });
@@ -1760,7 +2260,7 @@ function devicesView() {
   });
   $$("[data-peer-browse]").forEach((b) => b.onclick = () => openBrowser({ title: b.dataset.title, start: b.dataset.start, remote: "peer:" + b.dataset.peerBrowse }));
   $$("[data-peer-sendgame]").forEach((b) => b.onclick = () => { setTab("library"); toast(T("Choisissez un jeu, puis « Envoyer à une PS5… » sur sa fiche (vers %s).", b.dataset.name)); });
-  $$("[data-peer-sendsave]").forEach((b) => b.onclick = () => { setTab("saves"); toast(T("Choisissez une partie, puis Options › « Envoyer la sauvegarde à une PS5… » (vers %s).", b.dataset.name)); });
+  $$("[data-peer-sendsave]").forEach((b) => b.onclick = () => { setTab("saves"); toast(T("Choisissez une partie, puis Actions › « Envoyer la sauvegarde à une PS5… » (vers %s).", b.dataset.name)); });
   // Comme la télé : la carte reste simple, ses actions s'ouvrent en menu (les boutons cachés gardent leur action).
   $$("[data-peer-more]").forEach((b) => b.onclick = (e) => {
     e.stopPropagation();
@@ -1798,12 +2298,15 @@ function devicesView() {
     confirmCloseRemote(b.dataset.peerClose, b.dataset.name, fg);
   });
   $$("[data-peer-forget]").forEach((b) => b.onclick = async () => {
-    if (!confirm(T("Défaire le lien avec %s ?", b.dataset.name))) return;
-    try { await post("/link/forget", { instance: b.dataset.peerForget }); state.devicesAt = 0; render(); } catch (e) { toast(e.message); }
+    if (!(await ask(T("Défaire le lien avec %s ?", b.dataset.name), `<p class="hint">${esc(T("Les deux PS5 ne se verront plus. Rien n'est effacé : vous pourrez les jumeler de nouveau."))}</p>`, T("Défaire le lien")))) return;
+    try { await post("/link/forget", { instance: b.dataset.peerForget }); toast(T("%s n'est plus jumelée", b.dataset.name)); state.devicesAt = 0; render(); } catch (e) { toast(e.message); }
   });
   $$("[data-peer-wantest]").forEach((b) => b.onclick = () => wanTest(b.dataset.peerWantest, b.dataset.name));
   $$("[data-peer-session]").forEach((b) => b.onclick = () => { const p = (state.linkPeers || []).find((x) => x.instance === b.dataset.peerSession); if (p) wanSession(p); });
   $$("[data-add]").forEach((b) => b.onclick = () => addDevice(+b.dataset.add));
+  menuizeDevActions($("#view"));
+  $$("[data-share-keep]").forEach((b) => b.onclick = () => shareKeep(b.dataset.shareKeep));
+  $$("[data-share-drop]").forEach((b) => b.onclick = () => shareDrop(b.dataset.shareDrop, b.dataset.name));
 }
 // 0 PS5, 1 PS5 à distance, 2 USB, 3 Switch, 4 Synology, 5 QNAP, 6 FTP / SMB / WebDAV, 7 nuage
 function addDevice(i) {
@@ -1812,12 +2315,13 @@ function addDevice(i) {
   else if (i === 2) toast(T("Branchez le disque : il apparaît tout seul, et reste reconnu même sur un autre port."));
   else if (i === 3) openEditor("", "switch");
   else if (i >= 4 && i <= 6) openEditor("", "ftp");
+  else if (i === 8) openShareEditor();
   else cloudPick();
 }
 // « Ajouter un service » (Transferts) : le même choix que dans Appareils.
 async function addService() {
   const opts = [[0, T("Une autre PS5")], [1, T("PS5 à distance (par Internet)")], [2, T("Disque USB")], [3, T("Switch")],
-    [6, T("NAS (Synology, QNAP, FTP, SMB, WebDAV)")], [7, T("Nuage (Google Drive, OneDrive, Dropbox, S3…)")]];
+    [6, T("NAS (Synology, QNAP, FTP, SMB, WebDAV)")], [7, T("Nuage (Google Drive, OneDrive, Dropbox, S3…)")], [8, T("Lien de partage (reçu de quelqu'un)")]];
   window.__addSvc = -1;
   const ok = await ask(T("Ajouter un service"), `<div class="actions" style="flex-direction:column;align-items:stretch">${opts.map(([i, n]) => `<button class="secondary" onclick="window.__addSvc=${i};this.closest('.modal').querySelector('.primary').click()">${esc(n)}</button>`).join("")}</div>`, T("Fermer"));
   if (ok && window.__addSvc >= 0) addDevice(window.__addSvc);
@@ -1834,13 +2338,15 @@ function cloudPick() {
   const box = document.createElement("div");
   box.className = "modal";
   box.innerHTML = `<div class="dialog"><h2>${T("Ajouter un stockage dans le nuage")}</h2>
-    <div class="adds">${[["gdrive", "Google Drive", T("connexion par code")], ["onedrive", "OneDrive", T("connexion par code")], ["dropbox", "Dropbox", T("depuis le téléphone")]].map(([k, n, sub]) => `<button class="add" data-drive="${k}"><span class="dev-ico">${ICONS.cloud}</span><b>${n}</b><span class="hint">${esc(sub)}</span></button>`).join("")}${S3_SERVICES().filter(([k]) => k !== "other").map(([k, n, sub]) => `<button class="add" data-s3="${k}"><span class="dev-ico">${ICONS.cloud}</span><b>${esc(n)}</b><span class="hint">${esc(sub)}</span></button>`).join("")}${DAV_SERVICES().map(([n], i) => `<button class="add" data-dav="${i}"><span class="dev-ico">${ICONS.cloud}</span><b>${esc(n)}</b><span class="hint">${T("compte WebDAV")}</span></button>`).join("")}<button class="add" data-s3="other"><span class="dev-ico">${ICONS.cloud}</span><b>${T("Autre S3")}</b><span class="hint">${T("MinIO, iDrive e2…")}</span></button></div>
+    <div class="adds"><button class="add" data-share-link="1"><span class="dev-ico">${ICONS.cloud}</span><b>${T("Lien de partage")}</b><span class="hint">${esc(T("reçu de quelqu'un : MEGA, Google Drive, Dropbox, OneDrive"))}</span></button>${[["gdrive", "Google Drive", T("connexion par code")], ["onedrive", "OneDrive", T("connexion par code")], ["dropbox", "Dropbox", T("depuis le téléphone")]].map(([k, n, sub]) => `<button class="add" data-drive="${k}"><span class="dev-ico">${ICONS.cloud}</span><b>${n}</b><span class="hint">${esc(sub)}</span></button>`).join("")}<button class="add" data-mega="1"><span class="dev-ico">${cloudIcon("mega")}</span><b>MEGA</b><span class="hint">${esc(T("e-mail et mot de passe"))}</span></button>${S3_SERVICES().filter(([k]) => k !== "other").map(([k, n, sub]) => `<button class="add" data-s3="${k}"><span class="dev-ico">${ICONS.cloud}</span><b>${esc(n)}</b><span class="hint">${esc(sub)}</span></button>`).join("")}${DAV_SERVICES().map(([n], i) => `<button class="add" data-dav="${i}"><span class="dev-ico">${ICONS.cloud}</span><b>${esc(n)}</b><span class="hint">${T("compte WebDAV")}</span></button>`).join("")}<button class="add" data-s3="other"><span class="dev-ico">${ICONS.cloud}</span><b>${T("Autre S3")}</b><span class="hint">${T("MinIO, iDrive e2…")}</span></button></div>
     <div class="actions"><button class="secondary" id="cp-close">${T("Fermer")}</button></div></div>`;
   document.body.appendChild(box);
   const close = () => box.remove();
   $("#cp-close", box).onclick = close;
   $$("[data-s3]", box).forEach((b) => b.onclick = () => { close(); openS3Editor("", b.dataset.s3); });
   $$("[data-drive]", box).forEach((b) => b.onclick = () => { close(); driveLink(b.dataset.drive); });
+  $$("[data-mega]", box).forEach((b) => b.onclick = () => { close(); openMegaEditor(""); });
+  $$("[data-share-link]", box).forEach((b) => b.onclick = () => { close(); openShareEditor(); });
   $$("[data-dav]", box).forEach((b) => b.onclick = () => { close(); const [name, host, root, hint] = DAV_SERVICES()[+b.dataset.dav]; openEditor("", "webdav", { name, host, port: "443", root, hint }); });
 }
 // Google Drive, OneDrive : connexion par code. Sur un téléphone, le bouton ouvre directement la page du service.
@@ -1879,7 +2385,9 @@ function linkPage() {
   }).catch(() => { $("#lp-body", box).innerHTML = `<p class="bad">${T("Console injoignable.")}</p>`; });
   return true;
 }
-async function driveLink(provider) {
+// reconnect : l'identifiant d'un compte déjà là — à la fin, il garde ses réglages (seul le jeton change), par exemple
+// quand l'appli a reçu un nouveau droit (Dropbox « sharing.write », 18/11).
+async function driveLink(provider, reconnect) {
   const box = document.createElement("div");
   box.className = "modal";
   box.innerHTML = `<div class="dialog"><div class="ed-head"><span class="dev-ico">${cloudIcon(provider)}</span><div><h2>${esc(T("Connecter %s", DRIVE_NAME[provider]))}</h2>
@@ -1902,7 +2410,7 @@ async function driveLink(provider) {
       show(dropboxSteps(l.id, info.authorize));
       $("#dbx-ok", box).onclick = () => dropboxSend(l.id, box, async () => {
         const s = await api(`/cloud/link?id=${encodeURIComponent(l.id)}`);
-        if (s.state === "ok") { close(); openDriveEditor("", provider, l.id, s); }
+        if (s.state === "ok") { close(); reconnect ? finishReconnect(reconnect, l.id) : openDriveEditor("", provider, l.id, s); }
       });
       return;
     }
@@ -1916,7 +2424,7 @@ async function driveLink(provider) {
       let s = {};
       try { s = await api(`/cloud/link?id=${encodeURIComponent(l.id)}`); } catch (e) {}
       if (!alive) return;
-      if (s.state === "ok") { close(); openDriveEditor("", provider, l.id, s); return; }
+      if (s.state === "ok") { close(); reconnect ? finishReconnect(reconnect, l.id) : openDriveEditor("", provider, l.id, s); return; }
       if (s.state === "denied") { $("#dl-state", box).innerHTML = `<span class="bad">${T("Refusé sur le téléphone : demandez un nouveau code.")}</span>`; return; }
       if (s.state === "expired") { $("#dl-state", box).innerHTML = `<span class="bad">${T("Code expiré : demandez un nouveau code.")}</span>`; return; }
       if (s.state === "error") { $("#dl-state", box).innerHTML = `<span class="bad">${esc(T("Connexion impossible : %s", s.error || ""))}</span>`; return; }
@@ -1926,6 +2434,10 @@ async function driveLink(provider) {
   };
   $("#dl-new", box).onclick = start;
   start();
+}
+async function finishReconnect(id, link) {
+  try { await post(`/remotes/${encodeURIComponent(id)}/update`, { reconnect: true, link }); toast(T("Compte reconnecté : rien d'autre ne change")); reloadRemotes(); }
+  catch (e) { toast(T("Connexion impossible : %s", e.message)); }
 }
 // Réglage d'un compte Drive : nom, dossier, usage ; le compte vient de la connexion par code.
 function openDriveEditor(id, provider, link, linked) {
@@ -1937,12 +2449,13 @@ function openDriveEditor(id, provider, link, linked) {
   const place = linked && linked.total ? T("%s libres sur %s", size(linked.free), size(linked.total)) : "";
   box.innerHTML = `<div class="dialog"><div class="ed-head"><span class="dev-ico">${cloudIcon(provider)}</span><div><h2>${esc(DRIVE_NAME[provider])}</h2>
       <p class="hint">${T("Par Internet : plus lent qu'un NAS. Le service peut facturer le stockage et les téléchargements.")}</p></div></div>
-    <label class="field-row">${T("Compte")}<input class="field" value="${esc(account)}" disabled></label>
+    <label class="field-row">${T("Compte")}<input class="field" value="${esc(account)}" disabled title="${esc(T("Pour changer de compte : Oublier, puis reconnecter."))}"></label>
+    <p class="hint">${T("Pour changer de compte : Oublier, puis reconnecter.")}${id ? ` <button class="secondary small" id="ed-reconnect">${T("Reconnecter le compte")}</button>` : ""}</p>
     ${place ? `<label class="field-row">${T("Place")}<input class="field" value="${esc(place)}" disabled></label>` : ""}
     <label class="field-row">${T("Nom")}<input class="field" id="dr-name" value="${esc(r ? r.name : DRIVE_NAME[provider])}"></label>
     <label class="field-row">${T("Dossier")}<span class="row-inline"><input class="field" id="dr-root" value="${esc(r ? (c.root || "/") : "/PBC Backup")}"><button class="secondary small" id="dr-browse">${T("Parcourir")}</button></span></label>
     <label class="field-row">${T("Utilisé pour")}<select id="dr-use"><option value="backups">${T("Sauvegardes seulement")}</option><option value="both" ${!r || !r.use ? "selected" : ""}>${T("Sauvegardes et Synchro")}</option><option value="sync" ${r && r.use === "sync" ? "selected" : ""}>${T("Synchro seulement")}</option></select></label>
-    <div class="actions"><button class="primary" id="dr-save">${T("Enregistrer")}</button><button class="secondary" id="dr-test">${T("Tester la connexion")}</button>${id ? `<button class="danger" id="dr-forget">${T("Oublier")}</button>` : ""}<button class="secondary" id="dr-close">${T("Fermer")}</button></div>
+    <div class="actions"><button class="primary" id="dr-save">${T("Enregistrer")}</button><button class="secondary" id="dr-test">${T("Tester la connexion")}</button>${id ? `<button class="danger" id="dr-forget">${T("Oublier")}</button>` : ""}<button class="secondary" id="dr-close">${T("Fermer sans enregistrer")}</button></div>
     <p class="hint" id="dr-status"></p></div>`;
   document.body.appendChild(box);
   const close = () => box.remove();
@@ -1950,6 +2463,7 @@ function openDriveEditor(id, provider, link, linked) {
   const busy = (on) => { $$("button", box).forEach((b) => { b.disabled = on && b.id !== "dr-close"; }); if (on) status(`${SPIN}${T("Connexion au service…")}`); };
   const body = () => ({ type: provider, id, link, name: $("#dr-name", box).value.trim(), root: $("#dr-root", box).value.trim() || "/", use: $("#dr-use", box).value });
   $("#dr-close", box).onclick = close;
+  if ($("#ed-reconnect", box)) $("#ed-reconnect", box).onclick = () => { close(); driveLink(provider, id); };
   $("#dr-browse", box).onclick = () => openBrowser({ title: DRIVE_NAME[provider], start: "/", config: body(), pick: (p) => { $("#dr-root", box).value = p; } });
   $("#dr-test", box).onclick = async () => {
     busy(true);
@@ -1994,7 +2508,7 @@ function openS3Editor(id, service) {
     ${field("root", T("Dossier"), c.root || "/")}
     <label class="field-row">${T("Utilisé pour")}<select id="s3-use"><option value="backups">${T("Sauvegardes seulement")}</option><option value="both" ${!r || !r.use ? "selected" : ""}>${T("Sauvegardes et Synchro")}</option><option value="sync" ${r && r.use === "sync" ? "selected" : ""}>${T("Synchro seulement")}</option></select></label>
     <p class="hint">${T("Par Internet : plus lent qu'un NAS. Le service peut facturer le stockage et les téléchargements.")}</p>
-    <div class="actions"><button class="primary" id="s3-save">${T("Enregistrer")}</button><button class="secondary" id="s3-test">${T("Tester la connexion")}</button>${id ? `<button class="danger" id="s3-forget">${T("Oublier")}</button>` : ""}<button class="secondary" id="s3-close">${T("Fermer")}</button></div>
+    <div class="actions"><button class="primary" id="s3-save">${T("Enregistrer")}</button><button class="secondary" id="s3-test">${T("Tester la connexion")}</button>${id ? `<button class="danger" id="s3-forget">${T("Oublier")}</button>` : ""}<button class="secondary" id="s3-close">${T("Fermer sans enregistrer")}</button></div>
     <p class="hint" id="s3-status"></p></div>`;
   document.body.appendChild(box);
   const close = () => box.remove();
@@ -2041,6 +2555,93 @@ function openS3Editor(id, service) {
     try { await post(`/remotes/${encodeURIComponent(id)}/forget`); toast(T("Appareil oublié")); close(); reloadRemotes(); } catch (e) { status(`<span class="bad">${esc(e.message)}</span>`); }
   };
 }
+// Lien de partage reçu (MEGA pour l'instant) : collé ici, vérifié, gardé quelques jours en lecture seule. Le lien porte
+// sa clé : il reste sur la console et n'est jamais réaffiché.
+const SHARE_DAYS = () => [[1, T("1 jour")], [7, T("7 jours")], [30, T("30 jours")], [0, T("Jusqu'à ce que je l'enlève")]];
+function openShareEditor() {
+  const box = document.createElement("div");
+  box.className = "modal";
+  box.innerHTML = `<div class="dialog"><div class="ed-head"><span class="dev-ico">${ICONS.cloud}</span><div>
+      <h2>${T("Ajouter un lien de partage")}</h2>
+      <p class="hint">${T("Un lien reçu de quelqu'un devient un endroit en lecture seule : Transferts, Fichiers et Sauvegardes s'en servent comme d'un disque. Rien n'y est jamais écrit.")}</p></div></div>
+    <label class="field-row">${T("Lien")}<textarea class="field" id="sh-url" rows="3" autocomplete="off" spellcheck="false" placeholder="https://mega.nz/folder/…  ·  drive.google.com  ·  dropbox.com  ·  1drv.ms"></textarea></label>
+    <label class="field-row">${T("Nom")}<input class="field" id="sh-name" autocomplete="off" placeholder="${esc(T("(le nom du dossier partagé)"))}"></label>
+    <label class="field-row">${T("Garder")}<select id="sh-days">${SHARE_DAYS().map(([d, n]) => `<option value="${d}" ${d === 7 ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label>
+    <p class="hint" id="sh-status"></p>
+    <div class="actions"><button class="primary" id="sh-add">${T("Ajouter")}</button><button class="secondary" id="sh-test">${T("Vérifier le lien")}</button><button class="secondary" id="sh-close">${T("Fermer sans enregistrer")}</button></div></div>`;
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  const status = (html) => { $("#sh-status", box).innerHTML = html; };
+  const busy = (on) => { $$("button", box).forEach((b) => { b.disabled = on && b.id !== "sh-close"; }); if (on) status(`${SPIN}${T("Lecture du lien…")}`); };
+  $("#sh-close", box).onclick = close;
+  const url = () => $("#sh-url", box).value.trim();
+  const found = (j) => T("%s · %s · %d fichier(s), %d dossier(s), %s", SHARE_SVC[j.service] || j.service, j.kind === "file" ? T("fichier") : T("dossier"), j.files || 0, j.dirs || 0, size(j.bytes || 0));
+  $("#sh-test", box).onclick = async () => {
+    if (!url()) { status(`<span class="bad">${T("Collez d'abord le lien")}</span>`); return; }
+    busy(true);
+    try { const j = await post("/shares/probe", { url: url() }); busy(false); status(`<span class="ok">${esc(found(j))}</span>`); if (!$("#sh-name", box).value.trim() && j.name) $("#sh-name", box).value = j.name; }
+    catch (e) { busy(false); status(`<span class="bad">${esc(e.message)}</span>`); }
+  };
+  $("#sh-add", box).onclick = async () => {
+    if (!url()) { status(`<span class="bad">${T("Collez d'abord le lien")}</span>`); return; }
+    busy(true);
+    try { await post("/remotes", { type: "share", url: url(), name: $("#sh-name", box).value.trim(), days: +$("#sh-days", box).value }); toast(T("Partage ajouté : lecture seule")); close(); reloadRemotes(); }
+    catch (e) { busy(false); status(`<span class="bad">${esc(e.message)}</span>`); }
+  };
+  setTimeout(() => $("#sh-url", box).focus(), 50);
+}
+async function shareKeep(id) {
+  const r = state.remotes.find((x) => x.id === id);
+  if (!r) return;
+  window.__shDays = -1;
+  const ok = await ask(T("Garder « %s »", r.name), `<p class="hint">${esc(T("À partir d'aujourd'hui."))}</p><div class="actions" style="flex-direction:column;align-items:stretch">${SHARE_DAYS().map(([d, n]) => `<button class="secondary" onclick="window.__shDays=${d};this.closest('.modal').querySelector('.primary').click()">${esc(n)}</button>`).join("")}</div>`, T("Fermer"));
+  if (!ok || window.__shDays < 0) return;
+  try { await post(`/remotes/${encodeURIComponent(id)}/update`, { type: "share", name: r.name, days: window.__shDays }); toast(T("C'est noté")); reloadRemotes(); } catch (e) { toast(e.message); }
+}
+async function shareDrop(id, name) {
+  if (!(await ask(T("Retirer « %s » ?", name), `<p>${esc(T("Le lien est oublié par la console. Rien n'est effacé chez la personne qui partage, ni chez vous."))}</p>`, T("Retirer")))) return;
+  try { await post(`/remotes/${encodeURIComponent(id)}/forget`); toast(T("Partage retiré")); reloadRemotes(); } catch (e) { toast(e.message); }
+}
+// MEGA : e-mail et mot de passe du compte (gardés sur la console ; le mot de passe n'est jamais réaffiché).
+function openMegaEditor(id) {
+  const r = state.remotes.find((x) => x.id === id), c = (r && r.config) || {};
+  const box = document.createElement("div");
+  box.className = "modal";
+  const field = (k, label, val, extra = "") => `<label class="field-row">${label}<input class="field" id="mg-${k}" value="${esc(val || "")}" autocomplete="off" ${extra}></label>`;
+  box.innerHTML = `<div class="dialog"><div class="ed-head"><span class="dev-ico">${ICONS.cloud}</span><div>
+      <h2>${id ? T("Régler l'appareil") : T("Ajouter un compte MEGA")}</h2>
+      <p class="hint">${T("Tout est chiffré sur la console avant l'envoi : MEGA ne voit jamais le contenu.")}</p></div></div>
+    ${field("name", T("Nom"), r ? r.name : "MEGA")}
+    ${field("user", T("E-mail"), c.user && c.user !== "anonymous" ? c.user : "", 'type="email" autocomplete="username"')}
+    <label class="field-row">${T("Mot de passe")}<input class="field" id="mg-password" type="password" autocomplete="new-password" placeholder="${esc(id ? T("(inchangé)") : "")}"></label>
+    ${field("root", T("Dossier"), c.root || "/")}
+    <label class="field-row">${T("Utilisé pour")}<select id="mg-use"><option value="backups" ${r && r.use === "backups" ? "selected" : ""}>${T("Sauvegardes seulement")}</option><option value="both" ${!r || !r.use || r.use === "both" ? "selected" : ""}>${T("Sauvegardes et Synchro")}</option><option value="sync" ${r && r.use === "sync" ? "selected" : ""}>${T("Synchro seulement")}</option></select></label>
+    <p class="hint">${T("Par Internet : plus lent qu'un NAS. Le service peut facturer le stockage et les téléchargements.")}</p>
+    <div class="actions"><button class="primary" id="mg-save">${T("Enregistrer")}</button><button class="secondary" id="mg-test">${T("Tester la connexion")}</button>${id ? `<button class="danger" id="mg-forget">${T("Oublier")}</button>` : ""}<button class="secondary" id="mg-close">${T("Fermer sans enregistrer")}</button></div>
+    <p class="hint" id="mg-status"></p></div>`;
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  const status = (html) => { $("#mg-status", box).innerHTML = html; };
+  const busy = (on) => { $$("button", box).forEach((b) => { b.disabled = on && b.id !== "mg-close"; }); if (on) status(`${SPIN}${T("Connexion au service…")}`); };
+  $("#mg-close", box).onclick = close;
+  const body = () => ({ type: "mega", id, name: $("#mg-name", box).value.trim() || "MEGA", user: $("#mg-user", box).value.trim(), password: $("#mg-password", box).value,
+    root: $("#mg-root", box).value.trim() || "/", use: $("#mg-use", box).value });
+  $("#mg-test", box).onclick = async () => {
+    busy(true);
+    try { await post("/remotes/test-config", body()); busy(false); status(`<span class="ok">${T("Connexion réussie : vous pouvez enregistrer")}</span>`); }
+    catch (e) { busy(false); status(`<span class="bad">${esc(e.message)}</span>`); }
+  };
+  $("#mg-save", box).onclick = async () => {
+    busy(true);
+    try { await post(id ? `/remotes/${encodeURIComponent(id)}/update` : "/remotes", body()); toast(T("Appareil enregistré : connexion vérifiée")); close(); reloadRemotes(); }
+    catch (e) { busy(false); status(`<span class="bad">${esc(T("Connexion impossible : %s", e.message))}</span>`); }
+  };
+  let armed = false;
+  if (id) $("#mg-forget", box).onclick = async () => {
+    if (!armed) { armed = true; $("#mg-forget", box).textContent = T("Confirmer : oublier"); status(T("Appuyez encore pour oublier cet appareil (rien n'est effacé dessus).")); return; }
+    try { await post(`/remotes/${encodeURIComponent(id)}/forget`); toast(T("Appareil oublié")); close(); reloadRemotes(); } catch (e) { status(`<span class="bad">${esc(e.message)}</span>`); }
+  };
+}
 // Une autre PS5 (liaison entre consoles, docs/PROTOCOLE-link.md) : même menu que la télé.
 async function otherPs5() {
   let peers = [];
@@ -2053,7 +2654,7 @@ async function otherPs5() {
   box.className = "modal";
   box.innerHTML = `<div class="dialog wide"><h2>${T("Une autre PS5")}</h2>
     <ol class="hint lk-steps"><li>${T("1. Installez Backup Center sur les deux PS5, sur le même réseau.")}</li><li>${T("2. Sur l'une, choisissez l'autre PS5 dans cette liste.")}</li>
-      <li>${T("3. Tapez le code affiché sur la télé de l'autre PS5. C'est tout : le lien marche dans les deux sens.")}</li><li>${T("Ensuite : Sauvegardes › un jeu › Options › « Envoyer à … ».")}</li></ol>
+      <li>${T("3. Tapez le code affiché sur la télé de l'autre PS5. C'est tout : le lien marche dans les deux sens.")}</li><li>${T("Ensuite : Sauvegardes › un jeu › Actions › « Envoyer à … ».")}</li></ol>
     <p class="hint">${T("Le code de cette console s'affiche sur sa télé : Appareils › PlayStation 5. Sur l'autre PS5, saisissez-le pour jumeler.")}</p>
     <div class="list">${rows || `<p class="hint">${T("Aucune autre PS5 vue sur le réseau pour l'instant.")}</p>`}</div>
     <h4>${T("Par adresse IP")}</h4>
@@ -2065,11 +2666,13 @@ async function otherPs5() {
   const pair = async (host, code) => {
     code = String(code || "").replace(/\D/g, "");
     if (!host || code.length !== 6) { toast(T("Le code a 6 chiffres")); return; }
-    try { await post("/link/pair", { host, port: 52370, code }); toast(T("%s est jumelée", host)); close(); otherPs5(); } catch (e) { toast(e.message); }
+    toast(T("Jumelage avec %s…", host));  // comme la télé : un retour pendant la demande
+    const go = box.querySelector("#lk-go"); if (go) go.disabled = true;
+    try { await post("/link/pair", { host, port: 52370, code }); toast(T("%s est jumelée", host)); close(); otherPs5(); } catch (e) { toast(e.message); } finally { if (go) go.disabled = false; }
   };
   box.querySelector("#lk-go").onclick = () => pair(box.querySelector("#lk-ip").value.trim(), box.querySelector("#lk-code").value);
   box.querySelectorAll("[data-lk-pair]").forEach((b) => b.onclick = () => { box.querySelector("#lk-ip").value = b.dataset.lkPair; box.querySelector("#lk-code").focus(); });
-  box.querySelectorAll("[data-lk-forget]").forEach((b) => b.onclick = async () => { if (!confirm(T("Défaire le lien avec %s ?", b.dataset.name))) return; try { await post("/link/forget", { instance: b.dataset.lkForget }); close(); otherPs5(); } catch (e) { toast(e.message); } });
+  box.querySelectorAll("[data-lk-forget]").forEach((b) => b.onclick = async () => { if (!(await ask(T("Défaire le lien avec %s ?", b.dataset.name), `<p class="hint">${esc(T("Les deux PS5 ne se verront plus. Rien n'est effacé : vous pourrez les jumeler de nouveau."))}</p>`, T("Défaire le lien")))) return; try { await post("/link/forget", { instance: b.dataset.lkForget }); toast(T("%s n'est plus jumelée", b.dataset.name)); close(); otherPs5(); } catch (e) { toast(e.message); } });
   box.querySelectorAll("[data-lk-disks]").forEach((b) => b.onclick = async () => {
     try {
       const pl = await api(`/link/peer?instance=${encodeURIComponent(b.dataset.lkDisks)}&what=places`);
@@ -2160,6 +2763,8 @@ function openEditor(id, type, preset) {
   type = type || "ftp";
   const r = state.remotes.find((x) => x.id === id), c = (r && r.config) || {};
   if (r && r.type === "s3") { openS3Editor(id); return; }
+  if (r && r.type === "mega") { openMegaEditor(id); return; }
+  if (r && r.type === "share") { shareKeep(id); return; }
   if (r && (r.type === "gdrive" || r.type === "onedrive" || r.type === "dropbox")) { openDriveEditor(id); return; }  // stockage S3 : son propre formulaire
   if (r && (r.type === "smb" || r.type === "webdav")) type = r.type;
   const sw = type === "switch";
@@ -2181,7 +2786,7 @@ function openEditor(id, type, preset) {
     ${sw ? "" : `<label class="field-row">${T("Chiffrement (FTPS)")}<select id="ed-tls">${[["auto", T("Automatique (FTPS si le serveur le propose)")], ["on", T("Toujours (FTPS obligatoire)")], ["off", T("Jamais (FTP simple)")]].map(([k, l]) => `<option value="${k}" ${(c.tls || "auto") === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>`}
     ${sw ? "" : `<label class="field-row">${T("Utilisé pour")}<select id="ed-use"><option value="both">${T("Sauvegardes et Synchro")}</option><option value="backups" ${r && r.use === "backups" ? "selected" : ""}>${T("Sauvegardes seulement")}</option><option value="sync" ${r && r.use === "sync" ? "selected" : ""}>${T("Synchro seulement")}</option></select></label>`}
     ${sw ? "" : `<label class="field-row">${T("Rangement")}<select id="ed-layout"><option value="pbc" ${v.layout === "pbc" ? "selected" : ""}>${T("Dossier PBC Backup")}</option><option value="platform" ${v.layout === "platform" ? "selected" : ""}>${T("Par plateforme (PS5 backup…)")}</option></select></label>`}
-    <div class="actions"><button class="primary" id="ed-save">${T("Enregistrer")}</button><button class="secondary" id="ed-test">${T("Tester la connexion")}</button>${id ? `<button class="secondary" id="ed-adopt" title="${esc(T("Déplace « PS5 backup », « Switch backup »… de la racine dans « PBC Backup » (renommage, rien n'est copié ni effacé)"))}">${T("Ranger sous PBC Backup")}</button>` : ""}${id ? `<button class="danger" id="ed-forget">${T("Oublier")}</button>` : ""}<button class="secondary" id="ed-close">${T("Fermer")}</button></div>
+    <div class="actions"><button class="primary" id="ed-save">${T("Enregistrer")}</button><button class="secondary" id="ed-test">${T("Tester la connexion")}</button>${id ? `<button class="secondary" id="ed-adopt" title="${esc(T("Déplace « PS5 backup », « Switch backup »… de la racine dans « PBC Backup » (renommage, rien n'est copié ni effacé)"))}">${T("Ranger sous PBC Backup")}</button>` : ""}${id ? `<button class="danger" id="ed-forget">${T("Oublier")}</button>` : ""}<button class="secondary" id="ed-close">${T("Fermer sans enregistrer")}</button></div>
     <p class="hint" id="ed-status">${T("1. Saisissez l'adresse et le compte · 2. Parcourir… pour choisir le dossier · 3. Enregistrer (la connexion et l'écriture sont testées).")}</p></div>`;
   document.body.appendChild(box);
   const close = () => box.remove();
@@ -2304,7 +2909,7 @@ function partiesView() {
   const list = players();
   if (!list.some((p) => p.id === P.player)) P.player = list.length ? list[0].id : "";
   const cur = list.find((p) => p.id === P.player);
-  $("#view").innerHTML = `<h1>${T("Parties")}</h1><p class="hint tab-help">${esc(T("Les parties actives, par joueur, en vraie synchro : PS5 ↔ PS5, Switch ↔ émulateur, Switch ↔ Switch. À sauvegarder, à restaurer, à nettoyer."))}</p>
+  $("#view").innerHTML = `<h1>${T("Parties")}</h1><p class="hint tab-help">${esc(T("Vos parties en cours, joueur par joueur."))}</p>
     <div class="tr-label">${T("JOUEURS")}</div>
     <div class="players" data-scroll="players">${list.map((p) => `<button class="tr-dev player ${p.id === P.player ? "chosen" : ""}" data-player="${esc(p.id)}">
       <span class="dev-ico">${p.icon}</span><span class="grow"><b>${esc(p.name)}</b><span class="hint">${esc(p.sub)}</span><span class="pstate ${p.tone}">${esc(p.state)}</span></span></button>`).join("")}</div>
@@ -2332,12 +2937,16 @@ function partyGames(acc) {
   // Avancée écrite par le jeu (base des sauvegardes de la console) et temps de jeu compté par l'app : comme la télé.
   const adv = (e) => {
     const pg = (e.console && e.console.progress) || {};
-    let a = pg.text || "";
-    if (pg.play_time_seconds > 0 && !a.includes(":")) a += (a ? " · " : "") + T("%s de jeu", hoursText(pg.play_time_seconds));
+    const h = e.progress_hint || {};  // lue dans la partie (comme Sauvegardes), ou celle de la copie la plus avancée
+    let a = pg.text || (h.text ? (h.from === "copy" ? T("Copie : %s", h.text) : h.text) : "");
+    const play = pg.play_time_seconds > 0 ? pg.play_time_seconds : h.play_time_seconds;
+    if (play > 0 && !a.includes(":")) a += (a ? " · " : "") + T("%s de jeu", hoursText(play));
     if (e.play_time_tracked >= 60) a += (a ? " · " : "") + T("%s compté par l'app", hoursText(e.play_time_tracked));
     if (a) return a;
+    if (e.console && e.console.mtime > 0)  // le jeu n'écrit pas où on en est : au moins la date de la partie (comme la télé)
+      return T("Partie du %s", mgDate(e.console.mtime));
     const b = (e.backups || []).slice().sort((x, y) => y.created_unix - x.created_unix)[0];
-    return b ? T("Dernière sauvegarde : %s", new Date(b.created_unix * 1000).toLocaleDateString(I18N.code)) + " · " + b.place_label : "";
+    return b ? T("Dernière sauvegarde : %s", mgDate(b.created_unix, false)) + " · " + b.place_label : "";
   };
   $("#party-main").innerHTML = `<div class="acc-head"><h2>${esc(T("Les parties de %s", acc.name))}</h2><span class="hint">${esc(T("%d jeu(x)", mine.length))} · ${esc(acc.platform)} · ${esc(T("utilisateur %s", acc.user_id))}${acc.on_console ? "" : " · " + T("compte d'une autre console")}</span></div>
     <div class="filters"><div class="pills">${partyViews().map(([k, l]) => `<button data-pv="${k}" class="${P.view === k ? "active" : ""}">${l}</button>`).join("")}</div>
@@ -2408,7 +3017,7 @@ function partyActions(acc, list, bar = false) {
   const savable = acc.on_console ? list.filter((e) => e.console) : [];
   if (savable.length) out.push({ label: T("Sauvegarder"), cls: bar ? "primary" : "", run: () => queueSaves(acc, savable.map((e) => e.item)) });
   if (one && (one.backups || []).some((v) => v.complete) && acc.key.startsWith("ps5:")) out.push({ label: T("Restaurer…"), run: () => restoreDialog(one, consoleAccounts()) });
-  if (one && (one.backups || []).length) out.push({ label: T("Toutes les versions"), run: () => openVersions({ key: one.item, title_id: one.title_id }) });
+  if (one && (one.backups || []).length) out.push({ label: T("Détails"), run: () => openVersions({ key: one.item, title_id: one.title_id }) });
   const it = one && state.items.find((i) => i.key === one.item);
   if (it) out.push({ label: T("Ouvrir la fiche"), run: () => openItem(it) });
   if (one && one.console && acc.key.startsWith("ps5:")) out.push({ label: T("Envoyer la sauvegarde à une PS5…"), run: () => sendSaveToPeer(document.activeElement, one.item, one.title, acc.key.slice(4)) });
@@ -2432,11 +3041,11 @@ function restoreDialog(entry, targets) {
   const box = document.createElement("div");
   box.className = "modal";
   box.innerHTML = `<div class="dialog"><h2>${esc(T("Restaurer « %s »", entry.title))}</h2>
-    <label class="field-row">${T("Version")}<select id="rs-version">${versions.map((v, i) => `<option value="${i}">${new Date(v.created_unix * 1000).toLocaleString(I18N.code)} · ${esc(v.place_label)}</option>`).join("")}</select></label>
+    <label class="field-row">${T("Version")}<select id="rs-version">${versions.map((v, i) => `<option value="${i}">${mgDate(v.created_unix)} · ${esc(v.place_label)}</option>`).join("")}</select></label>
     <label class="field-row">${T("Sur le compte")}<select id="rs-user">${targets.map((a) => `<option value="${esc(a.user_id)}">${esc(a.name)}</option>`).join("")}</select></label>
     <p class="hint">${T("La sauvegarde actuelle de ce jeu est copiée avant. Le jeu doit être fermé.")}</p>
     <div id="rs-status" class="hint"></div>
-    <div class="actions"><button class="primary" id="rs-go">${T("Vérifier puis restaurer")}</button><button class="secondary" id="rs-close">${T("Fermer")}</button></div></div>`;
+    <div class="actions"><button class="primary" id="rs-go">${T("Vérifier puis restaurer")}</button><button class="secondary" id="rs-close">${T("Annuler")}</button></div></div>`;
   document.body.appendChild(box);
   const close = () => box.remove();
   $("#rs-close").onclick = close;
@@ -2460,7 +3069,7 @@ function restoreDialog(entry, targets) {
       if (check.state !== "done") { status(check.error || T("Vérification refusée")); $("#rs-go").disabled = false; return; }
       const imgs = (check.report && check.report.checked) || [];
       const other = imgs.some((i) => i.match === false);
-      if (other && !confirm(T("Cette sauvegarde vient d'un autre compte (%s…). La porter sur ce compte (%s…) ? L'original reste dans la sauvegarde.", (imgs[0].save_account || "").slice(0, 6), (imgs[0].target_account || "").slice(0, 6)))) { status(T("Portage annulé : rien n'a été modifié.")); $("#rs-go").disabled = false; return; }
+      if (other && !(await ask(T("Vérifiée · elle vient d'un autre compte"), `<p class="hint">${esc(T("Cette sauvegarde vient d'un autre compte (%s…). La porter sur ce compte (%s…) ? L'original reste dans la sauvegarde.", (imgs[0].save_account || "").slice(0, 6), (imgs[0].target_account || "").slice(0, 6)))}</p>`, T("La porter sur ce compte et la remettre")))) { status(T("Portage annulé : rien n'a été modifié.")); $("#rs-go").disabled = false; return; }
       const done = await run({ ...base, allow_resign: other });
       status(done.state === "done" ? T("Restaurée : %d image(s) vérifiée(s). Lancez le jeu pour confirmer la progression.", done.report.verified) : (done.error || T("Échec")));
       if (done.state === "done") toast(T("Sauvegarde restaurée"));
@@ -2492,7 +3101,7 @@ async function takeover(from) {
   document.removeEventListener("change", onChange);
   if (!ok) return;
   const ids = [...sel];
-  if (!ids.length) { toast(T("Cochez d'abord des jeux (L2)")); return; }
+  if (!ids.length) { toast(T("Cochez au moins un élément.")); return; }
   try { await post("/players/takeover", { from, user_id: p0.user_id, title_ids: ids }); toast(T("%d reprise(s) ajoutée(s) aux tâches", ids.length)); refresh(true); } catch (e) { toast(e.message); }
 }
 
@@ -2530,7 +3139,7 @@ async function syncView() {
     state.syncPending = state.syncPending || {};
     const pending = state.syncPending[key] || (state.syncPending[key] = api(`/sync/compare?a=${encodeURIComponent(state.syncA)}&b=${encodeURIComponent(state.syncB)}`).finally(() => { delete state.syncPending[key]; }));
     try { state.syncData = state.syncCache[key] = { key, at: Date.now(), data: await pending }; }
-    catch (e) { if ($("#sync-list")) $("#sync-list").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+    catch (e) { if ($("#sync-list")) $("#sync-list").innerHTML = `<div class="empty">${esc(e.message || T("comparaison impossible"))}</div>`; return; }
     if (!$("#sync-list")) return;
     if (state.syncA + "|" + state.syncB !== key) return;
     // Nouvelle comparaison : l'état des joueurs et des synchros habituelles change aussi.
@@ -2538,11 +3147,11 @@ async function syncView() {
     if (state.tab === "transfers" && state.tr.screen === "sync") return trSync();
   }
   const d = state.syncData.data, A = d.a.name, Bn = d.b.name;
-  if (state.syncData.at && $("#sync-when")) $("#sync-when").textContent = T("comparé à %s", new Date(state.syncData.at).toLocaleTimeString(I18N.code));
+  if (state.syncData.at && $("#sync-when")) $("#sync-when").textContent = T("comparé à %s", mgTime(state.syncData.at / 1000));
   const keep = (e) => state.syncFilter === "all" || (state.syncFilter === "identical" ? e.status === "identical"
     : state.syncFilter === "only" ? e.status.startsWith("only") : ["a_newer", "b_newer", "same_day"].includes(e.status));
   const list = d.entries.filter(keep).sort((x, y) => x.title.localeCompare(y.title) || x.profile.localeCompare(y.profile));
-  const date = (s) => s ? new Date(s.time * 1000).toLocaleDateString(I18N.code) : "—";
+  const date = (s) => s ? mgDate(s.time, false) : "—";
   const canTo = (spec) => spec.startsWith("eden:") || spec.startsWith("switch:");
   $("#sync-list").innerHTML = list.length ? list.map((e, i) => {
     const [label, tone] = SYNC_STATUS[e.status] || [e.status, "muted"];
@@ -2578,10 +3187,15 @@ async function syncTransfer(e, dir, d) {
     const check = await wait((await post("/tasks", { ...body, check_only: true })).id);
     if (check.state !== "done") { toast(check.error || T("Vérification refusée")); return; }
     const r = check.report || {};
-    const newer = r.eden_newer ? "\n\n" + T("Attention : la sauvegarde dans %s est plus récente.", to.name) : "";
+    const newer = r.eden_newer ? `<p class="hint warn">${esc(T("Attention : la sauvegarde dans %s est plus récente.", to.name))}</p>` : "";
     const what = body.type === "export_switch" ? T("Un nouveau fichier sera déposé sur la Switch (%s). Rien n'y est effacé : restaurez-le ensuite avec JKSV.", r.target) : T("La sauvegarde actuelle de %s est copiée avant d'être remplacée.", to.name);
-    if (!confirm(`${e.title} (${e.profile}) : ${from.name} → ${to.name}\n${T("%d fichier(s)", (r.files || []).length)}.\n${what}${newer}`)) return;
-    const done = await wait((await post("/tasks", { ...body, force_older: !!r.eden_newer })).id);
+    if (!(await ask(`${e.title} (${e.profile})`, `<p>${esc(from.name)} → ${esc(to.name)} · ${esc(T("%d fichier(s)", (r.files || []).length))}</p><p class="hint">${esc(what)}</p>${newer}`, T("Transférer")))) { toast(T("Annulé : rien n'a été modifié")); return; }
+    // Comme la télé : « Transfert… » reste affiché pendant le transfert, boutons retenus jusqu'à la fin.
+    toast(T("Transfert…"));
+    const busy = setInterval(() => toast(T("Transfert…")), 3000);
+    $$("[data-sync]").forEach((b) => { b.disabled = true; });
+    let done;
+    try { done = await wait((await post("/tasks", { ...body, force_older: !!r.eden_newer })).id); } finally { clearInterval(busy); }
     if (done.state === "done" && body.type === "export_switch") jksvGuide((done.report || r).target || r.target);
     else toast(done.state === "done" ? T("Synchronisé") : (done.error || T("Échec")));
     if (state.syncCache) delete state.syncCache[state.syncData.key];  // un transfert a changé un côté : on relit
@@ -2615,13 +3229,13 @@ const PLAN_PRESETS = [
   [T("Toutes mes ROM, chaque dimanche à 3 h"), { name: T("ROM du dimanche"), timing: "weekly", weekdays: 64, minute_of_day: 180, rule: "roms", keep: 2 }],
   [T("Mes applications, chaque lundi à 3 h"), { name: T("Applications du lundi"), timing: "weekly", weekdays: 1, minute_of_day: 180, rule: "apps", keep: 2 }],
   [T("Tous mes jeux, à la demande"), { name: T("Tous mes jeux"), timing: "manual", rule: "all_games", keep: 1 }]];
-const blankPlan = (extra = {}) => ({ name: "", enabled: true, timing: "daily", minute_of_day: 21 * 60, weekdays: 0, rule: "", rule_arg: "", parts: [], place: "", keep: 5, items: [], ...extra });
+const blankPlan = (extra = {}) => ({ name: T("Mon plan"), enabled: true, timing: "daily", minute_of_day: 21 * 60, weekdays: 0, rule: "", rule_arg: "", parts: [], place: "", keep: 5, items: [], ...extra });
 const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 function planWhen(p) {
   const hm = hhmm(p.minute_of_day || 0);
   if (p.timing === "daily") return T("Tous les jours à %s", hm);
   if (p.timing === "weekly") return T("%s à %s", DAYS.filter((d, i) => p.weekdays & (1 << i)).join(", ") || T("aucun jour"), hm);
-  if (p.timing === "once") return T("Le %s", new Date(p.once_at * 1000).toLocaleString(I18N.code));
+  if (p.timing === "once") return T("Le %s", mgDate(p.once_at));
   return T("À la demande");
 }
 async function loadPlans() { try { state.plans = await api("/plans"); } catch (e) { state.plans = state.plans || []; } return state.plans; }
@@ -2642,9 +3256,16 @@ function bindTaskTabs() {
 // Détails d'une tâche finie : quand, combien de temps, à quelle vitesse, et ce qui s'est passé.
 async function taskDetails(t) {
   const p = t.progress || {}, r = t.report || {}, secs = t.started > 0 && t.finished >= t.started ? t.finished - t.started : 0;
-  const when = (x) => (x > 0 ? new Date(x * 1000).toLocaleString(I18N.code) : "?");
+  const when = (x) => (x > 0 ? mgDate(x) : "?");
   const L = [`${STATES[t.state] || t.state} · ${T("Début :")} ${when(t.started)}${t.finished > 0 ? ` · ${T("Fin :")} ${when(t.finished)}` : ""}`,
     T("%s sur %s", size(p.bytes_done || 0), size(p.bytes_total || 0)) + (p.files_total ? " · " + T("%d/%d fichiers", p.files_done, p.files_total) : "")];
+  {  // d'où → vers où, avec le service d'un lien reçu (MEGA, Google Drive…), comme la télé
+    const where = (id) => { const x = state.places.find((q) => q.id === id); if (!x) return id; if (x.type === "internal") return T("Interne");
+      return x.readonly && SHARE_SVC[x.service] ? `${x.label} (${SHARE_SVC[x.service]}, ${T("lien reçu")})` : x.label; };
+    if (t.from_place && t.place) L.push(T("De : %s → vers : %s", where(t.from_place), where(t.place)));
+    else if (t.from_place) L.push(T("De : %s", where(t.from_place)));
+    else if (t.place) L.push(T("Vers : %s", where(t.place)));
+  }
   if (secs > 0) L.push(`${T("Durée :")} ${duration(secs)}${p.bytes_done ? " · " + T("%s/s en moyenne", size(Math.floor(p.bytes_done / secs))) : ""}`);
   if (t.type === "files_copy" || t.type === "files_move") {
     L.push(T("Copiés : %d · déjà là : %d · renommés : %d · erreurs : %d", r.copied || 0, r.skipped || 0, (r.renamed || []).length, (r.errors || []).length));
@@ -2674,7 +3295,7 @@ async function taskDetails(t) {
     };
   }, 0);
   if (await ask(t.title || TASK_KINDS[t.type] || T("Tâche"), html, finished ? T("Retirer de la liste (la sauvegarde reste)") : T("Fermer"), finished ? T("Fermer") : "") && finished) {
-    try { await post(`/tasks/${t.id}/remove`); refresh(true); } catch (e) { toast(e.message); }
+    try { await post(`/tasks/${t.id}/remove`); toast(T("Retirée de la liste")); refresh(true); } catch (e) { toast(e.message); }
   }
 }
 // « Vider la liste » (Terminées, Échecs, Annulées) : une confirmation ; seulement la liste, aucun fichier.
@@ -2697,9 +3318,9 @@ function tasks() {
   state.taskSel = new Set([...(state.taskSel || [])].filter((id) => list.some((t) => t.id === id)));
   const nsel = state.taskSel.size, nbk = list.filter((t) => state.taskSel.has(t.id) && t.type === "backup" && t.state === "done").length;
   const selBar = canClear ? `<div class="actions" style="margin:0 0 12px">${nsel ? `<b>${T("%d coché(s)", nsel)}</b><button class="secondary" id="tk-sel-remove">${T("Retirer de la liste (%d)", nsel)}</button>${nbk ? `<button class="danger" id="tk-sel-trash">${T("Mettre leurs sauvegardes à la corbeille… (%d)", nbk)}</button>` : ""}<button class="secondary" id="tk-sel-none">${T("Tout décocher")}</button>` : `<button class="secondary" id="tk-sel-all">${T("Tout cocher")}</button>`}</div>` : "";
-  $("#view").innerHTML = `<h1>${T("Tâches")}<small>${active > 1 ? T("%d actives", active) : T("%d active", active)}</small></h1>${taskTabs()}
+  $("#view").innerHTML = `<h1>${T("Tâches")}</h1><p class="sub">${T("Ce qui tourne, ce qui attend, ce qui est fini.")}</p>${taskTabs()}
     ${canClear ? `<div class="actions" style="margin:0 0 12px"><button class="secondary" id="tasks-clear">${T("Vider la liste")}</button><button class="secondary" id="tasks-clear-all">${T("Tout vider : Terminées, Échecs et Annulées")}</button></div>` : ""}
-    ${selBar}<div class="list">${list.length ? list.map(taskRowHtml).join("") : `<div class="empty"><div class="icon">↻</div>${T("Rien ici. Choisissez un élément dans la bibliothèque pour lancer une sauvegarde.")}</div>`}</div>`;
+    ${selBar}<div class="list">${list.length ? list.map(taskRowHtml).join("") : `<div class="empty">${esc({ active: T("Aucune tâche en cours. Choisissez un élément dans la bibliothèque pour lancer une sauvegarde."), done: T("Aucune tâche terminée."), failed: T("Aucune tâche en échec."), cancelled: T("Aucune tâche annulée.") }[state.taskFilter] || "")}</div>`}</div>`;
   bindTaskTabs();
   bindTaskButtons();
   $$("input[data-tk-sel]").forEach((c) => c.onchange = () => { if (c.checked) state.taskSel.add(c.dataset.tkSel); else state.taskSel.delete(c.dataset.tkSel); render(); });
@@ -2726,11 +3347,11 @@ function tasks() {
   };
 }
 async function plansView() {
-  if (!state.plans) $("#view").innerHTML = `<h1>${T("Tâches")}</h1>${taskTabs()}${loading(T("Lecture des plans…"))}`;
+  if (!state.plans) $("#view").innerHTML = `<h1>${T("Tâches")}</h1><p class="sub">${T("Ce qui tourne, ce qui attend, ce qui est fini.")}</p>${taskTabs()}${loading(T("Lecture des plans…"))}`;
   const plans = await loadPlans();
   if (state.tab !== "tasks" || state.taskTab !== "plans") return;
   const dests = (id) => (id ? placeLabel(id) : T("Disque par défaut"));
-  $("#view").innerHTML = `<h1>${T("Tâches")}</h1>${taskTabs()}
+  $("#view").innerHTML = `<h1>${T("Tâches")}</h1><p class="sub">${T("Ce qui tourne, ce qui attend, ce qui est fini.")}</p>${taskTabs()}
     <div class="actions" style="margin:0 0 12px"><button class="primary" id="plan-new">${T("Nouveau plan")}</button>
       <select id="plan-preset"><option value="">${T("Partir d'un modèle…")}</option>${PLAN_PRESETS.map(([l], i) => `<option value="${i}">${esc(l)}</option>`).join("")}</select></div>
     <p class="hint">${T("Les nouveaux jeux sont pris automatiquement par les règles ; au-delà du nombre de versions gardées, les plus anciennes sont retirées (rotation ; les versions protégées restent).")}</p>
@@ -2738,7 +3359,7 @@ async function plansView() {
       <div class="chips"><span>${esc(planWhen(p))}</span><span>${esc(RULES[p.rule] ?? p.rule)}${p.rule === "" ? ` (${(p.items || []).length})` : ""}${p.rule_arg ? " · " + esc(p.rule_arg) : ""} · ${T("%d élément(s)", p.item_count ?? (p.items || []).length)}</span>
       <span>${esc((PLAN_PARTS.find((x) => JSON.stringify(x[2]) === JSON.stringify(p.parts || [])) || PLAN_PARTS[0])[1])}</span><span>${esc(dests(p.place))}</span>
       <span>${p.keep ? T("%d versions gardées", p.keep) : T("toutes les versions gardées")}</span>
-      ${p.next_run ? `<span>${T("Prochaine : %s", new Date(p.next_run * 1000).toLocaleString(I18N.code))}</span>` : ""}${p.last_run ? `<span>${T("Dernière : %s", new Date(p.last_run * 1000).toLocaleString(I18N.code))} · ${esc(p.last_result)}</span>` : ""}</div></div>
+      ${p.next_run ? `<span>${T("Prochaine : %s", mgDate(p.next_run))}</span>` : ""}${p.last_run ? `<span>${T("Dernière : %s", mgDate(p.last_run))} · ${esc(p.last_result)}</span>` : ""}</div></div>
       <div class="btns"><button data-run="${p.id}">${T("Lancer maintenant")}</button><button data-toggle="${p.id}">${p.enabled ? T("Mettre en pause") : T("Réactiver")}</button><button data-edit="${p.id}">${T("Modifier")}</button><button data-del="${p.id}">${T("Supprimer")}</button></div></div>`).join("")
       : `<div class="empty">${T("Aucun plan. Créez-en un pour sauvegarder automatiquement, par exemple vos sauvegardes PS5 tous les soirs.")}</div>`}</div>`;
   bindTaskTabs();
@@ -2761,7 +3382,7 @@ async function planDialog(p) {
   let accounts = [];
   try { accounts = (await loadOverview()).accounts.filter((a) => a.on_console); } catch (e) {}
   const platforms = [...new Set(state.items.filter((i) => i.kind === "rom").map((i) => i.platform))].sort();
-  const dests = state.places.filter((x) => x.type !== "switch" && x.use !== "sync");
+  const dests = state.places.filter((x) => x.type !== "switch" && x.use !== "sync" && !x.readonly);
   const partsKey = (PLAN_PARTS.find((x) => JSON.stringify(x[2]) === JSON.stringify(p.parts)) || PLAN_PARTS[0])[0];
   const chosen = new Set(p.items);
   box.innerHTML = `<div class="dialog wide"><h2>${p.id ? T("Modifier le plan") : T("Nouveau plan")}</h2>
@@ -2851,29 +3472,129 @@ async function itemPlans(it) {
   draw();
 }
 
+// Paramètres › Réseau (16/11, comme la télé) : ports de cette console, BitTorrent, rangement des téléchargements.
+function networkView() {
+  const n = state.settings || {};
+  const rates = [0, 256, 512, 1024, 2048, 5120, 10240, 20480, 51200];
+  const rateLabel = (ko) => !ko ? T("Illimité") : ko >= 1024 ? T("%d Mo/s", ko / 1024) : T("%d Ko/s", ko);
+  const rateSel = (key, def) => `<select data-net="${key}" data-num="1">${rates.map((r) => `<option value="${r}" ${(n[key] ?? def) === r ? "selected" : ""}>${esc(rateLabel(r))}</option>`).join("")}</select>`;
+  const chk = (key, def) => `<input type="checkbox" data-net="${key}" ${(n[key] ?? def) ? "checked" : ""}>`;
+  const pf = n.bt_port_from ?? 6891, pt = n.bt_port_to ?? 6899;
+  const places = state.places.filter((p) => !p.readonly && p.type !== "switch" && p.type !== "peer" && p.use !== "sync");
+  const row = (label, why, ctl) => `<div class="kv"><span>${esc(label)}${why ? `<br><span class="hint">${esc(why)}</span>` : ""}</span><b>${ctl}</b></div>`;
+  const res = state.netTest && (state.netTest.ports || []).map((r) => {
+    const what = { web: T("Page web et liaison"), discovery: T("Découverte"), wan: T("PS5 à distance") }[r.what] || "BitTorrent";
+    const stt = { open: T("répond"), closed: T("ne répond pas"), off: T("désactivée") }[r.state] || T("pas encore dans le moteur");
+    return `<div class="kv"><span class="${r.state === "open" ? "ok" : r.state === "closed" ? "bad" : "muted"}">${esc(what)}</span><b>${esc(r.proto)} ${r.port} : ${esc(stt)}</b></div>`;
+  }).join("");
+  const dlOpts = places.map((p) => { const v = p.type === "internal" ? "" : p.id; return `<option value="${esc(v)}" ${(n.dl_place || "") === v ? "selected" : ""}>${esc(p.type === "internal" ? T("Interne") : p.label)}</option>`; }).join("");
+  const protoOpts = [["both", "TCP + UDP"], ["tcp", "TCP"], ["udp", "UDP (uTP)"]].map(([v, l]) => `<option value="${v}" ${(n.bt_proto || "both") === v ? "selected" : ""}>${l}</option>`).join("");
+  return `<h2>${T("Réseau")}</h2><p class="sub">${T("Les ports qu'utilise Backup Center, à ouvrir sur la box ou le pare-feu si besoin, et les réglages des téléchargements.")}</p>
+    <h3>${T("PORTS DE CETTE CONSOLE")}</h3><div class="card">
+      ${row(T("Page web et liaison entre PS5"), T("réseau local · fixe"), "TCP 52370")}
+      ${row(T("Découverte des autres PS5"), T("réseau local · fixe"), "UDP 52371")}
+      ${row(T("PS5 à distance (par Internet)"), T("à ouvrir sur la box pour être joint de l'extérieur"), `${chk("wan_enabled", false)} TCP <input type="number" min="1024" max="65535" data-net="wan_port" data-num="1" value="${n.wan_port ?? 52373}" style="width:7em">`)}
+      ${row(T("BitTorrent : protocole"), T("TCP, UDP (uTP) ou les deux"), `<select data-net="bt_proto">${protoOpts}</select>`)}
+      ${row(T("BitTorrent : ports"), T("un port ou une plage : le premier libre est pris ; jamais 52370 à 52373 (ceux de Backup Center)"), `<input data-net="bt_ports" value="${pf === pt ? pf : pf + "-" + pt}" style="width:9em">`)}
+      <div class="actions"><button class="secondary" id="net-test">${T("Tester les ports")}</button></div>
+      <div id="net-res">${res ? res + `<p class="hint">${T("Vu depuis cette console. Depuis Internet : ouvrir le port sur la box, puis essayer depuis l'extérieur.")}</p>` : `<p class="hint">${T("Dit, pour chaque port, s'il répond sur le réseau local.")}</p>`}</div></div>
+    <h3>${T("BITTORRENT (TÉLÉCHARGEMENTS, SYNCHRO)")}</h3><div class="card">
+      ${row(T("Accepter les connexions entrantes"), T("depuis Internet : ouvrir aussi le port sur la box, ou UPnP ci-dessous") + " " + T("Non : la console va chercher les autres, mais personne ne peut s'y brancher ; vos liens créés ici ne marchent plus pour les autres."), chk("bt_accept_in", true))}
+      ${row(T("Ouvrir le port automatiquement (UPnP / NAT-PMP)"), T("la box doit l'autoriser"), chk("bt_upnp", false))}
+      ${row(T("Trouver des sources sur Internet (DHT)"), T("liens magnet ; jamais pour vos sauvegardes"), chk("bt_dht", true))}
+      ${row(T("Débit maximal"), "", rateSel("bt_rate_max", 0))}
+      ${row(T("Débit pendant une partie"), T("pour ne pas gêner le jeu en ligne"), rateSel("bt_rate_game", 2048))}
+      ${row(T("Envoi maximal (partage)"), "", rateSel("bt_upload_max", 1024))}
+      ${row(T("Téléchargements en même temps"), T("Les autres attendent leur tour, dans l'ordre de la file (≡ sur un torrent : monter, descendre, forcer le démarrage)."), `<select data-net="bt_active" data-num="1">${[1, 2, 3, 5, 8, 10].map((v) => `<option value="${v}" ${(n.bt_active ?? 3) === v ? "selected" : ""}>${v}</option>`).join("")}</select>`)}
+      ${row(T("Connexions au plus"), T("Pour tous les torrents ensemble. Moins : plus léger pour la box ; plus : plus de sources à la fois."), `<select data-net="bt_connections" data-num="1">${[50, 100, 200, 400, 800].map((v) => `<option value="${v}" ${(n.bt_connections ?? 200) === v ? "selected" : ""}>${v}</option>`).join("")}</select>`)}
+      ${row(T("Où ranger les téléchargements"), T("un disque de cette console : interne ou USB"), `<select data-net="dl_place">${dlOpts}</select>`)}
+    </div>
+    <h3>${T("OPTIONS")}</h3><div class="card">
+      ${row(T("Options BitTorrent"), "", `<button class="secondary small" id="bt-opts-tg">${state.btOpts ? T("Fermer") : T("Ouvrir") + " ›"}</button>`)}
+      ${row(T("Adresse publique"), T("liens de partage par Internet ; à la main : PS5 à distance"), `<span id="pub-addr">${esc(state.pubAddr || T("inconnue"))}</span> <button class="secondary small" id="pub-refresh">${T("Actualiser")}</button>`)}
+    </div>
+    <div class="card" id="bt-opts" ${state.btOpts ? "" : "hidden"}><h4>${T("Options BitTorrent")}</h4>
+      ${row(T("Arrêter de partager après un ratio"), T("Ratio : ce qui a été envoyé divisé par la taille. 2,0 : chaque octet reçu a été renvoyé deux fois. Les liens créés ici ne s'arrêtent jamais seuls."),
+        `<select data-net="bt_seed_ratio" data-num="1">${[0, 100, 150, 200, 300, 500].map((v) => `<option value="${v}" ${(n.bt_seed_ratio ?? 0) === v ? "selected" : ""}>${esc(v ? T("Ratio %s", (v / 100).toFixed(1).replace(".", I18N.decimal)) : T("Jamais"))}</option>`).join("")}</select>`)}
+      ${row(T("Arrêter de partager après une durée"), T("Temps de partage une fois le téléchargement terminé. Les liens créés ici ne s'arrêtent jamais seuls."),
+        `<select data-net="bt_seed_hours" data-num="1">${[0, 1, 6, 24, 72, 168].map((v) => `<option value="${v}" ${(n.bt_seed_hours ?? 0) === v ? "selected" : ""}>${esc(!v ? T("Jamais") : v >= 48 ? T("%d jours", v / 24) : T("%d h", v))}</option>`).join("")}</select>`)}
+      ${row(T("Réserver tout l'espace au départ"), T("Oui : la place est prise sur le disque dès l'ajout ; le disque ne se remplit pas en cours de route. Pour les torrents ajoutés ensuite."), chk("bt_prealloc", false))}
+      ${row(T("Refuser si le disque est trop plein"), T("Oui : un torrent plus gros que la place libre (moins 512 Mo) est mis en pause avec un message, au lieu de remplir le disque."), chk("bt_space_check", true))}
+      ${row(T("À la fin, copier vers"), T("Une tâche de copie (Transferts en cours) se lance seule à la fin de chaque téléchargement. Jamais pour un lien créé ici.") + " " + T("Une copie vérifiée dans son dossier « Téléchargements » ; le torrent reste partagé d'ici."),
+        `<select data-net="bt_done_copy"><option value="">${T("Non")}</option>${whereOptions(2, n.bt_done_copy || "")}</select>`)}
+      ${row(T("À la fin, déplacer vers"), T("Par exemple : télécharger sur l'interne (rapide), puis ranger sur le disque USB. Le partage continue depuis le nouvel endroit.") + " " + T("Un disque de cette console : ses fichiers vont dans son dossier « Téléchargements » et restent partagés."),
+        `<select data-net="bt_done_move"><option value="">${T("Non")}</option>${state.places.filter((p) => p.type === "internal" || p.type === "usb").map((p) => `<option value="${esc(p.id)}" ${n.bt_done_move === p.id ? "selected" : ""}>${esc(p.type === "internal" ? T("Interne") : p.label)}</option>`).join("")}</select>`)}
+      ${row(T("Dossier surveillé"), T("Un fichier .torrent déposé dans « Torrents à ajouter » (par FTP, depuis un PC, une clé USB) est ajouté seul en moins d'une minute, puis renommé « .ajouté »."),
+        `<select data-net="bt_watch"><option value="">${T("Non")}</option>${state.places.filter((p) => p.type === "internal" || p.type === "usb").map((p) => `<option value="${esc(p.id)}" ${n.bt_watch === p.id ? "selected" : ""}>${esc(p.type === "internal" ? T("Interne") : p.label)}</option>`).join("")}</select>`)}
+      ${row(T("Chiffrement du protocole"), T("Le chiffrement cache aux fournisseurs d'accès qu'il s'agit de BitTorrent (certains le ralentissent). Obligatoire : moins de sources."),
+        `<select data-net="bt_encrypt">${[["prefer", T("Préféré") + "  ·  " + T("chiffré quand l'autre sait le faire")], ["force", T("Obligatoire") + "  ·  " + T("seulement avec ceux qui chiffrent")], ["off", T("Désactivé") + "  ·  " + T("jamais chiffré")]].map(([v, l]) => `<option value="${v}" ${(n.bt_encrypt || "prefer") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`)}
+      ${row(T("Adresses bloquées"), T("Aucun échange avec ces adresses, pour tous les torrents. Une adresse invalide est ignorée.") + " " + T("Une par ligne : 1.2.3.4, 1.2.3.0/24 ou 1.2.3.4-1.2.3.9."),
+        `<textarea data-net="bt_blocklist" rows="3" style="width:16em">${esc((n.bt_blocklist || []).join("\n"))}</textarea>`)}
+      ${row(T("Plein débit la nuit"), T("Pendant ces heures (heure de la console), les téléchargements vont sans limite ; le reste du temps, le débit maximal réglé. Pendant une partie, le débit de partie reste appliqué."),
+        `<select data-net="bt_night_win">${[["off", T("Non")], ...[[0, 6], [1, 7], [2, 8], [23, 7], [22, 6]].map(([f, t]) => [`${f}-${t}`, T("De %d h à %d h", f, t)])].map(([v, l]) => `<option value="${v}" ${(n.bt_night ? `${n.bt_night_from ?? 1}-${n.bt_night_to ?? 7}` : "off") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`)}
+    </div>`;
+}
+
+// Paramètres › Où ranger (comme la télé) : un choix par défaut par action, puis « demander à chaque fois ».
+function whereView() {
+  const st = state.settings || {}, n = (state.status && state.status.net) || st;
+  const disks = state.places.filter((p) => p.type !== "switch");
+  const row = (k, why, ctl) => `<div class="setting-row"><div class="grow"><b>${esc(k)}</b><div class="hint">${esc(why)}</div></div>${ctl}</div>`;
+  return `<h2>${T("Où ranger")}</h2><p class="sub">${T("Le choix par défaut de chaque action. À chaque action, Backup Center vous le propose en premier.")}</p>
+    <div class="tr-label">${T("PAR DÉFAUT, POUR CHAQUE ACTION")}</div><div class="card">
+      ${row(T("Sauvegardes (jeux, parties, applis)"), T("Sauvegarder, sauvegardes de nuit, plans"), `<select id="wh-default"><option value="auto" ${st.default_place === "auto" || !st.default_place ? "selected" : ""}>${T("Choisir automatiquement")}</option>${disks.map((p) => `<option value="${esc(p.id)}" ${st.default_place === p.id ? "selected" : ""}>${esc(p.type === "internal" ? T("Interne") : p.label)}</option>`).join("")}</select>`)}
+      ${row(T("Téléchargements"), T("liens de partage et BitTorrent"), `<select id="wh-dl">${state.places.filter((p) => p.type === "internal" || p.type === "usb").map((p) => { const v = p.type === "internal" ? "" : p.id; return `<option value="${esc(v)}" ${(st.dl_place || "") === v ? "selected" : ""}>${esc(p.type === "internal" ? T("Interne") : p.label)}</option>`; }).join("")}</select>`)}
+      ${row(T("Envoyer vers… (Bibliothèque, Transferts)"), T("jeux cochés, copies entre appareils"), `<select id="wh-send"><option value="">${T("Demander à chaque fois")}</option>${whereOptions(2, st.send_place || "")}</select>`)}
+    </div>
+    <div class="tr-label">${T("À CHAQUE ACTION")}</div><div class="card">
+      ${row(T("Demander où ranger"), T("à chaque sauvegarde, téléchargement ou envoi"), `<select id="wh-ask"><option value="1">${T("Oui (le défaut en premier)")}</option><option value="0" ${st.ask_where === false ? "selected" : ""}>${T("Non (toujours le défaut)")}</option></select>`)}
+      ${row(T("Gérer les appareils"), T("ajouter un disque, un NAS, un nuage, une Switch"), `<button class="secondary small" data-goto="devices">${T("Appareils")}</button>`)}
+    </div>
+    <div class="tr-label">${T("PROPOSÉS DANS « OÙ RANGER ? »")}</div>${whereFamiliesHtml()}`;
+}
+// Ce que la fenêtre « Où ranger ? » propose : toutes les familles d'appareils, avec leur nombre (comme la télé).
+function whereFamiliesHtml() {
+  const fams = [[T("Cette PS5"), ICONS.ps5, 0], [T("Autres PS5"), ICONS.ps5, 0], ["Switch", ICONS.switch, 0], ["NAS", ICONS.nas, 0], [T("Nuage"), ICONS.cloud, 0]];
+  const cloudy = (k) => ["s3", "gdrive", "onedrive", "dropbox", "mega", "share"].includes(k);
+  for (const d of trDevices()) {
+    if (d.kind === "internal" || d.kind === "usb") fams[0][2]++;
+    else if (d.kind === "peer") fams[1][2]++;
+    else if (d.kind === "switch") fams[2][2]++;
+    else if (d.kind === "share" || d.kind === "ps5") continue;
+    else if (cloudy(d.kind)) fams[4][2]++;
+    else fams[3][2]++;
+  }
+  return `<div class="dev-fams where-fams">${fams.map(([name, icon, n]) => `<div class="dev-fam"><span class="dev-ico">${icon}</span><span class="grow"><span class="fam-top"><b>${esc(name)}</b></span>
+    <span class="hint">${esc(n === 0 ? T("aucun") : T("%d endroit(s)", n))}</span></span></div>`).join("")}</div>`;
+}
+function whereBind() {
+  const save = (patch) => async () => { try { state.settings = await post("/settings", patch()); toast(T("Réglage enregistré")); } catch (e) { toast(e.message); } };
+  if ($("#wh-default")) $("#wh-default").onchange = save(() => ({ default_place: $("#wh-default").value }));
+  if ($("#wh-dl")) $("#wh-dl").onchange = save(() => ({ dl_place: $("#wh-dl").value }));
+  if ($("#wh-send")) $("#wh-send").onchange = save(() => ({ send_place: $("#wh-send").value }));
+  if ($("#wh-ask")) $("#wh-ask").onchange = save(() => ({ ask_where: $("#wh-ask").value === "1" }));
+}
+
 // ---- Paramètres -----------------------------------------------------------------------
 async function settings() {
   // Même ordre que la télé ; disques, Switch, NAS et téléphones associés se règlent dans l'onglet Appareils seulement.
   const sections = { news: T("Nouveautés"), general: T("Général"), emulators: T("Sources et émulateurs"), ignored: T("Éléments ignorés"), accounts: T("Utilisateurs"),
-    updates: T("Mises à jour et démarrage"), diagnostics: T("Diagnostic et à propos"), report: T("Signaler un problème"), goals: T("Projets à financer"), support: T("Soutenir le projet"), thanks: T("Remerciements") };
+    devices: T("Appareils"), where: T("Où ranger"), network: T("Réseau"), updates: T("Mises à jour et démarrage"), diagnostics: T("Diagnostic et à propos"), report: T("Signaler un problème"), goals: T("Projets à financer"), support: T("Soutenir le projet"), thanks: T("Remerciements") };
   if (!sections[state.settingsSection]) state.settingsSection = "general";
   const st = state.status || {};
-  const devicesLink = `<div class="card link-card"><span class="dev-ico">${ICONS.usb}</span><span class="grow"><b>${T("Stockage et appareils")}</b><br><span class="hint">${T("Disque par défaut, disques, Switch, NAS et téléphones associés se règlent dans l'onglet Appareils.")}</span></span>
-    <button class="secondary small" data-goto="devices">${T("Ouvrir Appareils")}</button></div>`;
   const body = {
     news: () => `<h2>${T("Nouveautés")}</h2><p class="sub">${T("Ce qui est nouveau, amélioré et corrigé dans chaque version.")}</p>
       <div class="card">${state.changelog ? changelogHtml(state.changelog) : `<p class="hint">${T("Chargement…")}</p>`}</div>`,
     general: () => { const autoLang = I18N.languages.find((l) => l.code === I18N.auto) || { name: "English" };
-      return `<h2>${T("Langue")}</h2><p class="sub">${T("Langue de l'app télé et du web. Automatique : celle de la console.")}</p>
+      return `<h2 class="sec-title">${T("Général")}</h2><p class="sub">${T("Langue, apparence et son.")}</p><h2>${T("Langue")}</h2><p class="sub">${T("Langue de l'app télé et du web. Automatique : celle de la console.")}</p>
       <label class="radio"><input type="radio" name="lang" value="auto" ${I18N.setting === "auto" ? "checked" : ""}><span class="grow"><b>${esc(T("Automatique (%s)", langLabel(autoLang)))}</b></span></label>
       ${I18N.languages.map((l) => `<label class="radio"><input type="radio" name="lang" value="${esc(l.code)}" ${I18N.setting === l.code ? "checked" : ""}><span class="grow"><b lang="${esc(l.code)}" dir="${l.rtl ? "rtl" : "ltr"}">${esc(l.name)}</b></span><span class="hint">${esc(langOther(l))}</span></label>`).join("")}
       <h2>${T("Thème")}</h2><p class="sub">${T("Le même sur la télé et ici, appliqué tout de suite.")}</p><div class="themes">${THEMES.map(themeSwatch).join("")}</div>
       <h2>${T("Son sur la télé")}</h2><p class="sub">${T("Les sons sont joués par la console ; cette page ne joue rien, elle règle la télé.")}</p>
       <label class="radio"><input type="checkbox" id="snd-ui" ${state.settings.sound_ui !== false ? "checked" : ""}><span class="grow">${T("Sons de l'interface")} <span class="hint">(${T("déplacement, valider, retour, messages, fin d'une tâche")})</span></span></label>
       <label class="radio"><input type="checkbox" id="snd-music" ${state.settings.music ? "checked" : ""}><span class="grow">${T("Musique d'ambiance")}</span></label>
-      <div class="kv">${T("Volume")}<b><input type="range" id="snd-vol" min="0" max="100" step="10" value="${state.settings.volume ?? 70}"> <span id="snd-vol-v">${state.settings.volume ?? 70} %</span></b></div>
-      <h2>${T("Stockage et appareils")}</h2>${devicesLink}`; },
-    emulators: () => `<h2>${T("Sources et émulateurs")}</h2><p class="sub">${T("Automatique : réglages de chaque émulateur, sinon ses dossiers habituels. « Régler » pour choisir à la main. Un nouvel émulateur apparaît au relevé suivant.")}</p>
+      <div class="kv">${T("Volume")}<b><input type="range" id="snd-vol" min="0" max="100" step="10" value="${state.settings.volume ?? 70}"> <span id="snd-vol-v">${state.settings.volume ?? 70} %</span></b></div>`; },
+    emulators: () => `<h2>${T("Sources et émulateurs")}</h2><p class="sub">${T("Automatique : réglages de chaque émulateur, sinon ses dossiers habituels. Réglable à la main.")}</p>
       ${state.emulators.filter((e) => e.installed).map((e) => { const app = state.items.find((i) => (e.title_ids || []).includes(i.title_id) && i.has_cover) || { title: e.name, kind: "app", has_cover: false };
         const appInstalled = state.items.some((i) => (e.title_ids || []).includes(i.title_id));
         const m = e.manual || {};
@@ -2885,7 +3606,7 @@ async function settings() {
     // Un formatage ou une autre console donne un nouvel identifiant : on le renomme, on le rattache au même joueur.
     accounts: () => {
       const pl = state.players || { players: [], others: [] };
-      const day = (t) => (t > 0 ? new Date(t * 1000).toLocaleDateString(I18N.code) : "");
+      const day = (t) => (t > 0 ? mgDate(t, false) : "");
       const row = (a, mine) => {
         const tag = mine ? (a.current ? [T("Sur cette console"), "ok"] : [T("Absent de cette console"), "info"]) : a.suggest_player ? [T("Probablement vous"), "warn"] : [T("Absent de cette console"), "muted"];
         const bits = [a.account_id, T("%d copie(s)", a.images || 0), T("%d jeu(x)", a.games || 0)];
@@ -2896,11 +3617,10 @@ async function settings() {
           <span class="vbtns">${!a.current && pl.players[0] ? `<button class="small" data-acc-take="${esc(a.account_id)}">${esc(T("Tout reprendre sur %s…", pl.players[0].name))}</button>` : ""}<button class="secondary small" data-acc-name="${esc(a.account_id)}" data-cur="${esc(a.name || "")}">${T("Renommer…")}</button>
           ${!mine ? `<button class="secondary small" data-acc-link="${esc(a.account_id)}" data-on="1">${T("C'est moi (même utilisateur)")}</button>` : !a.current ? `<button class="secondary small" data-acc-link="${esc(a.account_id)}" data-on="0">${T("Ce n'est pas moi")}</button>` : ""}</span></div>`;
       };
-      return `<h2>${T("Utilisateurs")}</h2><p class="sub">${T("Un formatage ou une autre console donne un nouvel identifiant : renommez-le, rattachez-le au même utilisateur. Ses copies se reprennent ensuite sur votre compte (Toutes les versions).")}</p>
-        ${!state.players ? `<div class="loading small">${SPIN}${T("Lecture…")}</div>` : ""}
+      return `<h2>${T("Utilisateurs")}</h2><p class="sub">${T("Un formatage ou une autre console donne un nouvel identifiant : on peut le renommer ou le rattacher.")}</p>
+        ${!state.players ? `<div class="loading small">${SPIN}${T("Lecture…")}</div>` : !pl.players.some((p) => (p.accounts || []).length) && !pl.others.length ? `<p class="hint">${T("Aucun identifiant connu")}</p>` : ""}
         ${pl.players.map((p) => `<div class="card"><h4>${esc(p.name)} <span class="hint">· ${T("PS5 · cette console")}</span></h4>${p.accounts.map((a) => row(a, true)).join("")}</div>`).join("")}
-        ${pl.others.length ? `<div class="card"><h4>${T("Autres identifiants vus dans vos sauvegardes")}</h4>${pl.others.map((a) => row(a, false)).join("")}</div>` : ""}
-        ${devicesLink}`;
+        ${pl.others.length ? `<div class="card"><h4>${T("Autres identifiants vus dans vos sauvegardes")}</h4>${pl.others.map((a) => row(a, false)).join("")}</div>` : ""}`;
     },
     ignored: () => {
       // Identifiants (ou clés) des réglages, plus les éléments signalés « ignored » par le moteur (ROM, homebrews par clé).
@@ -2913,38 +3633,88 @@ async function settings() {
       for (const it of state.items) if (it.ignored) { const v = it.title_id || it.key; if (!rows.some((r) => r.value === v)) rows.push({ field: it.title_id ? "title_id" : "key", value: v, it }); }
       return `<h2>${T("Éléments ignorés")}</h2><p class="sub">${T("Jeux, applications, homebrews et ROM qui ne sont plus sauvegardés ni proposés.")}</p>
       ${rows.length ? `<div class="list">${rows.map((r) => { const it = r.it || { key: "tid:ps5:" + r.value, title: r.value, kind: "game_ps5", platform: "PS5", has_cover: r.field === "title_id", apps: [] };
-        return `<div class="row"><div class="thumb">${coverHtml(it, true)}</div><div><div class="t">${esc(it.title)}</div><div class="d">${esc(r.value)}</div></div><div class="btns"><button data-unignore="${esc(r.value)}" data-field="${r.field}" data-name="${esc(it.title)}">${T("Ne plus ignorer")}</button></div></div>`; }).join("")}</div>`
+        return `<div class="row"><div class="thumb">${src ? `<span class="dev-ico">${cloudIcon(src.service)}</span>` : coverHtml(it, true)}</div><div><div class="t">${esc(it.title)}</div><div class="d">${esc(r.value)}</div></div><div class="btns"><button data-unignore="${esc(r.value)}" data-field="${r.field}" data-name="${esc(it.title)}">${T("Ne plus ignorer")}</button></div></div>`; }).join("")}</div>`
         : `<div class="empty">${T("Aucun élément ignoré")}</div>`}`; },
     updates: () => updatesView(st),
+    network: () => networkView(),
+    where: () => whereView(),
+    // Paramètres › Appareils (comme la télé) : où les régler, puis associer un téléphone ou un ordinateur.
+    devices: () => `<h2>${T("Appareils")}</h2><p class="sub">${T("Disques, NAS, Switch et consoles se règlent dans l'onglet Appareils.")}</p>
+      <div class="actions"><button class="secondary" data-goto="devices">${T("Appareils")} ›</button></div>
+      <h2>${T("Associer un téléphone ou un ordinateur")}</h2><p class="sub">${T("Parcourez et lancez vos sauvegardes depuis un appareil du même réseau.")}</p>
+      <div class="card"><div class="kv">1 · ${T("Ouvrez cette adresse dans un navigateur")}<b>${esc(location.origin)}</b></div>
+        <div class="kv">2 · ${T("Saisissez ce code")}<b>${T("affiché sur la télé (Paramètres › Appareils)")}</b></div>
+        <p class="hint">${T("Le code change quand le moteur redémarre. Les appareils associés le restent.")}</p></div>
+      <h2>${T("Téléphones et ordinateurs associés")}</h2>
+      ${(state.devices || []).length ? `<div class="list">${state.devices.map((d) => `<div class="row"><div><div class="t">${esc(d.name)}</div><div class="d">${esc(T("Depuis le %s", mgDate(new Date(d.created).getTime() / 1000, false)))}</div></div><div class="btns"><button data-forget="${esc(d.id)}">${T("Oublier")}</button></div></div>`).join("")}</div>` : `<p class="sub">${T("Aucun.")}</p>`}`,
     thanks: () => thanksView(),
     report: () => reportView(),
     goals: () => goalsView(),
     support: () => supportView(),
     diagnostics: () => `<h2>${T("Diagnostic et à propos")}</h2>
-      <div class="card"><div class="kv">${T("Moteur")}<b>${esc(st.version)}</b></div><div class="kv">${T("Éléments")}<b>${st.items}</b></div>
+      <div class="card"><div class="kv">${T("Moteur")}<b>${esc(st.version || T("non connecté"))}</b></div><div class="kv">${T("Éléments")}<b>${st.items}</b></div>
+      <div class="kv">${T("Adresse web")}<b>${esc(location.host)}</b></div>
       <div class="kv">${T("Dernier relevé")}<b>${st.last_scan ? T("%d dossiers en %d ms", st.last_scan.dirs, st.last_scan.ms) : "—"}</b></div>
-      <div class="kv">${T("Démarré")}<b>${st.started_at ? new Date(st.started_at * 1000).toLocaleString(I18N.code) : "—"}</b></div></div>`,
+      <div class="kv">${T("Démarré")}<b>${st.started_at ? mgDate(st.started_at) : "—"}</b></div></div>`,
   };
+  if (state.settingsSection === "devices") { try { state.devices = await api("/devices"); } catch (e) { state.devices = state.devices || []; } }
   if (state.settingsSection === "accounts") { try { state.players = await api("/players"); } catch (e) { state.players = { players: [], others: [] }; } }
   if (state.settingsSection === "news" && !state.changelog) { try { state.changelog = await api("/changelog"); } catch (e) { state.changelog = []; } }
   if (state.settingsSection === "report" && !state.statusInfo) { try { state.statusInfo = await api("/status"); } catch (e) { state.statusInfo = {}; } }
   if ((state.settingsSection === "support" || state.settingsSection === "goals") && !state.support) { try { state.support = await api("/support"); } catch (e) { state.support = { links: [], crypto: [], supporters: [], error: e.message }; } }
   if (state.settingsSection === "thanks" && !state.credits) { try { state.credits = await (await fetch("/credits.json")).json(); } catch (e) { state.credits = { used: [], thanks: [] }; } }
   if (state.tab !== "settings") return;
-  $("#view").innerHTML = `<h1>${T("Paramètres")}</h1><div class="settings">
+  $("#view").innerHTML = `<div class="eyebrow tr-crumb"><button class="link" id="set-back">‹ ${esc((() => { const b = state.prevTab && $(`#tabs [data-tab=${state.prevTab}]`); return b ? T("Retour : %s", b.textContent.replace(/\d+$/, "").trim()) : T("Retour"); })())}</button></div><h1>${T("Paramètres")}</h1><p class="sub">${T("Langue, thème, mises à jour et le reste.")}</p><div class="settings">
     <nav class="menu">${Object.entries(sections).map(([k, l]) => `<button data-s="${k}" class="${state.settingsSection === k ? "active" : ""}">${l}</button>`).join("")}</nav>
     <div>${body[state.settingsSection]()}</div></div>`;
   document.querySelectorAll(".menu button").forEach((b) => b.onclick = () => { state.settingsSection = b.dataset.s; settings(); });
+  $("#set-back").onclick = closeSettings;
   document.querySelectorAll("[data-copy]").forEach((b) => b.onclick = async () => {
     const el = document.getElementById("sup-a" + b.dataset.copy);
     try { await navigator.clipboard.writeText(el.textContent); toast(T("Adresse copiée")); }
     catch (e) { const r = document.createRange(); r.selectNodeContents(el); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); toast(T("Adresse sélectionnée : copiez-la")); }
   });
-  document.querySelectorAll("input[name=lang]").forEach((r) => r.onchange = () => setLanguage(r.value));
+  // La page se recharge dans la nouvelle langue ; « Langue enregistrée » s'affiche ensuite (comme la télé).
+  document.querySelectorAll("input[name=lang]").forEach((r) => r.onchange = () => { try { sessionStorage.setItem("pbcLangSaved", "1"); } catch (e) {} setLanguage(r.value); });
   document.querySelectorAll("[data-theme-pick]").forEach((b) => b.onclick = async () => {
     applyTheme(b.dataset.themePick); settings();
     try { state.settings = await post("/settings", { theme: b.dataset.themePick }); } catch (e) { toast(e.message); }
   });
+  // Réseau : chaque réglage est enregistré dans le moteur (la télé le suit) ; « Tester les ports ».
+  if ($("#bt-opts-tg")) $("#bt-opts-tg").onclick = () => { state.btOpts = !state.btOpts; settings(); };  // comme la télé : OPTIONS › Options BitTorrent
+  $$("[data-net]").forEach((el) => el.onchange = async () => {
+    const k = el.dataset.net;
+    const v = el.type === "checkbox" ? el.checked : el.dataset.num ? +el.value : el.value;
+    const patch = {};
+    let note = "";
+    if (k === "bt_ports") {
+      const m = String(el.value).match(/^\s*(\d+)\s*(?:[-–]\s*(\d+))?\s*$/);
+      const a = m ? +m[1] : 0, b = m && m[2] ? +m[2] : a;
+      if (!m || a < 1024 || b > 65535 || b < a || b - a > 1000) { toast(T("Ports entre 1024 et 65535, plage de 1000 au plus")); return; }
+      if ([52370, 52371, 52372, 52373, state.settings.wan_port || 52373].some((p) => p >= a && p <= b)) { toast(T("Ces ports sont ceux de Backup Center (52370 à 52373) : choisissez-en d'autres")); return; }
+      patch.bt_port_from = a; patch.bt_port_to = b;
+    } else if (k === "bt_blocklist") {
+      const all = String(el.value).split(/\n+/).map((x) => x.trim()).filter(Boolean);
+      patch.bt_blocklist = all.slice(0, 200);
+      if (all.length > 200) note = T("200 adresses au plus");  // comme la télé : on prévient que la liste est coupée
+    } else if (k === "bt_night_win") {
+      if (v === "off") patch.bt_night = false;
+      else { const [f, t] = v.split("-").map(Number); patch.bt_night = true; patch.bt_night_from = f; patch.bt_night_to = t; }
+    } else if (k === "wan_port" && (v < 1024 || v > 65535)) { toast(T("Port entre 1024 et 65535")); return; }
+    else patch[k] = v;
+    try { state.settings = await post("/settings", patch); toast(note || T("Réglage enregistré")); } catch (e) { toast(e.message); }
+  });
+  const pubRefresh = async (say) => {  // adresse publique : redemandée à l'ouverture de cette page et à la main
+    try { const r = await post("/public-address", { refresh: true }); state.pubAddr = r.host || ""; } catch (e) { state.pubAddr = ""; }
+    if ($("#pub-addr")) $("#pub-addr").textContent = state.pubAddr || T("inconnue");
+    if (say) toast(state.pubAddr ? T("Adresse publique : %s", state.pubAddr) : T("Adresse publique inconnue : la console n'a pas pu la demander"));
+  };
+  if ($("#pub-refresh")) { $("#pub-refresh").onclick = () => pubRefresh(true); if (state.pubAddr === undefined) pubRefresh(false); }
+  if ($("#net-test")) $("#net-test").onclick = async () => {
+    $("#net-test").disabled = true; $("#net-res").innerHTML = loading(T("Test en cours…"));
+    try { state.netTest = await api("/network/test"); } catch (e) { toast(T("Test impossible : moteur injoignable")); }
+    $("#net-test").disabled = false; settings();
+  };
   // Son de la télé : enregistré dans le moteur, la télé le suit en quelques secondes.
   const sound = async (patch) => { try { state.settings = await post("/settings", patch); toast(T("Réglage enregistré")); } catch (e) { toast(e.message); } };
   if ($("#snd-ui")) {
@@ -2981,6 +3751,8 @@ async function settings() {
   if (state.settingsSection === "updates") bindUpdates();
   $$("[data-emu]").forEach((b) => b.onclick = () => emulatorDialog(state.emulators.find((e) => e.id === b.dataset.emu)));
   $$("[data-goto]").forEach((b) => b.onclick = () => setTab(b.dataset.goto));
+  whereBind();  // Paramètres › Où ranger
+  $$("[data-forget]").forEach((b) => b.onclick = async () => { try { await post(`/devices/${b.dataset.forget}/forget`); state.devicesAt = 0; state.devices = await api("/devices"); } catch (e) { toast(e.message); } settings(); });
 }
 
 // Réglages d'un émulateur : dossiers de jeux, fichier de réglages, dossier des sauvegardes (choisis dans l'explorateur de la console),
@@ -3000,7 +3772,7 @@ function emulatorDialog(e) {
       <div class="pick-row"><span class="lbl">${T("+ Ajouter un dossier")}</span><span class="hint grow">${T("choisir sur la console")}</span><button class="secondary small" id="em-add">${T("Parcourir…")}</button></div>
       <div class="pick-row"><span class="lbl">${T("Fichier de réglages")}</span><span class="mono grow">${esc(config || "—")}</span><button class="secondary small" id="em-config">${T("Changer")}</button></div>
       <div class="pick-row"><span class="lbl">${T("Sauvegardes")}</span><span class="mono grow">${esc(saves || T("automatique"))}</span><button class="secondary small" id="em-saves">${T("Changer")}</button>${saves ? `<button class="secondary small" id="em-saves-auto">${T("Automatique")}</button>` : ""}</div>
-      <div class="actions"><button class="primary" id="em-save">${T("Enregistrer")}</button><button class="secondary" id="em-reset">${T("Revenir à l'automatique")}</button><button class="secondary" id="em-close">${T("Fermer")}</button></div></div>`;
+      <div class="actions"><button class="primary" id="em-save">${T("Enregistrer")}</button><button class="secondary" id="em-reset">${T("Revenir à l'automatique")}</button><button class="secondary" id="em-close">${T("Fermer sans enregistrer")}</button></div></div>`;
     $$("[data-ch]", box).forEach((b) => b.onclick = () => openBrowser({ title: T("Dossier de jeux"), start: roms[+b.dataset.ch], pick: (p) => { roms[+b.dataset.ch] = p; draw(); } }));
     $$("[data-del-rom]", box).forEach((b) => b.onclick = () => { roms.splice(+b.dataset.delRom, 1); draw(); });
     $("#em-add", box).onclick = () => openBrowser({ title: T("Ajouter un dossier de jeux"), start: roms.length ? parent(roms[roms.length - 1]) : "/mnt", pick: (p) => { roms.push(p); draw(); } });
@@ -3086,12 +3858,12 @@ function updatesView(st) {
   const pct = u.bytes_total ? Math.round((u.bytes_done / u.bytes_total) * 100) : 0;
   const busy = ["checking", "downloading", "installing"].includes(u.state);
   const countdown = state.restartAt ? Math.max(0, Math.ceil((state.restartAt - Date.now()) / 1000)) : 0;
-  return `<h2>${T("Mises à jour")}</h2><p class="sub">${T("Deux parties : l'application télé et le moteur de sauvegarde, qui continue de tourner quand vous la fermez. Une sauvegarde en cours reprend toute seule après le redémarrage du moteur.")}</p>
+  return `<h2>${T("Mises à jour")}</h2><p class="sub">${T("Deux parties : l'application télé et le moteur, qui continue de tourner quand vous la fermez.")}</p>
     <div class="card"><h4>${T("Versions")}</h4>
-      <div class="kv">${T("Moteur en cours")}<b>${esc(st.version || "—")}</b></div>
+      <div class="kv">${T("Application télé / moteur")}<b>${esc((s.tv_seen_version || "—") + "  /  " + (st.version || "—"))}</b></div>
       <div class="kv">${T("Installée sur la console")}<b>${esc(u.installed || "—")}</b></div>
       <div class="kv">${T("Dernière version")}<b>${esc(u.available || "—")}${u.build ? ` <span class="hint">${esc(u.build)}</span>` : ""}</b></div>
-      <div class="kv">${T("État")}<b>${esc(u.engine_restart_needed && u.installed ? T("Installée, active au redémarrage du moteur") : UPDATE_STATES[u.state] || u.state || "—")}${u.checked_at ? ` <span class="hint">· ${esc(T("recherché le %s", new Date(u.checked_at * 1000).toLocaleString(I18N.code)))}</span>` : ""}</b></div>
+      <div class="kv">${T("État")}<b>${esc(u.engine_restart_needed && u.installed ? T("Installée, active au redémarrage du moteur") : UPDATE_STATES[u.state] || u.state || "—")}${u.checked_at ? ` <span class="hint">· ${esc(T("recherché le %s", mgDate(u.checked_at)))}</span>` : ""}</b></div>
       ${u.message ? `<p class="hint">${esc(u.message)}</p>` : ""}
       ${u.state === "downloading" ? `<div class="bar"><span style="width:${pct}%"></span></div><p class="hint">${esc(updateProgress(u))}</p>` : ""}
       ${u.state === "available" ? `<p class="hint">${T("%d fichier(s) à télécharger, %s.", u.files, size(u.bytes_total))}</p>` : ""}
@@ -3102,12 +3874,15 @@ function updatesView(st) {
         ${u.state === "available" ? `<button data-u="install">${T("Installer la mise à jour")}</button>` : ""}
         ${u.engine_restart_needed && !state.restartAt ? `<button data-u="restart">${T("Redémarrer le moteur")}</button>` : ""}
         ${state.restartAt ? `<span class="hint">${T("Redémarrage du moteur dans %d s", countdown)}</span><button class="secondary" data-u="cancel">${T("Annuler")}</button>` : ""}
-        ${u.previous && !busy ? `<button class="secondary" data-u="rollback">${T("Revenir à la version %s", u.previous)}</button>` : ""}
+        ${u.previous && !busy ? `<button class="secondary" data-u="rollback" title="${esc(T("si la version actuelle pose problème"))}">${T("Revenir à la version %s", u.previous)}</button>` : ""}
         <button class="secondary" data-u="relaunch" title="${esc(T("L'application télé se ferme et se rouvre toute seule"))}">${T("Redémarrer l'application télé")}</button>
       </div>
       ${u.state === "installed" && u.app_changed ? `<p class="hint">${T("L'application télé a changé : sur la télé, Paramètres → Mises à jour → « Redémarrer l'application ».")}</p>` : ""}
     </div>
     <div class="card" id="launch-card"><h4>${T("Démarrage du moteur")}</h4><p class="hint">${T("Chargement…")}</p></div>
+    <div class="card" id="mounting-card"><h4>${T("Montage des jeux")}</h4><p class="hint">${T("Chargement…")}</p></div>
+    <div class="card" id="tools-card"><h4>${T("Outils de la console")}</h4><p class="hint">${T("Chargement…")}</p></div>
+    <div class="card" id="gamelibs-card"><h4>${T("Bibliothèques de jeux")}</h4><p class="hint">${T("Chargement…")}</p></div>
     <div class="card" id="versions-card"><h4>${T("Versions disponibles")}</h4>
       <p class="hint">${T("choisir une version à installer")}</p>
       <div class="btns"><button class="secondary" id="v-load">${T("Afficher la liste")}</button></div><div id="v-list"></div>
@@ -3129,7 +3904,7 @@ function updatesView(st) {
 // Nouveautés à la façon d'Orbit : par version, un titre puis Nouveautés / Améliorations / Corrections.
 function changelogHtml(versions) {
   const part = (label, cls, list) => (list || []).length ? `<div class="cl-part"><span class="cl-tag ${cls}">${label}</span><ul>${list.map((x) => `<li>${esc(T(x))}</li>`).join("")}</ul></div>` : "";
-  return versions.map((v) => `<div class="cl-version"><div class="cl-head"><b>${esc(T("Version %s", v.version))}</b><span class="hint">${esc(v.date ? new Date(v.date + "T12:00:00").toLocaleDateString(I18N.code) : "")}</span></div>
+  return versions.map((v) => `<div class="cl-version"><div class="cl-head"><b>${esc(T("Version %s", v.version))}</b><span class="hint">${esc(v.date ? mgDate(new Date(v.date + "T12:00:00").getTime() / 1000, false) : "")}</span></div>
     ${v.title ? `<p class="cl-title">${esc(T(v.title))}</p>` : ""}${part(T("Nouveautés"), "new", v.new)}${part(T("Améliorations"), "imp", v.improved)}${part(T("Corrections"), "fix", v.fixed)}</div>`).join("");
 }
 // Une fois après une mise à jour : « Quoi de neuf dans la version X ».
@@ -3144,9 +3919,10 @@ async function whatsNew() {
   if (!seen || seen === latest) return;  // première visite : pas de fenêtre
   const box = document.createElement("div");
   box.className = "modal";
-  box.innerHTML = `<div class="dialog"><h2>${T("Quoi de neuf")}</h2>${changelogHtml(list.filter((v) => v.version !== seen).slice(0, 3))}<p class="hint"><span style="color:#ff5e5b">♥</span> ${esc(T("PS5 Backup Center reste gratuit. Si l'appli vous aide, vous pouvez soutenir son développement : Paramètres › Soutenir le projet."))}</p><div class="actions"><button class="primary" id="wn-ok">${T("Compris")}</button></div></div>`;
+  box.innerHTML = `<div class="dialog"><h2>${T("Quoi de neuf")}</h2>${changelogHtml(list.filter((v) => v.version !== seen).slice(0, 3))}<p class="hint"><span style="color:#ff5e5b">♥</span> ${esc(T("PS5 Backup Center reste gratuit. Si l'appli vous aide, vous pouvez soutenir son développement : Paramètres › Soutenir le projet."))}</p><div class="actions"><button class="primary" id="wn-ok">${T("Compris")}</button><button class="secondary" id="wn-close">${T("Fermer")}</button></div></div>`;
   document.body.appendChild(box);
-  $("#wn-ok").onclick = () => box.remove();
+  $("#wn-ok").onclick = $("#wn-close").onclick = () => box.remove();  // comme la télé : Compris, ou Fermer
+  box.cancel = () => box.remove();  // Échap ferme aussi
 }
 
 // Démarrage du moteur (comme la télé) : chargeurs présents, dans l'ordre choisi, et « Démarrer avec la console ».
@@ -3177,8 +3953,149 @@ async function loadLaunchCard() {
     loadLaunchCard();
   };
 }
+// Montage des jeux (comme la télé) : ShadowMountPlus et Kraken Mount détectés ; pour les .pkg, le leur ou le nôtre.
+async function loadMountingCard() {
+  const box = $("#mounting-card");
+  if (!box) return;
+  let st;
+  try { st = await api("/mounting"); } catch (e) { box.innerHTML = `<h4>${T("Montage des jeux")}</h4><p class="hint">${esc(e.message)}</p>`; return; }
+  const stateOf = (t) => (t && t.running ? T("détecté, en marche") : t && t.installed ? T("installé, arrêté") : T("absent"));
+  const o = st.ours || {};
+  const versions = T("Kraken Mount %s, ampr-emu-ng %s, pgo_stub %s, dlc_emu %s", o.kraken_mount || "", o.ampr_emu_ng || "", o.pgo_stub || "", o.dlc_emu || "") + ", ShadowMountPlus " + (o.shadowmountplus || "");
+  const imodes = [
+    ["auto", T("Images : automatique — ShadowMountPlus s'il tourne, sinon le nôtre (ici : %s)", st.images_uses === "theirs" ? "ShadowMountPlus" : T("le nôtre"))],
+    ["theirs", T("Images : toujours le ShadowMountPlus installé")],
+  ];
+  const modes = [
+    ["auto", T("Automatique : Kraken Mount s'il tourne, sinon le nôtre (ici : %s)", st.pkg_uses === "theirs" ? "Kraken Mount" : T("le nôtre"))],
+    ["theirs", T("Toujours Kraken Mount installé")],
+    ["ours", T("Toujours le nôtre (Kraken Mount doit être arrêté)")],
+  ];
+  box.innerHTML = `<h4>${T("Montage des jeux")}</h4>
+    <p class="hint">${esc(T("Par défaut, on se sert des outils installés ; sans eux, nos versions intégrées prennent le relais (%s). Jamais les deux à la fois ; un jeu ouvert n'est jamais touché.", versions))}</p>
+    <p>${esc(T("Images et dossiers : ShadowMountPlus %s", stateOf(st.shadowmount)))}<br><span class="hint">${esc(st.images_uses === "ours" ? T("Les images et les dossiers sont montés par notre version intégrée (ShadowMountPlus 1.7)") : T("Les images et les dossiers sont montés par le ShadowMountPlus installé"))}</span></p>
+    ${imodes.map(([v, l]) => `<label class="radio"><input type="radio" name="img-mount" value="${v}" ${(st.img_mount === "theirs" ? "theirs" : "auto") === v ? "checked" : ""}><span class="grow">${esc(l)}</span></label>`).join("")}
+    <p>${esc(T("Paquets .pkg : Kraken Mount %s", stateOf(st.krakenmount)))}<br><span class="hint">${esc(T("Notre version intégrée : %s", versions))}</span></p>
+    ${modes.map(([v, l]) => `<label class="radio"><input type="radio" name="pkg-mount" value="${v}" ${st.pkg_mount === v ? "checked" : ""}><span class="grow">${esc(l)}</span></label>`).join("")}`;
+  box.querySelectorAll('input[name="img-mount"]').forEach((r) => (r.onchange = async () => {
+    try { state.settings = await post("/settings", { img_mount: r.value }); toast(T("Réglage enregistré")); } catch (e) { toast(e.message); }
+    loadMountingCard();
+  }));
+  box.querySelectorAll('input[name="pkg-mount"]').forEach((r) => (r.onchange = async () => {
+    try { state.settings = await post("/settings", { pkg_mount: r.value }); toast(T("Réglage enregistré")); } catch (e) { toast(e.message); }
+    loadMountingCard();
+  }));
+}
+// Bibliothèques de jeux (comme la télé) : les dossiers déclarés ; Relire, Retirer. On en ajoute depuis Fichiers.
+async function loadGamelibsCard() {
+  const box = $("#gamelibs-card");
+  if (!box) return;
+  let st;
+  try { st = await api("/gamelibs"); } catch (e) { box.innerHTML = `<h4>${T("Bibliothèques de jeux")}</h4><p class="hint">${esc(e.message)}</p>`; return; }
+  const libs = st.libs || [];
+  const rows = libs.map((l, i) => {
+    const st2 = l.scanning ? T("lecture…") : l.error === "lecture incomplète" ? T("lecture incomplète") : l.error ? T("injoignable") : l.scanned_at ? T("%d jeu(x)", l.games) : T("pas encore lu");
+    return `<p>${esc((l.label || T("appareil absent")) + " · " + l.path)} <span class="hint">${esc(st2)}</span>
+      <button class="secondary" data-gl-rescan="${i}">${esc(T("Relire maintenant"))}</button> <button class="secondary" data-gl-remove="${i}">${esc(T("Retirer cette bibliothèque"))}</button></p>`;
+  });
+  box.innerHTML = `<h4>${T("Bibliothèques de jeux")}</h4>
+    <p class="hint">${esc(T("Des dossiers où sont rangés des jeux pas forcément installés (NAS, nuage, disque USB, l'autre PS5) : lus en fond, montrés dans l'Accueil et la Bibliothèque (« À installer »). Rien n'y est jamais modifié."))}</p>
+    ${rows.join("") || `<p class="hint">${esc(T("Aucune pour l'instant : Transferts › Fichiers, ouvrez le dossier des jeux, puis « Utiliser comme bibliothèque de jeux »."))}</p>`}`;
+  box.querySelectorAll("[data-gl-rescan]").forEach((b) => (b.onclick = async () => { const l = libs[+b.dataset.glRescan]; try { await post("/gamelibs/rescan", { place: l.place, path: l.path }); toast(T("Relecture demandée")); state.gamelibAt = 0; } catch (e) { toast(e.message); } loadGamelibsCard(); }));
+  box.querySelectorAll("[data-gl-remove]").forEach((b) => (b.onclick = async () => { const l = libs[+b.dataset.glRemove]; try { await post("/gamelibs/remove", { place: l.place, path: l.path }); toast(T("Bibliothèque retirée (rien n'est effacé)")); state.gamelibAt = 0; } catch (e) { toast(e.message); } loadGamelibsCard(); }));
+}
+// Jeux des bibliothèques déclarées (l'index du moteur, relu au plus toutes les 60 s) et ceux absents de cette PS5.
+function loadGamelib(then) {
+  if (state.gamelibAt && Date.now() - state.gamelibAt < 60000) return;
+  state.gamelibAt = Date.now();
+  api("/gamelibs/games").then((j) => { const before = JSON.stringify((state.gamelib || {}).games || []); state.gamelib = j; if (then && before !== JSON.stringify(j.games || [])) then(); }).catch(() => {});
+}
+function gamelibMissing() {
+  const here = new Set(state.items.filter((i) => i.title_id && !i.key.startsWith("save:")).map((i) => i.title_id)), seen = new Set();
+  return ((state.gamelib || {}).games || []).filter((g) => { const k = g.title_id || g.path; if ((g.title_id && here.has(g.title_id)) || seen.has(k)) return false; seen.add(k); return true; })
+    .sort((a, b) => fold(a.title).localeCompare(fold(b.title)));
+}
+function gamelibTile(g, i) {
+  return `<div class="tile" data-gl="${i}" tabindex="0" role="button">${mgCover({ item: (g.kind === "game_ps4" ? "tid:ps4:" : "tid:ps5:") + g.title_id, title_id: g.title_id, title: g.title, kind: g.kind })}<div class="name">${esc(g.title)}</div>
+    <div class="meta">${esc([g.place_label, g.dir ? T("dossier") : "." + g.container, g.size ? size(g.size) : ""].filter(Boolean).join(" · "))}</div></div>`;
+}
+// « fake PKG PS5 », « PKG officiel PS5 », « PKG PS4 » : ce que dit l'en-tête d'un .pkg (vide s'il n'a pas été lu).
+function pkgDesc(p) {
+  if (!p || !p.platform) return "";
+  return (p.fake === 1 ? "fake PKG" : p.fake === 0 ? T("PKG officiel") : "PKG") + " " + p.platform.toUpperCase();
+}
+// Un jeu d'une bibliothèque : « Installer… » (la PS5 et le disque cibles), comme dans Fichiers.
+async function openGamelibGame(anchor, g) {
+  let places;
+  try { places = await api("/files/places"); } catch (e) { toast(e.message); return; }
+  const cut = g.path.lastIndexOf("/");
+  const f = { places, src: { place: g.place, path: g.path.slice(0, cut) || "/", sel: new Set() } };
+  const alt = (g.variants || []).find((v) => (v.container === "pkg") !== (g.container === "pkg") && !v.dir);
+  const e = { name: g.path.slice(cut + 1), size: g.size || 0, dir: !!g.dir, alt, title: g.title, platform: g.platform };
+  const onPeer = (peerGames || []).find((p) => (p.games || []).some((x) => x.title_id === g.title_id));
+  // Ce que la bibliothèque a de ce jeu : son format (et PS4 / PS5, fake ou officiel pour un .pkg), l'autre format s'il
+  // y en a un, ses mises à jour et ses DLC en .pkg (jamais pris pour le jeu), un backport.
+  const ups = g.updates || [], dlcs = g.dlcs || [];
+  const info = [T("Sur %s", g.place_label), g.dir ? T("dossier") : g.container === "pkg" && pkgDesc(g.pkg) ? pkgDesc(g.pkg) : "." + g.container, (g.platform || "").toUpperCase(),
+    g.size ? size(g.size) : "", g.version ? T("Version %s", g.version) : "", g.title_id,
+    alt ? T("aussi en %s", alt.container === "pkg" ? pkgDesc(alt.pkg) || ".pkg" : "." + alt.container) : "",
+    ups.length === 1 ? (ups[0].version ? T("mise à jour %s en .pkg", ups[0].version) : T("une mise à jour en .pkg")) : ups.length > 1 ? T("%d mises à jour en .pkg", ups.length) : "",
+    dlcs.length ? T("%d DLC en .pkg", dlcs.length) : "",
+    g.backport ? (g.backport_fw ? T("backport disponible (%s)", g.backport_fw) : T("backport disponible")) : "", onPeer ? T("déjà sur %s", onPeer.name) : ""].filter(Boolean).join(" · ");
+  // Ses mises à jour et ses DLC en .pkg : installés par la console, une fois le jeu installé (même parcours : la PS5, puis le format).
+  const extra = (x, label, title) => {
+    const c = x.path.lastIndexOf("/");
+    const fx = { places, src: { place: g.place, path: x.path.slice(0, c) || "/", sel: new Set() } };
+    return { label, run: () => installFrom(fx, { name: x.path.slice(c + 1), size: x.size || 0, dir: false, title, platform: g.platform }) };
+  };
+  const items = [{ label: T("Installer…"), hint: info, run: () => installFrom(f, e) }];
+  for (const u of ups) items.push(extra(u, u.version ? T("Installer la mise à jour %s…", u.version) : T("Installer la mise à jour…"), g.title + " · " + (u.version ? T("mise à jour %s", u.version) : T("mise à jour"))));
+  for (const d of dlcs) { const dn = d.path.slice(d.path.lastIndexOf("/") + 1).replace(/\.pkg$/i, ""); items.push(extra(d, T("Installer le DLC « %s »…", dn), g.title + " · DLC " + dn)); }
+  openMenu(anchor, items, "", g.title);
+}
+// Outils de la console (comme la télé) : payloads de Payload Manager à démarrer ou arrêter, processus en marche, applis outils.
+async function loadToolsCard() {
+  const box = $("#tools-card");
+  if (!box) return;
+  let st;
+  try { st = await api("/tools"); } catch (e) { box.innerHTML = `<h4>${T("Outils de la console")}</h4><p class="hint">${esc(e.message)}</p>`; return; }
+  const shown = new Set();
+  const rows = [];
+  for (const p of st.payloads || []) {
+    if (p.pid > 0) shown.add(p.pid);
+    const auto = p.autoload ? " · " + T("au démarrage de la console") : "";
+    if (p.protected) { rows.push(`<p>${esc(T("%s — protégé", p.name) + auto)}</p>`); continue; }
+    rows.push(p.pid > 0
+      ? `<p>${esc(p.name)} <span class="hint">${esc(T("en marche") + auto)}</span> <button class="secondary" data-stop="${p.pid}" data-name="${esc(p.proc || p.file)}">${esc(T("Arrêter"))}</button></p>`
+      : `<p>${esc(p.name)} <span class="hint">${esc(T("arrêté") + auto)}</span> <button class="secondary" data-start="${esc(p.key)}" data-name="${esc(p.file)}">${esc(T("Démarrer"))}</button></p>`);
+  }
+  for (const p of st.processes || []) {
+    if (shown.has(p.pid)) continue;
+    rows.push(p.protected ? `<p>${esc(T("%s — protégé", p.name))}</p>`
+      : `<p>${esc(p.name)} <span class="hint">pid ${p.pid}</span> <button class="secondary" data-stop="${p.pid}" data-name="${esc(p.name)}">${esc(T("Arrêter"))}</button></p>`);
+  }
+  for (const a of st.apps || []) rows.push(`<p>${esc(a.title)} <button class="secondary" data-open="${esc(a.title_id)}">${esc(T("Ouvrir"))}</button></p>`);
+  box.innerHTML = `<h4>${T("Outils de la console")}</h4>
+    <p class="hint">${esc(T("Les outils installés (Payload Manager et ses payloads), lancés ou arrêtés d'ici, sans rien modifier chez eux. Jamais pendant une partie ; kstuff et notre moteur sont protégés."))}</p>
+    ${rows.join("") || `<p class="hint">${esc(T("Aucun outil trouvé (Payload Manager absent)"))}</p>`}`;
+  const act = async (path, body, title, note) => {
+    if (!await ask(title, `<p class="hint">${esc(note)}</p>`, T("Oui"), T("Annuler"))) return;
+    try { await post(path, body); toast(T("C'est fait")); } catch (e) { toast(e.message); }
+    loadToolsCard();
+  };
+  box.querySelectorAll("[data-start]").forEach((b) => (b.onclick = () => act("/tools/start", { key: b.dataset.start }, T("Démarrer %s ?", b.dataset.name),
+    b.dataset.name === "shadowmountplus.elf" ? T("Le programme installé dans Payload Manager, lancé par notre moteur. Notre ShadowMount intégré s'arrête d'abord (jamais les deux).")
+      : T("Le programme installé dans Payload Manager, lancé par notre moteur. Jamais pendant une partie."))));
+  box.querySelectorAll("[data-stop]").forEach((b) => (b.onclick = () => act("/tools/stop", { pid: Number(b.dataset.stop), name: b.dataset.name }, T("Arrêter %s ?", b.dataset.name),
+    b.dataset.name === "shadowmountplus.elf" ? T("Il s'arrête à sa façon (fichier STOP) : il démonte proprement les jeux avant. Notre ShadowMount intégré prend le relais.")
+      : T("Le processus est arrêté tout de suite ; ce qu'il faisait est interrompu."))));
+  box.querySelectorAll("[data-open]").forEach((b) => (b.onclick = async () => { try { await post("/tools/open", { title_id: b.dataset.open }); } catch (e) { toast(e.message); } }));
+}
 function bindUpdates() {
   loadLaunchCard();
+  loadMountingCard();
+  loadToolsCard();
+  loadGamelibsCard();
   const vload = $("#v-load");
   if (vload) vload.onclick = async () => {
     const box = $("#v-list");
@@ -3187,7 +4104,7 @@ function bindUpdates() {
       const inst = j.installed, rec = j.recommended;
       box.innerHTML = `<div class="list">${(j.versions || []).slice(0, 10).map((v) => {
         const tag = v.version === inst ? T("installée") : v.version === rec ? T("recommandée") : v.channel === "beta" ? T("bêta") : !v.tested ? T("test") : "";
-        return `<div class="row"><div class="grow"><div class="t">${esc(v.version)}${tag ? ` · <span class="hint">${esc(tag)}</span>` : ""}</div><div class="d">${esc(v.date ? new Date(v.date + "T12:00:00").toLocaleDateString(I18N.code) : "")} · ${esc(T(v.title || ""))}</div></div>
+        return `<div class="row"><div class="grow"><div class="t">${esc(v.version)}${tag ? ` · <span class="hint">${esc(tag)}</span>` : ""}</div><div class="d">${esc(v.date ? mgDate(new Date(v.date + "T12:00:00").getTime() / 1000, false) : "")} · ${esc(T(v.title || ""))}</div></div>
           <div class="btns">${v.version === inst ? "" : `<button data-ver="${esc(v.version)}">${T("Installer")}</button>`}</div></div>`; }).join("") || `<p class="hint">${T("Aucune version dans la liste")}</p>`}</div>`;
       box.querySelectorAll("[data-ver]").forEach((b) => b.onclick = async () => {
         const ver = b.dataset.ver, older = ver.localeCompare(inst, undefined, { numeric: true }) < 0;
@@ -3262,11 +4179,12 @@ function trDevices() {
   for (const p of disks) v.push({ id: p.id, name: p.type === "internal" ? T("Stockage interne") : p.label, sub: p.type === "internal" ? "PS5 · " + T("interne") : T("Disque USB") + " · " + p.mount,
     kind: p.type, icon: p.type === "usb" ? "usb" : "ps5", free: p.free, hasFree: true });
   // Rangés par famille : NAS, nuage (logo du service), Switch.
-  const cloudy = (t) => t === "s3" || t === "gdrive" || t === "onedrive" || t === "dropbox";
+  const cloudy = (t) => t === "s3" || t === "gdrive" || t === "onedrive" || t === "dropbox" || t === "mega" || t === "share";
   const svcName = (r) => ({ gdrive: "Google Drive", dropbox: "Dropbox", onedrive: "OneDrive" })[r.type] || ({ b2: "Backblaze B2", aws: "Amazon S3" })[(r.config || {}).service] || "S3";
   const fam = (r) => r.type === "switch" ? 2 : cloudy(r.type) ? 1 : 0;
   for (const r of state.remotes.slice().sort((a, b) => fam(a) - fam(b))) {
     const c = r.config || {};
+    if (r.type === "share") { v.push({ id: r.id, name: r.name, sub: T("Partage · lecture seule · %s", shareLeft(c)), kind: "share", readonly: true, icon: null, cloud: cloudIcon(c.host), free: 0, hasFree: false }); continue; }
     v.push({ id: r.id, name: r.name, sub: r.type === "switch" ? "Switch · " + (c.host || "") : cloudy(r.type) ? T("Nuage · %s", svcName(r)) : T("NAS · %s", c.host || ""),
       kind: r.type, icon: r.type === "switch" ? "switch" : cloudy(r.type) ? null : "nas", cloud: cloudy(r.type) ? cloudIcon(r.type, c.service) : "", free: 0, hasFree: false });
   }
@@ -3281,7 +4199,7 @@ function trFromTo() {
   let from = devs.find((d) => d.id === tr.from) || devs[0];
   tr.from = from.id;
   let to = devs.find((d) => d.id === tr.to && d.id !== from.id);
-  if (!to) { to = devs.find((d) => d.id !== from.id && d.kind !== "switch" && d.id !== "ps5") || devs.find((d) => d.id !== from.id) || from; tr.to = to.id; }
+  if (!to || to.readonly) { to = devs.find((d) => d.id !== from.id && d.kind !== "switch" && d.id !== "ps5" && !d.readonly) || devs.find((d) => d.id !== from.id && !d.readonly) || from; tr.to = to.id; }
   return { devs, from, to };
 }
 function trItems(from) {
@@ -3352,7 +4270,7 @@ function trSync() {
     const c = cache[a + "|" + b] || cache[b + "|" + a];
     if (!c) return [T("Jamais comparées"), "muted"];
     const n = c.data.entries.filter(syncIsDiff).length;
-    return n ? [T("%d jeu(x) différent(s)", n), "warn"] : [T("Tout est pareil"), "ok"];
+    return n ? [T("%d sauvegarde(s) différente(s)", n), "warn"] : [T("Tout est pareil"), "ok"];  // des sauvegardes, comme la télé
   };
   const side = (spec) => sides.find((s) => s.spec === spec);
   const sideCard = (s, which) => {
@@ -3368,7 +4286,7 @@ function trSync() {
     ${pairs.length ? `<div class="sync-pairs">${pairs.map(([a, b], i) => { const [txt, tone] = pairState(a, b), sa = side(a), sb = side(b);
       const on = (a === tr.syncA && b === tr.syncB) || (a === tr.syncB && b === tr.syncA);
       return `<button class="sync-pair ${on ? "chosen" : ""}" data-pair="${i}"><span class="pair-imgs"><span class="dev-ico">${sa.icon}</span><span class="sync-arrow">⇄</span><span class="dev-ico">${sb.icon}</span></span>
-        <span class="grow"><b>${esc(sa.name)} ⇄ ${esc(sb.name)}</b><span class="pstate ${tone}">${esc(txt)}</span></span></button>`; }).join("")}</div>`
+        <span class="grow"><b>${esc(sa.name)} ⇄ ${esc(sb.name)}</b><span class="pstate ${tone}">${esc(txt)}</span><span class="hint ${on ? "accent" : ""}">${esc(T("Comparer et synchroniser ›"))}</span></span></button>`; }).join("")}</div>`
       : `<p class="hint">${T("Aucune pour l'instant : choisissez les deux côtés ci-dessous.")}</p>`}
     <div class="tr-label">${T("NOUVELLE SYNCHRO : CHOISISSEZ LES DEUX CÔTÉS")} <button class="link" id="sync-swap">⇅ ${T("Inverser")}</button></div>
     <div class="tr-label side-label">${T("CÔTÉ A")}</div><div class="tr-devs" data-scroll="sync-a">${sides.map((s) => sideCard(s, "a")).join("")}</div>
@@ -3392,12 +4310,13 @@ function trGroups(devs) {
   for (const d of devs) {
     if (d.kind === "ps5" || d.kind === "internal" || d.kind === "usb") add("ps5", T("Cette PS5"), d);
     else if (d.kind === "peer") add(d.id.split(":").slice(0, 2).join(":"), d.name.split(" · ")[0], d);
-    else if (["s3", "gdrive", "onedrive", "dropbox"].includes(d.kind)) add("cloud", T("Nuage"), d);
+    else if (d.kind === "share") add("share", T("Partages reçus"), d);
+    else if (["s3", "gdrive", "onedrive", "dropbox", "mega"].includes(d.kind)) add("cloud", T("Nuage"), d);
     else if (d.kind === "switch") add("switch", "Switch", d);
     else add("nas", "NAS", d);
   }
   // Même ordre que la télé : Cette PS5, les autres PS5, les consoles (Switch), les NAS, le nuage.
-  const rank = (k) => k === "ps5" ? 0 : k === "switch" ? 3 : k === "nas" ? 4 : k === "cloud" ? 5 : 2;
+  const rank = (k) => k === "ps5" ? 0 : k === "switch" ? 3 : k === "nas" ? 4 : k === "cloud" ? 5 : k === "share" ? 6 : 2;
   return g.map((x, i) => [x, i]).sort((a, b) => rank(a[0].key) - rank(b[0].key) || a[1] - b[1]).map((x) => x[0]);
 }
 function trGroupRow(devs, zone, chosen, disabledId) {
@@ -3405,32 +4324,36 @@ function trGroupRow(devs, zone, chosen, disabledId) {
   const attr = (d) => zone === "from" ? `data-from="${esc(d.id)}"` : `data-to="${esc(d.id)}"`;
   const card = (d, label) => devCard(label ? { ...d, name: label } : d, { chosen: d.id === chosen, disabled: d.id === disabledId, attr: attr(d) });
   const groups = trGroups(devs);
-  const row = groups.map((g) => {
+  const rowParts = groups.map((g) => {
     if (g.members.length === 1) return card(g.members[0]);
     const has = g.members.find((d) => d.id === chosen);
-    const icon = g.key === "cloud" ? ICONS.cloud : g.key === "nas" ? ICONS.nas : g.key === "switch" ? ICONS.switch : ICONS.ps5;
-    return `<button class="tr-dev tr-group ${has ? "chosen" : ""} ${open === g.key ? "open" : ""}" data-group-${zone}="${esc(g.key)}"><span class="dev-ico">${icon}</span><span class="grow"><b>${esc(g.name)}</b><span class="hint">${esc(has ? has.name : T("%d éléments", g.members.length))}</span></span><span class="tr-count">${g.members.length}</span></button>`;
-  }).join("");
+    const icon = g.key === "cloud" || g.key === "share" ? ICONS.cloud : g.key === "nas" ? ICONS.nas : g.key === "switch" ? ICONS.switch : ICONS.ps5;
+    return `<button class="tr-dev tr-group ${has ? "chosen" : ""} ${open === g.key ? "open" : ""}" data-group-${zone}="${esc(g.key)}"><span class="dev-ico">${icon}</span><span class="grow"><b>${esc(g.name)}</b><span class="hint">${esc(has ? has.name : g.members.map((d) => d.name.split(" · ")[0]).join(" · "))}</span></span><span class="tr-count">${g.members.length} ›</span></button>`;
+  });
+  const row = rowParts.join("");
   const og = groups.find((g) => g.key === open && g.members.length > 1);
   const sub = og ? `<div class="tr-sub">${og.members.map((d) => card(d, d.kind === "ps5" ? T("Tous ses disques") : d.kind === "peer" ? d.name.split(" · ").slice(1).join(" · ") || d.name : "")).join("")}</div>` : "";
-  return `<div class="tr-devs" data-scroll="tr-${zone}">${addNasCard}${row}</div>${sub}`;
+  // Comme la télé : la PS5 d'abord, « + Ajouter un service » ensuite.
+  const first = groups.length && groups[0].key === "ps5" ? 1 : 0;
+  return `<div class="tr-devs" data-scroll="tr-${zone}">${rowParts.slice(0, first).join("")}${addNasCard}${rowParts.slice(first).join("")}</div>${sub}`;
 }
 function trMain() {
   const tr = state.tr, { devs, from, to } = trFromTo();
   tr.open = tr.open || {};
   const running = state.tasks.filter((t) => t.state === "running").length, waiting = state.tasks.filter((t) => activeState(t.state) && t.state !== "running").length;
-  $("#view").innerHTML = `<h1>${T("D'un appareil à l'autre")}</h1>
-    <p class="sub">${T("Jeux, applications, ROM : copier, déplacer ou compresser, entre la PS5, ses disques, les Switch et le NAS.")}</p>
+  $("#view").innerHTML = `<h1>${T("Transferts")}</h1>
+    <p class="sub">${T("Copier, déplacer ou compresser jeux, applis et ROM entre vos appareils.")}</p>
     <div class="tr-label">${T("DEPUIS")} <button class="link" id="tr-swap">⇅ ${T("Inverser")}</button></div>
     ${trGroupRow(devs, "from", from.id, "")}
     <div class="tr-label">${T("VERS")}</div>
-    ${trGroupRow(devs, "to", to.id, "")}
+    ${trGroupRow(devs.filter((d) => !d.readonly), "to", to.id, "")}
     <div class="tr-label">${T("QUE FAIRE ?")}</div>
     <div class="tr-actions">${TR_ACTIONS.map(([n, t], i) => `<button class="tr-action ${tr.action === i ? "chosen" : ""}" data-action="${i}"><b>${n}</b><span class="hint">${t}</span></button>`).join("")}</div>
     ${tr.sel.size ? `<p class="hint">${T("%d élément(s) déjà coché(s).", tr.sel.size)}</p>` : ""}
     <div class="tr-bottom">
       <button class="tr-big full" id="tr-full"><b>${T("Sauvegarde complète de la PS5")}</b><span class="hint">${T("Comptes, sauvegardes, jeux, homebrews, réglages : tout cocher, tout retrouver après une remise à zéro.")}</span></button>
       <button class="tr-big" id="tr-files"><b>${T("Fichiers")}</b><span class="hint">${T("Copier ou déplacer n'importe quels fichiers ou dossiers, d'un endroit à l'autre.")}</span></button>
+      <button class="tr-big" id="tr-pkgs"><b>${T("Paquets .pkg")}</b><span class="hint">${esc((() => { const L = state.packages || []; return L.length ? T("%d paquet(s) · %s", L.length, size(L.reduce((a, x) => a + (x.size || 0), 0))) : T("aucun paquet sur les disques"); })())}</span></button>
       <button class="tr-big" id="tr-progress"><b>${T("Transferts en cours")} ${running ? SPIN : ""}</b><span class="hint ${running ? "accent" : ""}">${T("%d en cours", running)} · ${T("%d en attente", waiting)}</span></button>
     </div>`;
   $$("[data-add-nas]").forEach((b) => b.onclick = () => addService());
@@ -3465,12 +4388,73 @@ function trMain() {
   };
   $("#tr-progress").onclick = () => trBack("progress");
   $("#tr-files").onclick = () => trBack("files");
+  $("#tr-pkgs").onclick = (ev) => openPackages(ev.currentTarget);
+  if (!state.packagesAt || Date.now() - state.packagesAt > 10000) {  // le nombre sur la carte, comme la télé
+    const before = JSON.stringify(state.packages || null);
+    loadPackages().then(() => { if (before !== JSON.stringify(state.packages) && state.tab === "transfers" && $("#tr-pkgs") && !document.querySelector(".modal, .popmenu")) render(); });
+  }
+}
+
+// ---- Transferts › Paquets .pkg (docs/PLAN-paquets-fpkg.md, lot 2) — comme la télé : la liste, puis les outils d'un paquet --
+async function loadPackages() {
+  try { state.packages = ((await api("/images?measure=0")).images || []).filter((x) => x.container === "pkg"); } catch (e) { state.packages = state.packages || []; }
+  state.packagesAt = Date.now();
+}
+function packageLine(x) {
+  const v = x.validation;
+  const st = x.running ? T("en cours de jeu") : v === "ok" ? T("✓ vérifié le %s", mgDate(x.validated_at).split(" ")[0]) : v === "bad" ? T("paquet abîmé") : T("jamais vérifié");
+  return [x.title || x.title_id, T((x.disk || {}).label || ""), size(x.size || 0), st].join(" · ");
+}
+async function openPackages(anchor) {
+  await loadPackages();
+  const L = state.packages || [];
+  if (!L.length) { toast(T("Aucun paquet .pkg sur les disques : Outils d'un jeu › Créer un paquet .pkg")); return; }
+  openMenu(anchor, [...L.map((x) => ({ label: packageLine(x), run: () => openPackage(anchor, x) })), { label: T("Fermer"), run: () => {} }],
+    T("Les paquets .pkg des disques de cette console (créés ici, Orbit…) : choisissez-en un pour le vérifier, le copier, le déplacer ou le supprimer."), T("Paquets .pkg"));
+}
+function openPackage(anchor, x) {
+  const name = x.title || x.title_id;
+  const task = async (body) => {
+    try {
+      const pl = await post("/images/plan", body);
+      if (pl && pl.ok === false) { toast(pl.error || T("Opération impossible")); return; }
+      await post("/tasks", body); toast(T("Ajouté aux tâches : suivez-le dans Transferts › Transferts en cours")); state.packagesAt = 0; refresh(true);
+    } catch (e) { toast(e.message); }
+  };
+  openMenu(anchor, [
+    { label: T("Vérifier le paquet"), run: () => task({ type: "validate_image", source: x.path }) },
+    { label: T("Installer…"), run: () => openInstall(anchor, x.path, name, x.size || 0, true) },
+    { label: T("Copier ou déplacer vers un autre disque…"), run: () => {
+      const disk = x.disk || {};
+      const dests = (state.places || []).filter((p) => (p.type === "internal" || p.type === "usb") && p.id !== disk.id && p.mount !== disk.mount).map((p) => ({
+        label: p.label + " · " + T("%s libres", size(p.free || 0)), run: () => {
+          const dir = (p.mount === "/user" ? "/data" : p.mount) + "/homebrew";
+          openMenu(anchor, [{ label: T("Copier (l'original reste)"), run: () => task({ type: "transfer", source: x.path, target_dir: dir, mode: "copy" }) },
+            { label: T("Déplacer (copie vérifiée, puis l'original retiré)"), run: () => task({ type: "transfer", source: x.path, target_dir: dir, mode: "move" }) },
+            { label: T("Annuler"), run: () => {} }], "", T("« %s » vers %s", name, p.label));
+        } }));
+      if (!dests.length) { toast(T("Aucun autre disque sur cette console")); return; }
+      openMenu(anchor, [...dests, { label: T("Annuler"), run: () => {} }], T("Copie vérifiée ; un paquet .pkg n'est jamais inscrit dans ShadowMount."), T("Copier ou déplacer vers un autre disque…"));
+    } },
+    { label: T("Envoyer vers un NAS, le nuage ou une autre PS5…"), run: () => {
+      const dests = (state.places || []).filter((p) => !p.readonly && (p.type === "ftp" || p.type === "peer")).map((p) => ({ label: p.label, run: async () => {
+        try { await post("/packages/send", { path: x.path, place: p.id }); toast(T("Ajouté aux tâches : suivez-le dans Transferts › Transferts en cours")); refresh(true); } catch (e) { toast(e.message); }
+      } }));
+      if (!dests.length) { toast(T("Aucun NAS, nuage ni autre PS5 : Appareils › + Ajouter un service")); return; }
+      openMenu(anchor, [...dests, { label: T("Annuler"), run: () => {} }], T("Copie vérifiée ; l'original reste. Autre PS5 : dans son dossier de jeux ; NAS ou nuage : dans « Paquets .pkg »."), T("Envoyer « %s »", name));
+    } },
+    { label: T("Supprimer ce paquet…"), cls: "danger", run: async () => {
+      if (!(await ask(T("Supprimer « %s » ?", name), `<p>${esc(T("Le jeu, son image ou son dossier ne sont pas touchés : seulement ce fichier .pkg."))}</p>`, T("Oui, supprimer ce paquet pour de bon")))) return;
+      try { await post("/packages/delete", { path: x.path, confirm: "SUPPRIMER" }); toast(T("Paquet supprimé")); state.packagesAt = 0; render(); } catch (e) { toast(e.message); }
+    } },
+    { label: T("Fermer"), run: () => {} },
+  ], x.path, name + " · " + T("paquet .pkg"));
 }
 
 // ---- Transferts › Fichiers : deux colonnes (DEPUIS / VERS), n'importe quels fichiers ou dossiers --------------------
 // Le moteur copie ou déplace (tâche « files ») : jamais d'écrasement (identique sauté, différent gardé « (2) »),
 // chaque fichier vérifié, l'original retiré seulement après une copie vérifiée de tout (Déplacer).
-const FILE_KINDS = { here: "Cette PS5", peer: "Autre PS5", nas: "NAS", switch: "Switch" };
+const FILE_KINDS = { here: "Cette PS5", peer: "Autre PS5", nas: "NAS", switch: "Switch", share: "Partage" };
 const parentDir = (p) => { const i = p.lastIndexOf("/"); return i <= 0 ? "/" : p.slice(0, i); };
 const childDir = (p, name) => (p === "/" ? "" : p) + "/" + name;
 async function filesOpen(side, place, path) {
@@ -3490,6 +4474,131 @@ function filesUp(side) {
   const up = parentDir(s.path);
   filesOpen(side, s.place, up.length < root.length ? root : up);
 }
+// « Installer… » d'un jeu vu dans Fichiers, où qu'il soit (la source) : la cible est une PS5 — celle-ci ou une autre — et un
+// de ses disques, jamais un NAS ; copie vérifiée, puis montée ou installée par la console (comme la télé).
+async function installFrom(f, e) {
+  const sp = (f.places || []).find((x) => x.id === f.src.place) || {};
+  const dests = (f.places || []).filter((p) => (p.kind === "here" || p.kind === "peer") && !p.readonly && p.id !== sp.id);
+  if (!dests.length) { toast(T("Aucune PS5 ni disque où l'installer")); return; }
+  window.__instDst = "";
+  const opts = dests.map((p) => {
+    const label = p.kind === "peer" ? p.label : T("cette PS5 · %s", p.label);
+    return `<label class="radio"><input type="radio" name="inst-dst" value="${esc(p.id)}" onchange="window.__instDst=this.value"><span class="grow">${esc(T("L'installer sur %s", label))}${p.free ? ` · <span class="hint">${esc(T("%s libres", size(p.free)))}</span>` : ""}</span></label>`;
+  }).join("");
+  const shown = e.title || e.name;
+  const ok = await ask(T("Installer « %s » · depuis %s", shown, sp.label || ""), `<p class="hint">${esc(T("Copie vérifiée vers le disque choisi, puis montée ou installée. Jamais pendant une partie ; la source reste là où elle est."))}</p>${opts}`, T("Suivant"), T("Annuler"));
+  if (!ok) return;
+  const dst = window.__instDst, dp = dests.find((p) => p.id === dst);
+  if (!dp) { toast(T("Choisissez où l'installer")); return; }
+  // L'image et le .pkg de ce jeu (le second rangé à côté, s'il y en a un) : les formats possibles sur cette cible.
+  const path = childDir(f.src.path, e.name), pkg = !e.dir && /\.pkg$/i.test(e.name);
+  const q = { src_place: sp.id, dst_place: dst, free: dp.free || 0, platform: e.platform || "" };
+  if (pkg) { q.pkg_path = path; q.pkg_size = e.size || 0; } else { q.image_path = path; q.image_size = e.size || 0; q.image_dir = !!e.dir; }
+  if (e.alt && e.alt.path) { if (pkg && e.alt.container !== "pkg" && !e.alt.dir) { q.image_path = e.alt.path; q.image_size = e.alt.size || 0; } if (!pkg && e.alt.container === "pkg") { q.pkg_path = e.alt.path; q.pkg_size = e.alt.size || 0; } }
+  let r;
+  try { r = await post("/install/options", q); } catch (err) { toast(err.message); return; }
+  const label = dp.kind === "peer" ? dp.label : T("cette PS5 · %s", dp.label);
+  // Les .pkg nommés par ce que dit leur en-tête (fake PKG PS5, PKG PS4…) et par leur fichier : on sait lequel on prend.
+  const pd = pkgDesc(r.pkg), pkgFile = (q.pkg_path || "").split("/").pop();
+  const names = { image: e.dir ? T("Installer le dossier") : T("Installer l'image (.%s)", (q.image_path || "").split(".").pop()),
+    pkg: pd ? T("Lancer depuis le .pkg (%s) avec Kraken", pd) : T("Lancer depuis le .pkg avec Kraken"),
+    console: pd ? T("Installer le .pkg (%s) par la console", pd) : T("Installer le .pkg par la console"), convert: T("Convertir en .pkg puis l'installer") };
+  const list = (r.options || []).filter((o) => names[o.as]);
+  if (!list.length) { toast(T("Ce format ne s'installe pas")); return; }
+  window.__instAs = (list.find((o) => o.ok) || {}).as || "";
+  const radios = list.map((o) => {
+    let sub = o.ok ? T("%d étapes · ~%s", o.steps.length, duration(o.eta)) + (o.as === "convert" ? " · " + T("%s libres nécessaires pendant la conversion", size(o.need)) : "") : T("impossible") + " : " + T(o.why || "");
+    if ((o.as === "pkg" || o.as === "console") && pkgFile) sub += " · " + pkgFile;
+    if (o.note) sub += " · " + T(o.note);
+    return `<label class="radio"><input type="radio" name="inst-as" value="${o.as}" ${o.ok ? "" : "disabled"} ${o.as === window.__instAs ? "checked" : ""} onchange="window.__instAs=this.value"><span class="grow">${esc(names[o.as])} · <span class="hint">${esc(sub)}</span></span></label>`;
+  }).join("");
+  if (!await ask(T("%s → %s", shown, label), `${radios}<p class="hint">${esc(T("Le temps est estimé d'après les vitesses mesurées les fois d'avant ; il se précise pendant. On peut tout arrêter à n'importe quelle étape : ce qui a été copié est retiré, la source n'est jamais touchée."))}</p>`, T("Installer"), T("Annuler"))) return;
+  const as = window.__instAs;
+  if (!as) { toast(T("Ce format ne s'installe pas")); return; }
+  const srcPath = as === "image" || as === "convert" ? q.image_path : q.pkg_path, bytes = as === "image" || as === "convert" ? q.image_size : q.pkg_size;
+  try {
+    await post("/install/from", { src_place: sp.id, path: srcPath, dir: as === "image" && !!e.dir, dst_place: dst, how: as === "console" ? "console" : "mount", as, size: bytes, title: shown });
+    toast(T("Installation lancée : suivez ses étapes dans Transferts en cours")); if (f.src.sel) f.src.sel.clear(); refresh(true); trBack("progress");
+  } catch (err) { toast(err.message); }
+}
+// Textes venus du moteur (raisons, notes d'une installation), traduits à l'affichage (T(o.why), T(rep.note)).
+const INSTALL_ENGINE_TEXTS = [T("kstuff absent"), T("pas assez de place"), T("conversion : seulement sur cette PS5 pour l'instant"), T("l'autre PS5 ne répond pas"), T("l'autre PS5 a une version trop ancienne pour les .pkg"), T("ShadowMountPlus l'inscrit dès que l'application est fermée"),
+  T("mise à jour : elle s'installe par la console, une fois le jeu installé"), T("contenu additionnel : il s'installe par la console, une fois le jeu installé"),
+  T("jeu PS4 : Kraken ne lance que des .pkg PS5"), T("paquet officiel de Sony : Kraken ne lance que des fake PKG"), T("jeu PS4 : la conversion fabrique un .pkg PS5"),
+  T("paquet officiel : il lui faut sa licence pour se lancer")];
+// Une installation par étapes : « Étape 2 sur 4 · Conversion en .pkg · 43 % · reste ~31 min », et ses étapes en pastilles.
+function jobStepName(k, rep) {
+  return k === "copy" ? T("Copie depuis %s", rep.source || "") : k === "verify" ? T("Vérification") : k === "convert" ? T("Conversion en .pkg") : k === "cleanup" ? T("Rangement")
+    : rep.as === "console" ? T("Installation par la console") : rep.as === "image" ? T("Montage (ShadowMount)") : T("Installation (Kraken)");
+}
+function jobLine(t) {
+  const rep = t.report || {}, steps = rep.steps || [], cur = Math.min(rep.cur || 0, steps.length - 1), p = t.progress || {};
+  if (!steps.length) return "";
+  if (t.state === "done") return rep.note ? T(rep.note) : T("Installé") + " · " + (rep.target || "");
+  let line = T("Étape %d sur %d", cur + 1, steps.length) + " · " + jobStepName(steps[cur].key, rep);
+  if (p.bytes_total) line += " · " + Math.min(100, Math.floor((p.bytes_done / p.bytes_total) * 100)) + " %";
+  if (t.bytes_per_second > 0) line += " · " + size(t.bytes_per_second) + "/s";
+  if (rep.eta > 0 && t.state === "running") line += " · " + T("reste") + " ~" + duration(rep.eta);
+  return line;
+}
+function jobStepsHtml(t) {
+  const rep = t.report || {};
+  return `<div class="job-steps">${(rep.steps || []).map((s, i) => `<span class="${s.state === "done" ? "done" : i === rep.cur && t.state === "running" ? "now" : s.state === "failed" ? "bad" : ""}">${i + 1}. ${esc(jobStepName(s.key, rep))}${s.state === "done" && s.ended && s.started ? " ✓ " + duration(Math.max(1, s.ended - s.started)) : ""}</span>`).join("")}</div>`;
+}
+// « Installer depuis ce PC… » (navigateur seulement) : un fichier de jeu du PC (image ou .pkg) envoyé par morceaux de
+// 64 Mo vers la PS5 choisie — reprise après une coupure (upload/status) — puis monté ou installé par la console.
+// Un seul envoi à la fois ; le navigateur ne lit que le morceau en cours (jamais tout le fichier en mémoire).
+async function installFromPc(f) {
+  if (state.uploading) { toast(T("Un envoi est déjà en cours")); return; }
+  const dests = (f.places || []).filter((p) => (p.kind === "here" || p.kind === "peer") && !p.readonly);
+  if (!dests.length) { toast(T("Aucune PS5 ni disque où l'installer")); return; }
+  window.__upFile = null; window.__instDst = ""; window.__instHow = "mount";
+  const opts = dests.map((p) => `<label class="radio"><input type="radio" name="up-dst" value="${esc(p.id)}" onchange="window.__instDst=this.value"><span class="grow">${esc(T("L'installer sur %s", p.kind === "peer" ? p.label : T("cette PS5 · %s", p.label)))}${p.free ? ` · <span class="hint">${esc(T("%s libres", size(p.free)))}</span>` : ""}</span></label>`).join("");
+  const html = `<p class="hint">${esc(T("Choisissez un fichier de jeu sur ce PC (.pkg, .exfat, .ffpkg, .ffpfsc), puis la PS5 et le disque où l'installer. L'envoi reprend là où il s'est arrêté si la connexion coupe."))}</p>
+    <input type="file" accept=".pkg,.exfat,.ffpkg,.ffpfsc,.ffpfs" onchange="window.__upFile=this.files[0]||null">${opts}
+    <p class="hint">${esc(T("Un .pkg : le monter (lancé depuis le paquet) ou l'installer par la console."))}</p>
+    <label class="radio"><input type="radio" name="up-how" value="mount" checked onchange="window.__instHow=this.value"><span class="grow">${esc(T("Le copier et le monter (lancé depuis le paquet)"))}</span></label>
+    <label class="radio"><input type="radio" name="up-how" value="console" onchange="window.__instHow=this.value"><span class="grow">${esc(T("Le copier et l'installer par la console"))}</span></label>`;
+  if (!await ask(T("Installer depuis ce PC"), html, T("Envoyer"), T("Annuler"))) return;
+  const file = window.__upFile, place = window.__instDst, how = /\.pkg$/i.test(file ? file.name : "") ? window.__instHow : "mount";
+  if (!file) { toast(T("Choisissez un fichier")); return; }
+  if (!place) { toast(T("Choisissez où l'installer")); return; }
+  const dp = dests.find((p) => p.id === place) || {};
+  if (dp.free && file.size + 512 * 1024 * 1024 > dp.free) { toast(T("Pas assez de place sur %s", dp.label)); return; }
+  state.uploading = true;
+  const bar = document.createElement("div");
+  bar.className = "toast"; bar.style.bottom = "70px";
+  document.body.appendChild(bar);
+  const q = (o) => `place=${encodeURIComponent(place)}&name=${encodeURIComponent(file.name)}` + (o === undefined ? "" : `&offset=${o}`);
+  try {
+    let off = (await api("/upload/status?" + q())).size || 0;  // reprise
+    if (off > file.size) off = 0;
+    const CH = 64 * 1024 * 1024, t0 = Date.now(), off0 = off;
+    while (off < file.size) {
+      const end = Math.min(file.size, off + CH);
+      bar.textContent = T("Envoi de %s : %s / %s", file.name, size(off), size(file.size)) + (off > off0 ? " · " + size((off - off0) / ((Date.now() - t0) / 1000)) + "/s" : "");
+      let r, tries = 0;
+      for (;;) {
+        try { r = await fetch("/api/v2/upload/chunk?" + q(off), { method: "PUT", headers: { "X-PBC-Token": state.token }, body: file.slice(off, end) }); }
+        catch (e) { r = null; }
+        if (r && r.ok) break;
+        if (++tries >= 5) throw new Error(r ? (await r.json().catch(() => ({}))).error || T("Envoi interrompu") : T("Envoi interrompu : relancez-le, il reprendra là où il s'est arrêté"));
+        await new Promise((ok) => setTimeout(ok, 2000 * tries));
+        off = (await api("/upload/status?" + q())).size || 0;  // le moteur dit ce qu'il a vraiment reçu
+      }
+      off = (await r.json()).size || end;
+    }
+    bar.textContent = T("Envoi terminé : installation…");
+    const j = await post("/upload/done", { place, name: file.name, size: file.size, how });
+    toast(j.task ? T("Copie lancée : le jeu sera installé une fois la copie vérifiée (Transferts en cours)")
+      : how === "console" ? T("Installation demandée : la console l'installe en arrière-plan (sa notification montre l'avancement)")
+      : j.result && j.result.by === "krakenmount" ? T("Rangé dans le dossier de jeux : Kraken Mount le monte et l'inscrit")
+      : /\.pkg$/i.test(file.name) ? T("Préparation lancée : le jeu apparaîtra sur l'écran d'accueil et se lancera depuis son .pkg")
+      : T("Rangé dans le dossier de jeux de ce disque : ShadowMount le monte dans quelques secondes"));
+    refresh(true);
+  } catch (e) { toast(e.message); }
+  finally { state.uploading = false; bar.remove(); }
+}
 function trFiles() {
   const tr = state.tr;
   if (!tr.files) tr.files = { places: null, src: { sel: new Set(), entries: [] }, dst: { entries: [] } };
@@ -3499,7 +4608,9 @@ function trFiles() {
     api("/files/places").then((p) => {
       f.places = p;
       const here = p.filter((x) => x.kind === "here");
-      if (here[0]) filesOpen("src", here[0].id);
+      if (f.pendingSrc && p.find((x) => x.id === f.pendingSrc)) filesOpen("src", f.pendingSrc);  // lien reçu ouvert depuis Téléchargements
+      else if (here[0]) filesOpen("src", here[0].id);
+      f.pendingSrc = "";
       if (here[1] || here[0]) filesOpen("dst", (here[1] || here[0]).id);
     }).catch((e) => toast(e.message)).finally(() => { f.loadingPlaces = false; });
   }
@@ -3515,20 +4626,32 @@ function trFiles() {
     return up + (list || `<p class="hint">${T("Dossier vide")}</p>`);
   };
   const selSize = (f.src.entries || []).filter((e) => f.src.sel.has(e.name)).reduce((a, e) => a + (e.dir ? 0 : e.size), 0);
+  const ro = !!((f.places || []).find((x) => x.id === f.src.place) || {}).readonly;  // lien reçu : on télécharge, rien d'autre
+  // « Installer… » (comme la télé) : un seul élément coché, et c'est un jeu (image, .pkg ou dossier).
+  const instEntry = f.src.sel.size === 1 ? (f.src.entries || []).find((e) => f.src.sel.has(e.name) && (e.dir || /\.(pkg|exfat|ffpkg|ffpfsc|ffpfs)$/i.test(e.name))) : null;
   $("#view").innerHTML = `<div class="eyebrow tr-crumb"><button class="link" id="tr-back">‹ ${T("Retour")}</button> ${T("TRANSFERTS")} · ${T("Fichiers")}</div>
     <h1>${T("Fichiers")}</h1>
     <p class="sub">${T("Rien n'est jamais écrasé : un fichier identique est sauté, un fichier différent est gardé à côté « (2) ». Chaque fichier est vérifié.")}</p>
+    <div class="btns"><button class="secondary" id="f-from-pc">${T("Installer depuis ce PC…")}</button><button class="secondary" id="f-gamelib">${T("Utiliser comme bibliothèque de jeux")}</button></div>
     <div class="fpanes">
       <div class="card fpane"><h4>${T("DEPUIS")}</h4><select id="f-src-place">${placeOpts(f.src.place)}</select>
         <div class="fpath">${esc(f.src.path || "")}</div><div class="flist">${rows("src")}</div></div>
-      <div class="fmid"><button id="f-copy" ${f.src.sel.size ? "" : "disabled"}>${T("Copier")} →</button><button class="secondary" id="f-move" ${f.src.sel.size ? "" : "disabled"}>${T("Déplacer")} →</button>
-        <button class="danger" id="f-delete" ${f.src.sel.size ? "" : "disabled"}>${T("Supprimer…")}</button>
+      <div class="fmid">${ro ? `<button id="f-copy" ${f.src.sel.size ? "" : "disabled"}>${T("Télécharger")} →</button><p class="hint">${T("Partage en lecture seule")}</p>` : `<button id="f-copy" ${f.src.sel.size ? "" : "disabled"}>${T("Copier")} →</button><button class="secondary" id="f-move" ${f.src.sel.size ? "" : "disabled"}>${T("Déplacer")} →</button>
+        <button class="danger" id="f-delete" ${f.src.sel.size ? "" : "disabled"}>${T("Supprimer…")}</button>`}
+        ${instEntry ? `<button class="secondary" id="f-install">${T("Installer…")}</button>` : ""}
         <p class="hint">${f.src.sel.size ? T("%d élément(s)", f.src.sel.size) + (selSize ? " · " + size(selSize) : "") : T("Cochez des fichiers ou des dossiers")}</p></div>
       <div class="card fpane"><h4>${T("VERS")}</h4><select id="f-dst-place">${placeOpts(f.dst.place)}</select>
         <div class="fpath">${esc(f.dst.path || "")}${f.dst.free ? ` · <span class="hint">${T("%s libres", size(f.dst.free))}</span>` : ""}</div>
         <div class="flist">${rows("dst")}</div><button class="secondary" id="f-mkdir">＋ ${T("Nouveau dossier")}</button></div>
     </div>`;
   $("#tr-back").onclick = () => trBack("main");
+  $("#f-from-pc").onclick = () => installFromPc(f);
+  $("#f-gamelib").onclick = async () => {
+    const sp = (f.places || []).find((x) => x.id === f.src.place) || {};
+    if (!f.src.path || sp.kind === "switch") { toast(T("Ouvrez d'abord le dossier des jeux, à gauche")); return; }
+    if (!await ask(T("Utiliser comme bibliothèque de jeux"), `<p>${esc((sp.label || "") + " · " + f.src.path)}</p><p class="hint">${esc(T("Ses jeux (images, .pkg, dossiers de jeu) sont lus en fond et montrés dans l'Accueil et la Bibliothèque, prêts à installer. Rien n'y est modifié."))}</p>`, T("Ajouter"), T("Annuler"))) return;
+    try { await post("/gamelibs/add", { place: f.src.place, path: f.src.path }); state.gamelibAt = 0; toast(T("Bibliothèque de jeux ajoutée : ses jeux apparaissent bientôt dans « À installer »")); } catch (e) { toast(e.message); }
+  };
   $("#f-src-place").onchange = (e) => filesOpen("src", e.target.value);
   $("#f-dst-place").onchange = (e) => filesOpen("dst", e.target.value);
   $$("[data-up]").forEach((b) => b.onclick = () => filesUp(b.dataset.up));
@@ -3547,6 +4670,12 @@ function trFiles() {
     const sp = (f.places || []).find((x) => x.id === src.place) || {}, dp = (f.places || []).find((x) => x.id === dst.place) || {};
     const what = `<p>${esc(T("%d élément(s)", names.length))} · ${esc(T(FILE_KINDS[sp.kind] || ""))} ${esc(sp.label || "")} ${esc(src.path)} → ${esc(T(FILE_KINDS[dp.kind] || ""))} ${esc(dp.label || "")} ${esc(dst.path)}</p>
       <p class="hint">${esc(move ? T("Déplacer : les originaux sont retirés seulement après une copie vérifiée de tout.") : T("Copier : les originaux restent."))}</p>`;
+    if (sp.readonly) {  // depuis un lien reçu : un téléchargement, suivi dans Téléchargements
+      if (!await ask(T("Télécharger ?"), what.replace(esc(T("Copier : les originaux restent.")), esc(T("Pause et reprise sans repartir de zéro. Chaque fichier est vérifié ; rien n'est jamais écrasé."))), T("Télécharger"))) return;
+      try { await post("/files/copy", { src_place: src.place, src_dir: src.path, names, dst_place: dst.place, dst_dir: dst.path, move: false }); toast(T("Téléchargement lancé : suivez-le dans Téléchargements")); src.sel.clear(); refresh(true); setTab("downloads"); }
+      catch (e) { toast(e.message); }
+      return;
+    }
     if (!await ask(move ? T("Déplacer ?") : T("Copier ?"), what, move ? T("Déplacer") : T("Copier"))) return;
     try {
       await post("/files/copy", { src_place: src.place, src_dir: src.path, names, dst_place: dst.place, dst_dir: dst.path, move });
@@ -3554,6 +4683,8 @@ function trFiles() {
     } catch (e) { toast(e.message); }
   };
   $("#f-copy").onclick = () => go(false);
+  if (instEntry) $("#f-install").onclick = () => installFrom(f, instEntry);
+  if (ro) return;
   $("#f-move").onclick = () => go(true);
   // « Supprimer » : trois validations — la liste, « définitif », puis taper SUPPRIMER. Le moteur refuse les endroits protégés.
   $("#f-delete").onclick = async () => {
@@ -3576,6 +4707,444 @@ function trFiles() {
   };
 }
 
+// ---- Téléchargements : ce qui arrive d'Internet (liens reçus), à part de Transferts ----------------------------------
+const dlTasks = (active) => (state.tasks || []).filter((t) => t.origin === "download" && (active ? ["running", "queued", "paused"].includes(t.state) : ["done", "failed", "cancelled"].includes(t.state)))
+  .sort((a, b) => active ? 0 : (b.finished || 0) - (a.finished || 0));
+const dlPlace = (id) => { const p = (state.places || []).find((x) => x.id === id); return !p ? id || "" : p.type === "internal" ? T("Interne") : p.label; };
+function openShareFiles(id) {
+  const tr = state.tr;
+  tr.files = { places: null, pendingSrc: id, src: { sel: new Set(), entries: [] }, dst: { entries: [] } };
+  tr.screen = "files";
+  setTab("transfers");
+}
+// Notifications à lui : téléchargement fini, lien qui expire dans moins d'un jour (une fois chacun).
+function dlNotify() {
+  const first = !state.dlSeen;
+  state.dlSeen = state.dlSeen || new Set();
+  state.dlWarned = state.dlWarned || new Set();
+  for (const t of dlTasks(false)) {
+    if (state.dlSeen.has(t.id)) continue;
+    state.dlSeen.add(t.id);
+    if (first) continue;
+    const p = t.progress || {}, secs = Math.max(1, (t.finished || 0) - (t.started || 0));
+    toast(t.state === "done" ? T("Téléchargé : %s (%s, %s/s)", t.title, size(p.bytes_total || 0), size((p.bytes_total || 0) / secs)) : t.state === "failed" ? T("Téléchargement en échec : %s", t.title) : T("Téléchargement arrêté"));
+  }
+  const now = Date.now() / 1000;
+  for (const r of (state.remotes || []).filter((x) => x.type === "share")) {
+    const exp = (r.config || {}).expires;
+    if (!exp || exp - now > 86400 || state.dlWarned.has(r.id)) continue;
+    state.dlWarned.add(r.id);
+    toast(T("Le lien « %s » expire bientôt : Téléchargements › Actions › Garder plus longtemps", r.name));
+  }
+  const n = dlTasks(true).length, c = $("#dl-count");
+  if (c) c.textContent = n ? String(n) : "";
+}
+// BitTorrent (comme la télé) : la liste vient du moteur ; ajouter un lien magnet ou un .torrent en choisissant le disque.
+// Orbit / BlackBox (passerelle, étape 1 : voir) — comme la télé : une barre sous « POUR LES DEUX », la liste, le détail.
+async function loadAppsDl() { try { state.appsDl = await api("/apps-downloads"); } catch (e) { state.appsDl = { apps: [], items: [], temps: [] }; } state.appsDlAt = Date.now(); }
+function appsDlPresent() { return ((state.appsDl || {}).apps || []).some((a) => a.present); }
+function appsDlState(x) {
+  const pc = (a, b) => (b > 0 ? Math.floor((a * 100) / b) : 0);
+  if (x.state === "done") {
+    let out = T("terminé");
+    if (x.installed) out += " · " + T("installé");
+    if (x.shadow_mount === "confirmed") out += " · " + T("image montée"); else if (x.shadow_mount) out += " · " + T("image pas encore montée");
+    return out;
+  }
+  if (x.state === "missing") return T("fichier introuvable");
+  if (x.state === "extracting") return T("extraction %d %%", pc(x.extracted || 0, x.extract_total || 0));
+  if (x.state === "queued") return T("en attente");
+  if (x.state === "paused") return T("en pause · %s sur %s", size(x.received || 0), size(x.total || 0));
+  if (x.state === "error") return x.error || T("en échec");
+  return T("téléchargement %d %%", pc(x.received || 0, x.total || 0));
+}
+function appsDlSummary() {
+  const d = state.appsDl || {}, items = d.items || [], temps = d.temps || [], miss = items.filter((x) => x.state === "missing").length;
+  if (!items.length && !temps.length) return T("rien de leur part pour l'instant");
+  let out = T("%d téléchargement(s)", items.length);
+  if (miss) out += " · " + T("%d introuvable(s)", miss);
+  if (temps.length) out += " · " + T("fichiers de passage : %d (%s)", temps.length, size(d.temp_bytes || 0));
+  return out;
+}
+async function loadArrivals() {
+  state.arrivalsAt = Date.now();
+  try { state.arrivals = await api("/arrivals"); } catch (e) { state.arrivals = state.arrivals || { items: [] }; }
+}
+// Bulle « Arrivés par Orbit » de l'Accueil (comme la télé) : des jeux, pas des parties — rien n'oblige à les sauvegarder.
+function openArrivals(anchor) {
+  const un = ((state.arrivals || {}).items || []).filter((a) => !a.later);
+  const apps = [...new Set(un.map((a) => a.app_name))], who = apps.length === 1 ? apps[0] : "Orbit / BlackBox";
+  const images = un.filter((a) => !a.pkg && a.format !== "FPKG").length, unsaved = un.filter((a) => !a.saved).length;
+  const go = async (place) => {
+    try {
+      const j = await post("/arrivals/backup", { place });
+      let msg = T("%d sauvegarde(s) ajoutée(s) aux tâches", (j.tasks || []).length);
+      if ((j.skipped || []).length) msg += " · " + T("%d pas sauvegardé(s) : %s", j.skipped.length, j.skipped[0].error);
+      toast(msg); state.arrivalsAt = 0; refresh(true);
+    } catch (e) { toast(e.message); }
+  };
+  const toDl = () => { setTab("downloads"); loadAppsDl().then(() => openAppsDl(anchor)); };
+  const acts = [];
+  if (unsaved) acts.push({ label: T("Sauvegarder…"), run: () => {
+    const dests = [{ label: T("Endroit habituel (%s)", destName((state.settings || {}).default_place || "auto")), run: () => go("") },
+      ...state.places.filter((p) => !p.readonly).map((p) => ({ label: p.label, run: () => go(p.id) })), { label: T("Annuler"), run: () => {} }];
+    openMenu(anchor, dests, T("Un jeu installé se sauvegarde comme les autres ; un .pkg pas installé est copié tel quel vers un NAS, le nuage ou une autre PS5."), T("Sauvegarder vers…"));
+  } });
+  acts.push({ label: T("Installer…"), run: toDl });
+  acts.push({ label: T("Déplacer vers…"), run: toDl });
+  if (images) acts.push({ label: T("Compresser en .pkg (Kraken)…"), run: toDl });
+  acts.push({ label: T("Voir dans Téléchargements › Orbit et BlackBox"), run: toDl });
+  acts.push({ label: T("Vu"), run: async () => { try { await post("/arrivals/later", {}); } catch (e) { /* rien */ } state.arrivals = { ...(state.arrivals || {}), new_count: 0 }; state.arrivalsAt = 0; refresh(true); } });
+  openMenu(anchor, acts, T("Les laisser où ils sont, les sauvegarder, les ranger ou les compresser : à vous de voir. Rien n'est touché chez Orbit ni chez BlackBox."), T("%d jeu(x) arrivé(s) par %s", un.length, who));
+}
+function openAppsDl(anchor) {
+  const d = state.appsDl || {}, acts = [];
+  (d.items || []).forEach((x) => acts.push({ label: [x.title, x.app_name, appsDlState(x), T(x.place_label || "")].concat(x.bytes != null ? [size(x.bytes)] : []).join(" · "), run: () => openAppsDlItem(anchor, x) }));
+  (d.temps || []).forEach((t) => {
+    const what = t.kind === "archive" ? T("archive gardée après l'extraction") : t.kind === "partial" ? T("téléchargement en cours") : T("reste d'un téléchargement");
+    acts.push({ label: [T("Fichier de passage : %s", (t.path || "").split("/").pop()), what, t.app_name, T(t.place_label || ""), size(t.bytes || 0)].join(" · "), run: () => openAppsDlItem(anchor, t) });
+  });
+  if (!acts.length) { toast(T("rien de leur part pour l'instant")); return; }
+  acts.push({ label: T("Fermer"), run: () => {} });
+  openMenu(anchor, acts, T("Ce qu'Orbit et BlackBox ont téléchargé sur cette console, lu dans leurs fichiers : rien n'est changé chez eux."), T("Orbit et BlackBox"));
+}
+function openAppsDlItem(anchor, x) {
+  const temp = x.kind != null, back = () => openAppsDl(anchor), acts = [];
+  // Ranger (étape 2), comme la télé : déplacer un jeu terminé vers un autre disque ; libérer la place d'un fichier de passage.
+  if (!temp && x.state === "done") acts.push({ label: T("Installer…"), run: () => openInstall(anchor, x.path, x.title, x.bytes || 0, /\.pkg$/i.test(x.path || "")) });
+  if (!temp && x.state === "done") acts.push({ label: T("Déplacer vers…"), run: () => {
+    const dests = (state.places || []).filter((p) => (p.type === "internal" || p.type === "usb") && p.id !== x.place)
+      .map((p) => ({ label: p.label + " · " + T("%s libres", size(p.free || 0)), run: async () => {
+        if (!(await ask(T("Déplacer « %s » vers %s ?", x.title, p.label), `<p>${esc(T("%s ne le retrouvera plus à son ancien endroit ; Backup Center le montre à sa nouvelle place.", x.app_name))}</p>`, T("Oui, déplacer (copie vérifiée, puis l'original retiré)")))) return;
+        try { await post("/apps-downloads/move", { app: x.app, id: x.id, place: p.id }); toast(T("Déplacement lancé : il suit dans Tâches")); state.appsDlAt = 0; refresh(true); } catch (e) { toast(e.message); }
+      } }));
+    if (!dests.length) { toast(T("Aucun autre disque sur cette console")); return; }
+    dests.push({ label: T("Annuler"), run: () => {} });
+    openMenu(anchor, dests, "", T("Déplacer vers…"));
+  } });
+  // Une image .exfat terminée : la compresser à côté, en .pkg (Kraken) ou en .ffpfsc ; l'image d'Orbit reste (comme la télé).
+  if (!temp && x.state === "done" && /\.exfat$/i.test(x.path || "")) {
+    const compress = async (body) => {
+      try { const pl = await post("/images/plan", body); if (pl && pl.ok === false) { toast(pl.error || T("Opération impossible")); return; }
+        await post("/tasks", body); toast(T("Ajouté aux tâches : suivez-le dans Transferts › Transferts en cours")); } catch (e) { toast(e.message); }
+    };
+    acts.push({ label: T("Compresser en .pkg (Kraken)"), run: () => compress({ type: "make_pkg", source: x.path, pkg_level: 1 }) });
+    acts.push({ label: T("Compresser en .ffpfsc"), run: () => compress({ type: "compress", source: x.path }) });
+  }
+  if (temp && x.kind !== "partial") acts.push({ label: T("Libérer la place…"), run: async () => {
+    const name = (x.path || "").split("/").pop();
+    if (!(await ask(T("Supprimer « %s » ?", name), `<p>${esc(T("Un fichier de passage : le jeu n'en a plus besoin. Il ne passe pas par la corbeille."))}</p>`, T("Oui, supprimer pour de bon (%s libérés)", size(x.bytes || 0))))) return;
+    try { await post("/apps-downloads/free", { path: x.path, confirm: "SUPPRIMER" }); toast(T("Suppression lancée : elle suit dans Tâches")); state.appsDlAt = 0; refresh(true); } catch (e) { toast(e.message); }
+  } });
+  const info = (t) => acts.push({ label: t, run: back });  // une ligne d'information : retour à la liste (comme la télé)
+  info(T("Appli : %s", x.app_name));
+  if (!temp) info(T("État : %s", appsDlState(x)));
+  info(T("Disque : %s", T(x.place_label || "")));
+  info(T("Fichier : %s", x.path || ""));
+  if (x.bytes != null) info(T("Taille : %s", size(x.bytes)));
+  if (!temp && x.format) info(T("Format : %s", x.format + (x.compression ? " (" + x.compression + ")" : "")));
+  if (!temp && x.title_id) info(x.installed ? T("Installé sur cette console") : T("Pas installé sur cette console"));
+  acts.push({ label: T("Fermer"), run: () => {} });
+  openMenu(anchor, acts, "", x.title);
+}
+async function loadTorrents() { try { state.torrents = await api("/torrents"); } catch (e) { state.torrents = { available: false, torrents: [] }; } }
+async function addTorrent(source) {
+  const def = (state.settings || {}).dl_place || (state.places.find((p) => p.type === "internal") || {}).id || "";
+  const id = await askWhere(T("Où ranger ce téléchargement ?"), T("Sur un disque de cette console. Pour le NAS ou le nuage : le copier ensuite (Transferts)."), def, 1);
+  const disk = state.places.find((p) => p.id === id);
+  if (!disk) return;
+  const save = (disk.type === "internal" ? "/data" : disk.mount) + "/Téléchargements";
+  try { await post("/torrents", { source, save }); toast(T("Ajouté : il apparaît dans « En cours »")); await loadTorrents(); render(); } catch (e) { toast(e.message); }
+}
+// BitTorrent : un lien magnet (collé) ou un fichier .torrent (chemin sur la console) ; puis le choix du disque.
+async function addMagnet() {
+  if (!(await ask(T("Lien magnet (magnet:?xt=…)"), `<input id="mag-in" style="width:100%" placeholder="magnet:?xt=urn:btih:…">`, T("Continuer")))) return;
+  const v = (($("#mag-in") || {}).value || "").trim();
+  if (!v.startsWith("magnet:")) { toast(T("Ce n'est pas un lien magnet (il commence par « magnet: »)")); return; }
+  return addTorrent(v);
+}
+// Comme la télé : parcourir les dossiers de la console et toucher le fichier .torrent.
+function addTorrentFile() {
+  openBrowser({ title: T("Choisir un fichier .torrent"), start: "/data", files: true, pick: (v) => {
+    if (!v.endsWith(".torrent")) { toast(T("Choisissez un fichier .torrent")); return; }
+    addTorrent(v);
+  } });
+}
+// Créer un lien : un fichier ou un dossier de la console devient un torrent partagé depuis là où il est (rien n'est copié).
+async function createLink() {
+  const html = `<p class="hint">${esc(T("Chemin du fichier ou du dossier sur la console (par exemple /data/Téléchargements/mon-dossier)"))}</p><input id="cl-in" style="width:100%" value="/data/">
+    <p class="hint">${esc(T("La console calcule les empreintes (quelques minutes pour un gros jeu), puis le partage depuis là où il est : rien n'est copié. Le code QR du lien magnet est dans sa fiche ; le partage dure tant qu'il reste dans la liste."))}</p>`;
+  if (!(await ask(T("Créer un lien"), html, T("Oui, créer le lien")))) return;
+  const v = (($("#cl-in") || {}).value || "").trim();
+  try { await post("/torrents/create", { path: v }); toast(T("Préparation du lien : suivez-la dans « En cours »")); await loadTorrents(); render(); } catch (e) { toast(e.message); }
+}
+async function cancelLink(job, failed) {
+  try { await post("/torrents/create", { cancel: job }); toast(failed ? T("Retiré de la liste") : T("Création du lien annulée")); await loadTorrents(); render(); } catch (e) { toast(e.message); }
+}
+function creatingRow(c) {
+  const f = c.total ? Math.min(1, c.done / c.total) : 0, failed = c.state === "error";
+  const right = failed ? (c.error || T("erreur")) : c.total ? T("%d %% · %s sur %s", Math.round(100 * f), size(c.done), size(c.total)) : T("liste des fichiers…");
+  return `<div class="card dl-row"><div class="dl-top"><b>${esc(c.name)}</b><span class="${failed ? "bad" : "accent"}">${esc(right)}</span></div>
+    <div class="hint">${esc(T("Créer un lien"))} · ${esc(T("calcul des empreintes, rien n'est copié"))} · ${esc(c.path)}</div>
+    <div class="bar"><span style="width:${Math.max(1, Math.round(f * 100))}%"></span></div>
+    <div class="actions"><button class="secondary" data-cl-cancel="${esc(c.job)}" data-failed="${failed ? 1 : 0}">${failed ? T("Retirer de la liste") : T("Annuler la création du lien")}</button></div></div>`;
+}
+async function downloadTorrentFile(t) {
+  try {
+    const r = await fetch(`/api/v2/torrents/${t.id}/torrent`, { headers: { "X-PBC-Token": state.token } });
+    if (!r.ok) { let m = r.statusText; try { m = (await r.json()).error || m; } catch (e) {} throw new Error(m); }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(await r.blob());
+    a.download = (t.name || "lien") + ".torrent";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  } catch (e) { toast(e.message); }
+}
+const torWhat = (t) => {
+  let w = { metadata: T("recherche des informations du lien"), waiting: T("en attente de sources"), queued: T("attend son tour dans la file"), checking: T("vérification de ce qui est déjà là"), seeding: T("terminé · partagé"), complete: T("terminé · partage arrêté"), paused: T("en pause"), error: T("erreur") }[t.state] || T("téléchargement");
+  if (t.state === "queued" && t.queue >= 0) w = T("attend son tour (n° %d dans la file)", t.queue + 1);
+  if (t.forced) w += " · " + T("démarrage forcé");
+  // Un lien créé ici qui cherche à télécharger : ses fichiers ne sont plus là où ils étaient (il ne partage rien).
+  if (t.created && ["waiting", "downloading", "metadata"].includes(t.state)) w = T("fichiers introuvables");
+  if (t.created) w = T("lien créé ici") + " · " + w;
+  return w;
+};
+async function torAct(id, what, body, done) {
+  try { await post(`/torrents/${id}/${what}`, body || {}); if (done) toast(done); await loadTorrents(); render(); if (torDetail.id === id) torDetailLoad(); } catch (e) { toast(e.message); }
+}
+function torFilePrio(anchor, id, index, current) {
+  const prios = [[7, T("Haute")], [4, T("Normale")], [1, T("Basse")], [0, T("Ne pas télécharger")]];
+  openMenu(anchor, prios.map(([p, l]) => ({ label: (current === p ? "● " : "○ ") + l, run: () => torAct(id, index >= 0 ? "file" : "files", index >= 0 ? { index, priority: p } : { priority: p }, p === 0 ? T("Ne sera pas téléchargé") : T("Priorité changée")) })),
+    T("Haute : ses morceaux passent en premier. « Ne pas télécharger » : il est sauté (ce qui est déjà là reste)."));
+}
+// Toutes les actions d'un torrent (comme ≡ à la télé).
+function torMenu(anchor, t, fromDetail) {
+  const acts = [];
+  if (!fromDetail) acts.push({ label: T("Voir la fiche (fichiers, pairs, lien magnet)"), run: () => openTorDetail(t.id) });
+  acts.push({ label: t.state === "complete" ? T("Partager à nouveau (sans arrêt automatique)") : t.paused ? T("Reprendre") : T("Mettre en pause"), run: () => torAct(t.id, t.paused ? "resume" : "pause", {}, t.paused ? T("Reprise là où il s'était arrêté") : T("En pause : il reprendra là où il s'est arrêté")) });
+  if (t.state !== "seeding" && t.state !== "complete" && !t.forced) acts.push({ label: T("Forcer le démarrage (sans attendre son tour)"), run: () => torAct(t.id, "force", {}, T("Démarré sans attendre son tour")) });
+  if (t.forced) acts.push({ label: T("Remettre dans la file (attendre son tour)"), run: () => torAct(t.id, "resume", {}, T("Remis dans la file")) });
+  acts.push({ label: T("Chercher des pairs maintenant"), run: () => torAct(t.id, "reannounce", {}, T("Recherche de pairs lancée (trackers et DHT)")) });
+  acts.push({ label: T("Ajouter un pair à la main (ip:port)…"), run: async () => {
+    const pr = ask(T("Ajouter un pair à la main (ip:port)…"), `<input id="tor-peer" style="width:100%" placeholder="192.168.1.20:6891">`, T("Ajouter"));
+    let addr = "";  // gardé pendant la saisie : la fenêtre est retirée avant la réponse
+    const inp = $("#tor-peer"); if (inp) inp.oninput = () => { addr = inp.value; };
+    if (!(await pr)) return;
+    torAct(t.id, "add_peer", { addr: addr.trim() }, T("Connexion à ce pair demandée : il apparaît dans Pairs s'il répond"));
+  } });
+  if (t.queue >= 0) {
+    acts.push({ label: T("Passer en premier dans la file"), run: () => torAct(t.id, "queue_top", {}, T("En tête de la file")) });
+    acts.push({ label: T("Monter dans la file"), run: () => torAct(t.id, "queue_up", {}, T("Monté d'une place")) });
+    acts.push({ label: T("Descendre dans la file"), run: () => torAct(t.id, "queue_down", {}, T("Descendu d'une place")) });
+  }
+  if (t.state !== "seeding" && t.state !== "complete") acts.push({ label: t.sequential ? T("Télécharger dans l'ordre : oui (changer)") : T("Télécharger dans l'ordre : non (changer)"),
+    run: () => torAct(t.id, "sequential", { on: !t.sequential }, !t.sequential ? T("Dans l'ordre : le début des fichiers arrive en premier") : T("Dans le désordre : le plus rapide d'abord")) });
+  if (t.state !== "seeding" && t.state !== "complete") acts.push({ label: t.first_last ? T("Premiers et derniers morceaux d'abord : oui (changer)") : T("Premiers et derniers morceaux d'abord : non (changer)"),
+    run: () => torAct(t.id, "first_last", { on: !t.first_last }, !t.first_last ? T("Le début et la fin de chaque fichier arrivent en premier (aperçu d'une vidéo, archive lisible plus tôt)") : T("Morceaux dans l'ordre habituel")) });
+  if (t.state === "seeding" || t.state === "complete") acts.push({ label: t.superseed ? T("Super-seed : oui (changer)") : T("Super-seed : non (changer)"),
+    run: () => torAct(t.id, "superseed", { on: !t.superseed }, !t.superseed ? T("Super-seed : chaque pair reçoit des morceaux différents (premier partage, envoi économe)") : T("Partage normal")) });
+  acts.push({ label: T("Renommer…"), run: async () => {
+    const pr = ask(T("Renommer…"), `<label>${T("Nouveau nom du torrent (son dossier ou son fichier)")}<br><input id="tor-name" style="width:22em" value="${esc(t.name || "")}"></label>`, T("Renommer"));
+    let typed = t.name || "";  // gardé pendant la saisie : la fenêtre est retirée avant la réponse
+    const inp = $("#tor-name"); if (inp) inp.oninput = () => { typed = inp.value; };
+    if (!(await pr)) return;
+    const name = typed.trim();
+    if (name) torAct(t.id, "rename", { name }, T("Renommé"));
+  } });
+  acts.push({ label: T("Limiter ce torrent…"), run: async () => {
+    const rates = [0, 256, 512, 1024, 2048, 5120, 10240], lbl = (r) => (r <= 0 ? T("Sans limite") : r >= 1024 ? T("%d Mo/s", r / 1024) : T("%d Ko/s", r));
+    const cur = t.limit_down || 0;
+    if (!(await ask(T("Réception de « %s »", t.name), `<select id="tor-lim" style="width:100%">${rates.map((r) => `<option value="${r}" ${cur === r ? "selected" : ""}>${esc(lbl(r))}</option>`).join("")}</select><p class="hint">${esc(T("En plus du débit de Paramètres › Réseau, qui vaut pour tous les torrents."))}</p>`, T("Enregistrer")))) return;
+    torAct(t.id, "limits", { down: +(($("#tor-lim") || {}).value || 0), up: t.limit_up > 0 ? t.limit_up : 0 }, T("Limite de ce torrent changée"));
+  } });
+  acts.push({ label: T("Revérifier les fichiers sur le disque"), run: () => torAct(t.id, "recheck", {}, T("Vérification lancée")) });
+  acts.push({ label: T("Télécharger le fichier .torrent"), run: () => downloadTorrentFile(t) });
+  acts.push({ label: T("Enregistrer le fichier .torrent (à côté des fichiers)"), run: async () => {
+    try { const j = await post(`/torrents/${t.id}/export`, {}); toast(T("Enregistré : %s", j.path)); } catch (e) { toast(e.message); }
+  } });
+  if (t.created) {  // lien créé ici : il partage les fichiers d'origine, jamais effacés d'ici
+    acts.push({ label: T("Arrêter de partager (rien n'est effacé)"), run: () => { closeTorDetail(); torAct(t.id, "remove", {}, T("Partage arrêté : vos fichiers restent")); } });
+    openMenu(anchor, acts);
+    return;
+  }
+  acts.push({ label: T("Retirer de la liste (garder les fichiers)"), run: () => { closeTorDetail(); torAct(t.id, "remove", {}, T("Retiré : les fichiers restent")); } });
+  acts.push({ label: T("Supprimer aussi les fichiers…"), cls: "bad", run: async () => {
+    if (!(await ask(T("Supprimer « %s » et ses fichiers ?", t.name), `<p class="hint">${esc(T("Ce qui a été téléchargé est effacé du disque."))}</p>`, T("Supprimer")))) return;
+    closeTorDetail(); torAct(t.id, "remove", { files: true }, T("Supprimé"));
+  } });
+  openMenu(anchor, acts);
+}
+// Fiche d'un torrent (comme la télé) : Général avec le code QR du lien magnet, Fichiers, Pairs, Trackers ; relue toutes les 1,5 s.
+const torDetail = { id: "", tab: 0, data: null, timer: 0, box: null };
+function closeTorDetail() { if (torDetail.box) torDetail.box.remove(); clearInterval(torDetail.timer); torDetail.id = ""; torDetail.box = null; }
+async function torDetailLoad() {
+  if (!torDetail.id) return;
+  try { torDetail.data = await api(`/torrents/${torDetail.id}`); } catch (e) { toast(e.message); closeTorDetail(); return; }
+  torDetailDraw();
+}
+function openTorDetail(id) {
+  closeTorDetail();
+  torDetail.id = id; torDetail.tab = 0; torDetail.data = null;
+  const box = document.createElement("div");
+  box.className = "modal";
+  box.setAttribute("role", "dialog"); box.setAttribute("aria-modal", "true");
+  box.cancel = () => closeTorDetail();
+  box.onclick = (e) => { if (e.target === box) closeTorDetail(); };
+  box.innerHTML = `<div class="dialog wide tor-detail"><h2>${T("Chargement…")}</h2></div>`;
+  document.body.appendChild(box);
+  torDetail.box = box;
+  torDetail.timer = setInterval(() => { if (!$("#popmenu") && !document.querySelector(".modal:not(.tor-modal) .dialog:not(.tor-detail)")) torDetailLoad(); }, 1500);
+  torDetailLoad();
+}
+function torDetailDraw() {
+  const t = torDetail.data, box = torDetail.box;
+  if (!t || !box) return;
+  const st = t.state, pct = t.total ? Math.round(100 * t.done / t.total) : 0;
+  const rate = (k) => (k <= 0 ? T("sans limite") : k >= 1024 ? T("%d Mo/s", Math.round(k / 1024)) : T("%d Ko/s", k));
+  const prio = (p) => (p === 0 ? T("ne pas télécharger") : p >= 7 ? T("haute") : p <= 3 ? T("basse") : T("normale"));
+  let sub = "BitTorrent · " + torWhat(t);
+  if (t.queue >= 0 && st !== "seeding") sub += " · " + T("n° %d dans la file", t.queue + 1);
+  if (st === "error") sub += " · " + (t.error || "");
+  const tabs = [T("Général"), T("Fichiers · %d", (t.files || []).length), T("Pairs · %d", (t.peer_list || []).length), T("Trackers · %d", (t.trackers || []).length)];
+  const kv = (k, v) => `<div class="kv"><span>${esc(k)}</span><b>${esc(v)}</b></div>`;
+  let body = "";
+  if (torDetail.tab === 0) {
+    body = `<div class="row-inline" style="gap:20px;align-items:flex-start;flex-wrap:wrap"><div class="grow" style="min-width:280px">
+      ${kv(T("Progression"), t.total ? T("%s sur %s (%d %%)", size(t.done), size(t.total), pct) : T("taille encore inconnue"))}
+      ${kv(T("Vitesse"), `↓ ${size(t.down)}/s   ↑ ${size(t.up)}/s`)}
+      ${kv(T("Temps restant"), st === "seeding" ? T("terminé") : t.eta >= 0 ? duration(t.eta) : T("inconnu (aucune réception)"))}
+      ${kv(T("Reçu · envoyé · ratio"), `${size(t.downloaded)} · ${size(t.uploaded)} · ${(t.ratio || 0).toFixed(2)}`)}
+      ${kv(T("Sources · pairs (connectés)"), `${t.seeds} · ${t.peers}`)}
+      ${kv(T("Dans le réseau (selon les trackers)"), t.swarm_seeds >= 0 ? T("%d sources · %d pairs", t.swarm_seeds, Math.max(0, t.swarm_peers)) : T("inconnu"))}
+      ${kv(T("Disponibilité (copies complètes)"), t.availability >= 0 ? t.availability.toFixed(2) : T("inconnue"))}
+      ${kv(T("Morceaux"), String(t.pieces))}
+      ${kv(T("Limites de ce torrent"), `↓ ${rate(t.limit_down)}   ↑ ${rate(t.limit_up)}`)}
+      ${kv(T("Dans l'ordre"), t.sequential ? T("oui") : T("non"))}
+      ${kv(T("Rangé dans"), t.save)}</div>
+      <div style="width:220px"><div class="qr" style="width:220px;height:220px;background:#fff;border-radius:10px;overflow:hidden">${(t.magnet_qr || []).length ? qrSvg(t.magnet_qr) : `<p class="hint" style="color:#333;padding:12px">${esc(T("Lien trop long pour un code QR"))}</p>`}</div>
+      <p class="hint">${esc(T("Lien magnet : scannez-le pour le partager"))}</p>
+      <p class="hint">${esc(t.public ? T("Marche à la maison et depuis Internet (%s), si le port est ouvert sur la box", t.public) : T("Marche sur le réseau de la maison ; depuis Internet, dès que l'adresse publique est connue"))}</p>
+      <button class="secondary small" id="tor-copy">${T("Copier le lien magnet")}</button></div></div>`;
+  } else if (torDetail.tab === 1) {
+    body = (t.files || []).length ? `<div class="list">${t.files.map((f) => { const fp = f.size ? Math.round(100 * f.done / f.size) : 0;
+      return `<div class="card dl-row"><div class="dl-top"><span class="${f.priority === 0 ? "muted" : ""}">${esc(f.path)}</span><span class="hint">${esc(size(f.size))} · ${fp} % · </span><button class="secondary small" data-tor-prio="${f.index}" data-cur="${f.priority}">${esc(prio(f.priority))} ▾</button></div>
+        <div class="bar"><span style="width:${Math.max(1, fp)}%"></span></div></div>`; }).join("")}</div>
+      <div class="actions"><button class="secondary" id="tor-prio-all">${T("Priorité de tous les fichiers…")}</button></div>`
+      : `<p class="hint">${T("La liste des fichiers arrive avec les informations du lien.")}</p>`;
+  } else if (torDetail.tab === 2) {
+    body = (t.peer_list || []).length ? (t.peer_list || []).map((q) => kv(`${q.ip}  ${q.client}${q.seed ? " · " + T("source") : ""}${q.utp ? " · uTP" : ""}`, `↓ ${size(q.down)}/s  ↑ ${size(q.up)}/s  ${Math.round(100 * q.progress)} %`)).join("")
+      : `<p class="hint">${T("Aucun pair connecté pour l'instant.")}</p>`;
+  } else {
+    const stt = (x) => ({ ok: T("répond"), updating: T("contact en cours"), error: T("erreur") }[x] || T("pas encore contacté"));
+    body = ((t.trackers || []).length ? t.trackers.map((r) => `<div class="kv"><span>${esc(r.url)}<br><span class="hint">${esc(stt(r.status) + (r.seeds >= 0 ? " · " + T("%d sources · %d pairs", r.seeds, Math.max(0, r.peers)) : "") + (r.message ? " · " + r.message : ""))}</span></span>
+        <b><button class="secondary small" data-trk-edit="${esc(r.url)}">${T("Modifier")}</button> <button class="secondary small" data-trk-del="${esc(r.url)}">${T("Retirer ce tracker")}</button></b></div>`).join("")
+      : `<p class="hint">${T("Aucun tracker : les sources viennent du DHT.")}</p>`) + `<div class="actions"><button class="secondary" id="trk-add">${T("Ajouter un tracker…")}</button></div>`;
+  }
+  const scroll = box.querySelector(".tor-body") ? box.querySelector(".tor-body").scrollTop : 0;
+  box.querySelector(".dialog").innerHTML = `<h2>${esc(t.name)}</h2><p class="hint ${st === "error" ? "bad" : ""}">${esc(sub)}</p>
+    <div class="cmp-filters">${tabs.map((x, i) => `<button class="${i === torDetail.tab ? "on" : ""}" data-tor-tab="${i}">${esc(x)}</button>`).join("")}</div>
+    <div class="tor-body" style="max-height:55vh;overflow-y:auto;margin-top:12px">${body}</div>
+    <div class="actions"><button class="secondary" id="tor-pause">${t.paused ? T("Reprendre") : T("Mettre en pause")}</button><button class="secondary" id="tor-more">${T("Actions")} ▾</button><button class="primary" id="tor-close">${T("Fermer")}</button></div>`;
+  box.querySelector(".tor-body").scrollTop = scroll;
+  $$("[data-tor-tab]", box).forEach((b) => b.onclick = () => { torDetail.tab = +b.dataset.torTab; torDetailDraw(); });
+  $$("[data-tor-prio]", box).forEach((b) => b.onclick = () => torFilePrio(b, t.id, +b.dataset.torPrio, +b.dataset.cur));
+  if ($("#tor-prio-all", box)) $("#tor-prio-all", box).onclick = (e) => torFilePrio(e.currentTarget, t.id, -1, -1);
+  if ($("#tor-copy", box)) $("#tor-copy", box).onclick = async () => { try { await navigator.clipboard.writeText(t.magnet); toast(T("Lien magnet copié")); } catch (e) { toast(T("Copie impossible : sélectionnez le lien à la main")); } };
+  const trkAsk = async (title, val) => { if (!(await ask(title, `<input id="trk-in" style="width:100%" value="${esc(val)}">`, T("Enregistrer")))) return ""; return (($("#trk-in") || {}).value || "").trim(); };
+  if ($("#trk-add", box)) $("#trk-add", box).onclick = async () => { const u = await trkAsk(T("Adresse du tracker (udp://…, http://…, https://…)"), "udp://"); if (u && u !== "udp://") torAct(t.id, "tracker_add", { url: u }, T("Tracker ajouté")); };
+  $$("[data-trk-edit]", box).forEach((b) => b.onclick = async () => { const u = await trkAsk(T("Nouvelle adresse du tracker"), b.dataset.trkEdit); if (u && u !== b.dataset.trkEdit) torAct(t.id, "tracker_edit", { url: b.dataset.trkEdit, to: u }, T("Adresse du tracker changée")); });
+  $$("[data-trk-del]", box).forEach((b) => b.onclick = () => torAct(t.id, "tracker_remove", { url: b.dataset.trkDel }, T("Tracker retiré")));
+  $("#tor-pause", box).onclick = () => torAct(t.id, t.paused ? "resume" : "pause", {}, t.paused ? T("Reprise là où il s'était arrêté") : T("En pause : il reprendra là où il s'est arrêté"));
+  $("#tor-more", box).onclick = (e) => torMenu(e.currentTarget, t, true);
+  $("#tor-close", box).onclick = () => closeTorDetail();
+}
+function torrentRow(t) {
+  const st = t.state, f = t.total ? Math.min(1, t.done / t.total) : 0;
+  const right = st === "error" ? (t.error || T("erreur")) : st === "paused" ? T("en pause · %s sur %s", size(t.done), size(t.total)) : st === "queued" ? T("en attente · %s sur %s", size(t.done), size(t.total)) : st === "seeding" || st === "complete" ? "✓ " + size(t.total)
+    : t.down > 0 && t.total > t.done ? size(t.down) + "/s · " + T("reste") + " " + duration((t.total - t.done) / t.down) : t.total ? T("%s sur %s", size(t.done), size(t.total)) : T("taille encore inconnue");
+  return `<div class="card dl-row"><div class="dl-top"><b>${esc(t.name)}</b><span class="${st === "paused" ? "warn" : st === "seeding" ? "ok" : st === "error" ? "bad" : st === "queued" ? "muted" : "accent"}">${esc(right)}</span></div>
+    <div class="hint">BitTorrent · ${esc(torWhat(t))} · ${esc(T("%d source(s), %d pair(s)", t.seeds, t.peers))} · ${esc(t.save)}</div>
+    <div class="bar"><span style="width:${Math.max(1, Math.round(f * 100))}%"></span></div>
+    <div class="actions"><button class="primary" data-tor-open="${esc(t.id)}">${T("Voir la fiche")}</button><button class="secondary" data-tor-toggle="${esc(t.id)}" data-paused="${t.paused ? 1 : 0}">${t.paused ? T("Reprendre") : T("Mettre en pause")}</button><button class="secondary" data-tor-menu="${esc(t.id)}">${T("Actions")} ▾</button></div></div>`;
+}
+function downloadsView() {
+  if (!state.torrents) { loadTorrents().then(() => { if (state.tab === "downloads") render(); }); }
+  const tors = (state.torrents && state.torrents.torrents) || [], creating = (state.torrents && state.torrents.creating) || [];
+  const shares = (state.remotes || []).filter((r) => r.type === "share"), active = dlTasks(true), done = dlTasks(false);
+  const card = (r) => { const c = r.config || {}; return `<div class="dev"><div class="dev-ico">${cloudIcon(c.host)}</div><div class="dev-body">
+      <div class="title"><b>${esc(r.name)}</b><span class="tag share">${T("Partage")}</span></div>
+      <div class="hint">${esc(SHARE_SVC[c.host] || c.host || "")} · ${T("lecture seule")}</div>
+      <div class="dev-line"><span class="tag share">${esc(shareLeft(c))}</span></div>
+      <div class="dev-actions"><button class="go" data-dl-open="${esc(r.id)}">${T("Ouvrir ses fichiers")}</button><button data-share-keep="${esc(r.id)}">${T("Garder plus longtemps")}</button><button class="danger" data-share-drop="${esc(r.id)}" data-name="${esc(r.name)}">${T("Retirer ce partage")}</button></div></div></div>`; };
+  const row = (t) => {
+    const p = t.progress || {}, f = p.bytes_total ? Math.min(1, p.bytes_done / p.bytes_total) : 0;
+    const right = t.state === "paused" ? T("en pause · %s sur %s", size(p.bytes_done || 0), size(p.bytes_total || 0)) : t.state === "queued" ? T("en attente")
+      : t.bytes_per_second > 0 ? size(t.bytes_per_second) + "/s · " + T("reste") + " " + duration(((p.bytes_total || 0) - (p.bytes_done || 0)) / t.bytes_per_second) : T("%s sur %s", size(p.bytes_done || 0), size(p.bytes_total || 0));
+    return `<div class="card dl-row"><div class="dl-top"><b>${esc(t.title)}</b><span class="${t.state === "paused" ? "warn" : "accent"}">${esc(right)}</span></div>
+      <div class="hint">${esc(dlPlace(t.from_place))} → ${esc(dlPlace(t.place))}</div>
+      <div class="bar"><span style="width:${Math.max(1, Math.round(f * 100))}%"></span></div>
+      <div class="actions"><button class="secondary" data-dl-toggle="${esc(t.id)}" data-st="${esc(t.state)}">${t.state === "paused" ? T("Reprendre") : T("Pause")}</button><button class="secondary danger" data-dl-stop="${esc(t.id)}" data-title="${esc(t.title)}">${T("Arrêter…")}</button></div></div>`;
+  };
+  const doneRow = (t) => { const p = t.progress || {}, secs = Math.max(1, (t.finished || 0) - (t.started || 0));
+    const right = t.state === "done" ? "✓ " + size(p.bytes_total || 0) + " · " + T("%s/s moyen", size((p.bytes_total || 0) / secs)) : t.state === "cancelled" ? T("annulé") : (t.error || T("en échec"));
+    return `<div class="row"><div class="grow"><div class="t">${esc(t.title)}</div><div class="d">${esc(dlPlace(t.from_place))} → ${esc(dlPlace(t.place))}</div></div><span class="${t.state === "done" ? "ok" : t.state === "failed" ? "bad" : "hint"}">${esc(right)}</span><button class="secondary small" data-dl-remove="${esc(t.id)}">${T("Retirer de la liste")}</button></div>`; };
+  $("#view").innerHTML = `<h1>${T("Téléchargements")}</h1>
+    <p class="sub">${T("Ce qui arrive d'Internet : liens reçus, PS5 à distance.")}</p>
+    <div class="tr-label">${T("LIENS DE PARTAGE")} <span class="hint">${T("MEGA, Google Drive, Dropbox, OneDrive : s'ouvrent comme un disque")}</span></div>
+    <div class="devs">${shares.map(card).join("")}<button class="add" id="dl-add"><span class="dev-ico">${ICONS.cloud}</span><b>${T("+ Lien de partage")}</b><span class="hint">${T("MEGA, Google Drive, Dropbox, OneDrive")}</span></button></div>
+    <div class="tr-label">${T("BITTORRENT")} <span class="hint">${T("liens magnet et fichiers .torrent")}</span></div>
+    <div class="devs devs-5"><button class="add" id="bt-magnet"><b>${T("+ Lien magnet")}</b><span class="hint">${T("magnet:?xt=… (clavier)")}</span></button>
+      <button class="add" id="bt-file"><b>${T("+ Fichier .torrent")}</b><span class="hint">${T("sur l'interne ou une clé USB")}</span></button>
+      <button class="add" id="bt-create"><b>${T("Partager…")}</b><span class="hint">${T("jeu, ROM, appli, sauvegarde")}</span></button>
+      <button class="add" id="bt-links"><b>${T("Mes liens")}</b><span class="hint ${(state.links || []).some((l) => l.state === "preparing") ? "warn" : ""}">${esc((() => { const L = state.links || [], prep = L.filter((l) => l.state === "preparing").length;
+        return prep ? T("%d en préparation", prep) : L.length ? T("%d lien(s) donné(s)", L.length) : T("aucun pour l'instant"); })())}</span></button>
+      <button class="add" id="bt-settings"><b>${T("Réglages BitTorrent")}</b><span class="hint">${T("ports, file, connexions, trackers")}</span></button></div>
+    ${(() => { const n = state.settings || {}, rate = (k) => (k <= 0 ? T("Illimité") : k >= 1024 ? T("%d Mo/s", Math.round(k / 1024)) : T("%d Ko/s", k));
+      const pl = state.places.find((x) => n.dl_place && x.id === n.dl_place), where = (pl ? pl.label : T("Interne")) + " › " + T("Téléchargements");
+      return `<button class="card both-bar" id="dl-both"><b class="accent">${T("POUR LES DEUX")}</b> <span>${esc(T("Rangés dans %s", where))} · ${esc(T("Débit : %s", rate(n.bt_rate_max ?? 0)))} · ${esc(T("Pendant une partie : %s", rate(n.bt_rate_game ?? 2048)))} ›</span></button>`; })()}
+    ${appsDlPresent() ? `<button class="card both-bar" id="dl-apps"><b class="accent">${T("ORBIT ET BLACKBOX")}</b> <span class="${((state.appsDl || {}).items || []).some((x) => x.state === "missing") ? "warn" : ""}">${esc(appsDlSummary())} ›</span></button>` : ""}
+    <div class="tr-label">${T("EN COURS · %d", active.length + tors.length + creating.length)}</div>
+    ${creating.map(creatingRow).join("")}${tors.map(torrentRow).join("")}${active.length ? active.map(row).join("") : tors.length || creating.length ? "" : `<p class="hint">${T("Rien en cours. Ouvrez un lien reçu, ou ajoutez un lien magnet ou un .torrent.")}</p>`}
+    <div class="tr-label">${T("TERMINÉS")}</div>
+    ${done.length ? `<div class="list">${done.slice(0, 30).map(doneRow).join("")}</div>` : `<p class="hint">${T("Aucun téléchargement terminé pour l'instant.")}</p>`}`;
+  $("#dl-add").onclick = () => openShareEditor();
+  $("#bt-magnet").onclick = () => addMagnet();
+  $("#bt-file").onclick = () => addTorrentFile();
+  $("#bt-create").onclick = (ev) => shareHub(ev.currentTarget);  // quoi, où, puis la liste (comme la télé)
+  $("#bt-links").onclick = (ev) => myShares(ev.currentTarget);  // Mes liens : tous les liens donnés (comme la télé)
+  if (!state.linksAt || Date.now() - state.linksAt > 5000) {  // le nombre sur la carte « Mes liens »
+    state.linksAt = Date.now();
+    api("/links").then((r) => { const before = JSON.stringify(state.links || []); state.links = r.links || [];
+      if (before !== JSON.stringify(state.links) && state.tab === "downloads" && $("#bt-links") && !document.querySelector(".modal, .popmenu")) render(); }).catch(() => {});
+  }
+  $$("[data-cl-cancel]").forEach((b) => b.onclick = () => cancelLink(b.dataset.clCancel, b.dataset.failed === "1"));
+  $("#bt-settings").onclick = $("#dl-both").onclick = () => { state.settingsSection = "network"; setTab("settings"); };
+  if ($("#dl-apps")) $("#dl-apps").onclick = (ev) => openAppsDl(ev.currentTarget);
+  if (!state.appsDlAt || Date.now() - state.appsDlAt > 5000) {  // comme la télé : relu toutes les 5 s sur cet onglet
+    const before = JSON.stringify(state.appsDl || null);
+    loadAppsDl().then(() => { if (before !== JSON.stringify(state.appsDl) && state.tab === "downloads" && !document.querySelector(".modal, .popmenu")) render(); });
+  }
+  $$("[data-tor-toggle]").forEach((b) => b.onclick = async () => {
+    const paused = b.dataset.paused === "1";
+    try { await post(`/torrents/${b.dataset.torToggle}/${paused ? "resume" : "pause"}`); toast(paused ? T("Reprise là où il s'était arrêté") : T("En pause : il reprendra là où il s'est arrêté")); await loadTorrents(); render(); } catch (e) { toast(e.message); }
+  });
+  $$("[data-tor-open]").forEach((b) => b.onclick = () => openTorDetail(b.dataset.torOpen));
+  $$("[data-tor-menu]").forEach((b) => b.onclick = () => { const t = ((state.torrents || {}).torrents || []).find((x) => x.id === b.dataset.torMenu); if (t) torMenu(b, t, false); });
+  $$("[data-dl-open]").forEach((b) => b.onclick = () => openShareFiles(b.dataset.dlOpen));
+  $$("[data-share-keep]").forEach((b) => b.onclick = () => shareKeep(b.dataset.shareKeep));
+  $$("[data-share-drop]").forEach((b) => b.onclick = () => shareDrop(b.dataset.shareDrop, b.dataset.name));
+  menuizeDevActions($("#view"));  // comme la télé : Croix ouvre ses fichiers, ≡ garde plus longtemps ou retire
+  $$("[data-dl-toggle]").forEach((b) => b.onclick = async () => {
+    const pause = b.dataset.st !== "paused";
+    try { await post(`/tasks/${encodeURIComponent(b.dataset.dlToggle)}/${pause ? "pause" : "resume"}`); toast(pause ? T("En pause : il reprendra là où il s'est arrêté") : T("Reprise là où il s'était arrêté")); refresh(true); } catch (e) { toast(e.message); }
+  });
+  $$("[data-dl-stop]").forEach((b) => b.onclick = async () => {
+    if (!(await ask(T("Arrêter « %s » ?", b.dataset.title), `<p>${esc(T("Oui, arrêter (ce qui est déjà arrivé et vérifié reste)"))}</p>`, T("Arrêter")))) return;
+    try { await post(`/tasks/${encodeURIComponent(b.dataset.dlStop)}/cancel`); toast(T("Téléchargement arrêté")); refresh(true); } catch (e) { toast(e.message); }
+  });
+  $$("[data-dl-remove]").forEach((b) => b.onclick = async () => { try { await post(`/tasks/${encodeURIComponent(b.dataset.dlRemove)}/remove`); refresh(true); } catch (e) { toast(e.message); } });
+}
+
 function trChoice() {
   const tr = state.tr, { from, to } = trFromTo();
   if (from.kind === "ftp") return trRestore(from, to);
@@ -3587,7 +5156,7 @@ function trChoice() {
   const sub = (it) => {
     const g = imgs && imgs.get(it.key);
     if (!g) return [placeLabel(it.place), it.image_type].filter(Boolean).join(" · ");
-    let disk = g.disk && g.disk.label ? g.disk.label : placeLabel(it.place);
+    let disk = g.disk && g.disk.label ? T(g.disk.label) : placeLabel(it.place);
     let s = `${disk} · ${storageText(g)}`;
     if (g.container === "ffpfsc") s += " · " + T("déjà compressée");
     else if (g.storage === "folder" && it.kind === "game_ps5") s += " · " + T("compressible");
@@ -3597,7 +5166,9 @@ function trChoice() {
   const chosen = state.items.filter((it) => tr.sel.has(it.key));
   const total = chosen.reduce((a, it) => a + itemBytes(it, tr.saves), 0);
   const tight = to.hasFree && total > to.free;
-  const opts = [["compress", T("Compresser avant l'envoi"), T("dossiers PS5 → image .ffpfsc"), tr.compress || compress], ["saves", T("Avec les sauvegardes"), T("les sauvegardes du jeu suivent"), tr.saves],
+  tr.format = tr.format || "ffpfsc"; if (tr.pkgLevel === undefined) tr.pkgLevel = 1;
+  const pkg = tr.format === "pkg";
+  const opts = [["compress", T("Compresser avant l'envoi"), pkg ? T("jeu ou image → paquet .pkg (Kraken)") : T("dossiers PS5 → image .ffpfsc"), tr.compress || compress], ["saves", T("Avec les sauvegardes"), T("les sauvegardes du jeu suivent"), tr.saves],
     ["verify", tr.verify ? T("Vérification complète") : T("Vérification rapide"), tr.verify ? T("SHA-256 de chaque fichier copié") : T("présence et taille ; original gardé si déplacement"), tr.verify]];
   const allOn = items.length && items.every((it) => tr.sel.has(it.key));
   $("#view").innerHTML = `<div class="eyebrow tr-crumb"><button class="link" id="tr-back">‹ ${T("Retour")}</button> ${T("TRANSFERTS")} · ${esc(from.name)} → ${esc(to.name)} · ${TR_ACTIONS[tr.action][0]}</div>
@@ -3610,7 +5181,11 @@ function trChoice() {
         <div class="thumb">${coverHtml(it, true)}</div><div><div class="t">${esc(it.title)}</div><div class="d">${esc(sub(it))}</div></div><div class="size">${size(itemBytes(it, tr.saves))}</div></label>`).join("")
         : `<div class="empty">${from.kind === "switch" ? T("Le contenu de cet appareil se choisit dans sa synchronisation (Transferts › Synchroniser).") : T("Rien de ce type sur cet appareil.")}</div>`}</div>
       <div><div class="tr-label">${T("OPTIONS")}</div>${opts.map(([k, n, t, on]) => `<label class="toggle-card"><span class="grow"><b>${n}</b><span class="hint">${t}</span></span>
-        <input type="checkbox" class="switch" data-opt="${k}" ${on ? "checked" : ""} ${k === "compress" && compress ? "disabled" : ""}></label>`).join("")}</div>
+        <input type="checkbox" class="switch" data-opt="${k}" ${on ? "checked" : ""} ${k === "compress" && compress ? "disabled" : ""}></label>`).join("")}
+        ${compress || tr.compress ? `<div class="toggle-card tr-format"><span class="grow"><b>${T("Format")}</b>
+          <span class="seg" style="margin-top:6px"><button class="${pkg ? "" : "chosen"}" data-fmt="ffpfsc">${T("Image ShadowMount (.ffpfsc)")}</button><button class="${pkg ? "chosen" : ""}" data-fmt="pkg">${T("Paquet Kraken (.pkg)")}</button></span>
+          ${pkg ? `<span class="hint">${T("Compression du paquet")} : <select data-pkglvl>${[[1, T("Rapide (conseillé)")], [0, T("Sans compression (le plus sûr)")], [2, T("Plus petit (plus lent)")]].map(([v, l]) => `<option value="${v}" ${tr.pkgLevel === v ? "selected" : ""}>${l}</option>`).join("")}</select></span>
+            ${tr.action === 1 ? `<span class="hint warn">${T("En .pkg, on copie : l'original reste (le jeu continue de se lancer depuis lui).")}</span>` : ""}` : `<span class="hint">${T("se monte telle quelle par ShadowMount")}</span>`}</span></div>` : ""}</div>
     </div>
     <div class="summary"><div class="grow"><b>${chosen.length > 1 ? T("%d éléments", chosen.length) : T("%d élément", chosen.length)} · ${size(total)} → ${esc(to.name)}</b>
       <div class="hint ${tight ? "bad" : ""}">${tight ? T("Pas assez de place : %s libres", size(to.free)) : to.hasFree ? T("Place libre : %s", size(to.free)) : T("Place libre vérifiée par le moteur avant de commencer")}</div></div>
@@ -3620,6 +5195,8 @@ function trChoice() {
   $("#tr-all").onclick = () => { if (allOn) items.forEach((it) => tr.sel.delete(it.key)); else items.forEach((it) => tr.sel.add(it.key)); trChoice(); };
   $$("[data-sel]").forEach((c) => c.onchange = () => { if (c.checked) tr.sel.add(c.dataset.sel); else tr.sel.delete(c.dataset.sel); trChoice(); });
   $$("[data-opt]").forEach((c) => c.onchange = () => { tr[c.dataset.opt] = c.checked; trChoice(); });
+  $$("[data-fmt]").forEach((b) => b.onclick = () => { tr.format = b.dataset.fmt; trChoice(); });
+  const lv = $("[data-pkglvl]"); if (lv) lv.onchange = () => { tr.pkgLevel = +lv.value; };
   $("#tr-go").onclick = () => trLaunch(to);
 }
 async function trLaunch(to) {
@@ -3631,8 +5208,9 @@ async function trLaunch(to) {
     let body;
     if ((to.kind === "ftp" || to.kind === "peer") && tr.action !== 2)  // vers le NAS ou une autre PS5 : une sauvegarde vérifiée, rangée comme les autres
       body = { type: "backup", item: key, parts: tr.saves ? [] : ["game", "update", "dlc", "app", "state", "config"], place: to.id };
-    else if (tr.action === 2) body = { type: "compress", item: key, target: to.id };
-    else body = { type: "transfer", mode: tr.action === 1 ? "move" : "copy", item: key, to: to.id, saves: tr.saves, verify: true, verify_mode: tr.verify ? "full" : "quick", compress: tr.compress };
+    else if (tr.action === 2) body = { type: "compress", item: key, target: to.id, format: tr.format || "ffpfsc", pkg_level: tr.pkgLevel ?? 1 };
+    else body = { type: "transfer", mode: tr.action === 1 && !(tr.compress && tr.format === "pkg") ? "move" : "copy", item: key, to: to.id, saves: tr.saves, verify: true, verify_mode: tr.verify ? "full" : "quick", compress: tr.compress,
+      ...(tr.compress ? { format: tr.format || "ffpfsc", pkg_level: tr.pkgLevel ?? 1 } : {}) };
     try { await post("/tasks", body); ok++; } catch (e) { toast(e.message); }
   }
   if (!ok) { $("#tr-go").disabled = false; return; }
@@ -3700,6 +5278,7 @@ function taskPhase(t) {
 }
 // Suivi : les tâches actives puis les dernières terminées (7 au plus), avec pause / reprise / annulation.
 function taskRowHtml(t) {
+  if (t.type === "install_job") return jobRowHtml(t);
   const p = t.progress || {}, pct = p.bytes_total ? Math.min(100, Math.round((p.bytes_done / p.bytes_total) * 100)) : t.state === "done" ? 100 : 0;
   const eta = t.state === "running" && t.bytes_per_second > 0 && p.bytes_total ? duration((p.bytes_total - p.bytes_done) / t.bytes_per_second) : "";
   const btns = { running: ["pause", "cancel"], queued: ["pause", "cancel"], paused: ["resume", "cancel"], failed: ["resume", "details", "remove"], done: ["details", "remove"], cancelled: ["details", "remove"] }[t.state] || [];
@@ -3716,18 +5295,29 @@ function taskRowHtml(t) {
   const plc = (id) => {
     const p = state.places.find((x) => x.id === id);
     if (!p) return id ? `<span class="route-dev">${esc(id)}</span>` : "";
-    const cl = p.protocol === "s3" || p.protocol === "gdrive" || p.protocol === "onedrive" || p.protocol === "dropbox";
-    const ico = p.type === "ftp" ? (cl ? cloudIcon(p.protocol, p.service) : ICONS.nas) : p.type === "usb" ? ICONS.usb : ICONS.ps5;
+    const cl = ["s3", "gdrive", "onedrive", "dropbox", "mega"].includes(p.protocol);
+    const ico = p.readonly ? cloudIcon(p.service) : p.type === "ftp" ? (cl ? cloudIcon(p.protocol, p.service) : ICONS.nas) : p.type === "usb" ? ICONS.usb : ICONS.ps5;
     return `<span class="route-dev">${ico}${esc(p.type === "internal" ? T("Interne") : p.label)}</span>`;
   };
   const here = `<span class="route-dev">${ICONS.ps5}${T("Cette PS5")}</span>`;
-  const route = t.type === "backup" && t.place ? `${here} → ${plc(t.place)}` : (t.type === "restore_save" || t.type === "restore") && t.from_place ? `${plc(t.from_place)} → ${here}` : "";
-  const by = (t.origin || "").startsWith("plan:") ? T("Plan « %s »", t.origin.slice(5)) : t.origin === "sync" ? T("Synchro") : "";
+  const route = t.type === "backup" && t.place ? `${here} → ${plc(t.place)}` : (t.type === "restore_save" || t.type === "restore") && t.from_place ? `${plc(t.from_place)} → ${here}` : (t.type === "files_copy" || t.type === "files_move") && t.from_place && t.place ? `${plc(t.from_place)} → ${plc(t.place)}` : "";
+  const by = (t.origin || "").startsWith("plan:") ? T("Plan « %s »", t.origin.slice(5)) : t.origin === "sync" ? T("Synchro") : t.origin === "download" ? T("Téléchargement") : "";
+  // Téléchargement depuis un lien reçu : le logo de son service (MEGA, Drive…) à la place d'une jaquette inventée.
+  const src = !t.item && t.from_place ? state.places.find((x) => x.id === t.from_place && x.readonly) : null;
   const what = `${TASK_KINDS[t.type] || T("Tâche")} · ${ph ? `${esc(ph.text)} · ${T("%s sur %s", size(Math.min(ph.done, ph.total)), size(ph.total))}` : t.state === "running" && t.step ? esc(t.step) : STATES[t.state] || t.state}`;
   return `<div class="row"><div class="thumb">${coverHtml(it, true)}</div><div><div class="t">${esc(t.title || TASK_KINDS[t.type] || T("Tâche"))}<span class="state ${t.state}">${t.state === "running" ? SPIN : ""}${STATES[t.state] || t.state}</span></div>
-    <div class="d">${what}${p.bytes_total ? ` · ${pct} % · ${T("%s sur %s", size(p.bytes_done), size(p.bytes_total))}` : ""}${p.files_total ? ` · ${T("%d/%d fichiers", p.files_done, p.files_total)}` : ""}${t.state === "running" && !ph && t.bytes_per_second > 0 ? ` · ${size(t.bytes_per_second)}/s${eta ? " · " + T("reste") + " " + eta : ""}` : ""}${t.error ? ` · <span class="bad">${esc(t.error)}</span>` : ""}${t.state === "done" && t.report && t.report.mount_deferred ? ` · ${T("apparaît sur l'accueil une fois l'application fermée")}` : ""}${t.state === "done" && t.report && t.report.bytes_per_second && t.report.seconds ? ` · ${T("lecture %s/s", size(t.report.bytes_per_second))}${t.report.note ? " · " + T("jeu trop petit : mesure peu fiable") : ""}` : ""}</div>${route || by ? `<div class="d route">${route}${by ? `${route ? " · " : ""}${esc(by)}` : ""}</div>` : ""}</div>
+    <div class="d">${what}${p.bytes_total ? ` · ${pct} % · ${T("%s sur %s", size(p.bytes_done), size(p.bytes_total))}` : ""}${p.files_total ? ` · ${T("%d/%d fichiers", p.files_done, p.files_total)}` : ""}${t.state === "running" && !ph && t.bytes_per_second > 0 ? ` · ${size(t.bytes_per_second)}/s${eta ? " · " + T("reste") + " " + eta : ""}` : ""}${t.error ? ` · <span class="bad">${esc(t.error)}</span>` : ""}${(t.type === "files_copy" || t.type === "files_move") && (t.state === "cancelled" || t.state === "failed") && !(t.report && (t.report.cleaned || t.report.cleaning)) ? ` · ${esc(T("Les fichiers déjà copiés sont restés à destination."))}` : ""}${t.state === "done" && t.report && t.report.mount_deferred ? ` · ${T("apparaît sur l'accueil une fois l'application fermée")}` : ""}${t.state === "done" && t.report && t.report.bytes_per_second && t.report.seconds ? ` · ${T("lecture %s/s", size(t.report.bytes_per_second))}${t.report.note ? " · " + T("jeu trop petit : mesure peu fiable") : ""}` : ""}</div>${route || by ? `<div class="d route">${route}${by ? `${route ? " · " : ""}${esc(by)}` : ""}</div>` : ""}</div>
     <div class="btns">${t.type === "link_send" && t.state === "done" && t.report && t.report.foreground && t.report.foreground.title_id ? `<button data-close-remote="${esc(t.id)}">${esc(T("Fermer « %s » là-bas", t.report.foreground.title || t.report.foreground.title_id))}</button>` : ""}${btns.map((a) => `<button data-id="${t.id}" data-a="${a}">${names[a]}</button>`).join("")}</div>
     ${ph ? `<div class="bar done"><span style="width:${Math.round(ph.f * 100)}%"></span></div>` : activeState(t.state) || (t.state === "done" && p.bytes_total) ? `<div class="bar ${t.state === "done" ? "done" : ""}"><span style="width:${pct}%"></span></div>` : ""}</div>`;
+}
+// Une installation par étapes : sa ligne, ses étapes, sa barre (l'étape en cours) ; Arrêter tant qu'elle tourne.
+function jobRowHtml(t) {
+  const p = t.progress || {}, pct = p.bytes_total ? Math.min(100, Math.round((p.bytes_done / p.bytes_total) * 100)) : t.state === "done" ? 100 : 0;
+  const it = state.items.find((i) => i.title === t.title) || { key: "", title: t.title, kind: "game_ps5", platform: "PS5", has_cover: false };
+  const btns = activeState(t.state) ? `<button data-id="${t.id}" data-a="cancel">${T("Arrêter la tâche")}</button>` : "";
+  return `<div class="row"><div class="thumb">${coverHtml(it, true)}</div><div><div class="t">${esc(T("Installer %s → %s", t.title || "", (t.report || {}).target || ""))}<span class="state ${t.state}">${t.state === "running" ? SPIN : ""}${STATES[t.state] || t.state}</span></div>
+    <div class="d">${esc(jobLine(t))}${t.error ? ` · <span class="bad">${esc(t.error)}</span>` : ""}</div>${jobStepsHtml(t)}</div>
+    <div class="btns">${btns}</div>${activeState(t.state) || t.state === "done" ? `<div class="bar ${t.state === "done" ? "done" : ""}"><span style="width:${pct}%"></span></div>` : ""}</div>`;
 }
 function bindTaskButtons() {
   $$(".btns button[data-close-remote]").forEach((b) => b.onclick = () => {
@@ -3736,12 +5326,23 @@ function bindTaskButtons() {
   });
   $$(".btns button[data-a]").forEach((b) => b.onclick = async () => {
     if (b.dataset.a === "details") { const t = (state.tasks || []).find((x) => x.id === b.dataset.id); if (t) taskDetails(t); return; }
+    const t = (state.tasks || []).find((x) => x.id === b.dataset.id) || {};
     if (b.dataset.a === "cleanup") {  // deux confirmations : on retire des fichiers
-      if (!await ask(T("Retirer les fichiers que cette copie a créés ?"), `<p class="hint">${esc(T("Seulement ce que cette copie a créé : un fichier qui était déjà là n'est jamais touché, ni rien d'autre."))}</p>`, T("Continuer"))) return;
+      const copied = Number((t.report || {}).copied) || 0;
+      if (!await ask(T("Retirer les fichiers que cette copie a créés ?"), `<p class="hint">${copied > 0 ? esc(T("%d fichier(s) créé(s) par cette copie.", copied)) + " " : ""}${esc(T("Seulement ce que cette copie a créé : un fichier qui était déjà là n'est jamais touché, ni rien d'autre."))}</p>`, T("Continuer"))) return;
       if (!await ask(T("Confirmer le retrait"), `<p>${esc(T("Les fichiers créés par cette copie vont être retirés de la destination."))}</p>`, T("Oui, retirer ces fichiers"))) return;
     }
+    if (b.dataset.a === "cancel"  // comme la télé : « Arrêter « … » ? », Oui / Non, et ce qui reste après
+      && !await ask(T("Arrêter « %s » ?", t.title || TASK_KINDS[t.type] || T("Tâche")), `<p class="hint">${esc(T("Ce qui est déjà copié reste vérifié ; la tâche pourra être relancée."))}</p>`, T("Oui, arrêter la tâche"), T("Non, continuer"))) return;
+    if (b.dataset.a === "skip-verify"
+      && !await ask(T("Vérification en cours"), `<p class="hint">${esc(T("Pause et redémarrage ne perdent rien : le transfert reprend là où il s'est arrêté. Un déplacement non vérifié garde l'original."))}</p>`, T("Arrêter la vérification (garder la copie)"), T("Fermer"))) return;
     b.disabled = true;
-    try { await post(`/tasks/${b.dataset.id}/${b.dataset.a}`); refresh(true); } catch (e) { toast(e.message); b.disabled = false; }
+    try {
+      await post(`/tasks/${b.dataset.id}/${b.dataset.a}`);
+      const done = { cancel: T("Tâche arrêtée"), remove: T("Retirée de la liste"), cleanup: T("Retrait en cours…"), "skip-verify": T("Vérification arrêtée : la copie est gardée, marquée non vérifiée") }[b.dataset.a];
+      if (done) toast(done);
+      refresh(true);
+    } catch (e) { toast(e.message); b.disabled = false; }
   });
 }
 function trProgress() {
@@ -3799,7 +5400,7 @@ function trFull() {
   $("#full-dest").onchange = (e) => { tr.fullTo = e.target.value; trFull(); };
   $("#full-go").onclick = async () => {
     if (tr.fullMode !== 0) { toast(tr.fullMode === 1 ? T("Restaurer : choisissez la sauvegarde complète dans l'onglet Sauvegardes (bientôt).") : T("Vers une autre PS5 : jumelez-la (Appareils › PlayStation 5), puis choisissez un de ses disques comme destination.")); return; }
-    if (!dest) { toast(T("Choisissez une destination (disque USB ou NAS).")); return; }
+    if (!dest) { toast(T("Choisissez une destination (disque USB, NAS ou autre PS5).")); return; }
     try {
       await post("/tasks", { type: "full_backup", categories: FULL_CATS.map(([id]) => id).filter((id) => !tr.fullOff.has(id)), place: dest.id });
       toast(T("Sauvegarde complète lancée")); refresh(true); trBack("progress");
@@ -3814,14 +5415,33 @@ setTimeout(() => { if (state.token) whatsNew(); }, 1500);
 setTimeout(autoCheckUpdates, 2000);  // ouverture de la page
 // Ouverte depuis le code QR de la télé (« …/#cloud ») : directement l'ajout d'un stockage dans le nuage, dès que
 // l'appareil est associé (un téléphone qui scanne pour la première fois saisit d'abord le code).
-if (location.hash === "#cloud") {
+// « …/#torrent=<id> » (code QR de la télé : Actions › Télécharger le .torrent) : proposer d'enregistrer le fichier.
+if (location.hash.startsWith("#torrent=")) {
+  const tid = decodeURIComponent(location.hash.slice(9));
+  let tries = 0;
+  const wait = setInterval(async () => {
+    if (++tries > 600) { clearInterval(wait); return; }
+    if (!state.token) return;
+    clearInterval(wait);
+    history.replaceState(null, "", location.pathname);
+    setTab("downloads");
+    await loadTorrents();
+    const t = ((state.torrents || {}).torrents || []).find((x) => x.id === tid) || { id: tid, name: "lien" };
+    if (await ask(T("Télécharger le .torrent"), `<p>${esc(t.name)}.torrent</p>`, T("Enregistrer"))) downloadTorrentFile(t);
+  }, 1000);
+}
+if (location.hash === "#cloud" || location.hash === "#share" || location.hash === "#magnet") {
+  const share = location.hash === "#share", magnet = location.hash === "#magnet";
   let tries = 0;
   const wait = setInterval(() => {
     if (++tries > 600) { clearInterval(wait); return; }
     if (!state.token || !state.remotes) return;
     clearInterval(wait);
     history.replaceState(null, "", location.pathname);
+    if (magnet) { setTab("downloads"); addMagnet(); return; }
     setTab("devices");
-    cloudPick();
+    if (share) openShareEditor(); else cloudPick();
   }, 1000);
 }
+// Retour de « Langue » (Paramètres › Général) : la page vient de se recharger dans la langue choisie.
+try { if (sessionStorage.getItem("pbcLangSaved")) { sessionStorage.removeItem("pbcLangSaved"); setTimeout(() => toast(T("Langue enregistrée")), 300); } } catch (e) {}

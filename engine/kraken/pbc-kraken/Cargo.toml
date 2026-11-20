@@ -1,0 +1,19 @@
+[package]
+name = "pbc-kraken"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Cache de démarrage et index AMPR d'un .pkg (code de Kraken Mount v0.3.0), pour lancer un jeu depuis son .pkg dans le moteur"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+kraken-mount-pkg = { path = "../../third_party/kraken-mount/crates/kraken-mount-pkg" }
+serde_json = { workspace = true }
+
+[target.'cfg(target_os = "freebsd")'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+pbc-fpkg = { path = "../../fpkg/pbc-fpkg" }

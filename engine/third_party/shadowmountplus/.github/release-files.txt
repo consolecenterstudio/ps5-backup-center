@@ -1,0 +1,22 @@
+# Files included in the release archive.
+# One path per line, relative to the repository root.
+
+shadowmountplus.elf
+config.ini.example
+LICENSE
+make_image.bat
+mkexfat.sh
+mkexfat_macos.sh
+mkufs2.sh
+New-OsfExfatImage.ps1
+README.md
+docs/api.md
+docs/openapi.yaml
+tools/api_test.py
+web/index.html
+licenses/libjpeg-turbo-LICENSE.md
+licenses/libjpeg-turbo-README.ijg
+licenses/json-c-COPYING.txt
+licenses/SMB-NOTICES.txt
+licenses/libsmb2-COPYING.txt
+licenses/libsmb2-LGPL-2.1.txt

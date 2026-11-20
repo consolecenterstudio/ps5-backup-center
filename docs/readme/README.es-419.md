@@ -4,6 +4,17 @@
 
 [English](../../README.md) · [Français](README.fr.md) · [Français (Canada)](README.fr-CA.md) · [Español](README.es.md) · [Español (Latinoamérica)](README.es-419.md) · [Português (Brasil)](README.pt-BR.md) · [Português (Portugal)](README.pt-PT.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Nederlands](README.nl.md) · [Polski](README.pl.md) · [Türkçe](README.tr.md) · [Русский](README.ru.md) · [简体中文](README.zh-Hans.md) · [繁體中文](README.zh-Hant.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Tiếng Việt](README.vi.md) · [العربية](README.ar.md)
 
+## 3.2.0
+
+- En Descargas, «+ Añadir un enlace» acepta también un enlace magnet o un archivo .torrent: eliges el disco donde guardarlo (primero el de Ajustes › Red), luego sigues el avance (fuentes, velocidad, tiempo restante) y lo pausas, reanudas o quitas (TV y web).
+- Descargas › Mis enlaces: todos los enlaces dados desde la consola (BitTorrent, .zip de la consola, MEGA, OneDrive), con su código QR, su dirección y la opción de detenerlos. Los enlaces MEGA y OneDrive se guardan ahí.
+- Planes: una partida o un juego que ya está en el destino (mismo contenido, copiado por cualquier PS5) ya no se vuelve a copiar; el resumen dice «ya al día». No se vuelve a leer nada para saberlo.
+- Descargas › «ORBIT Y BLACKBOX»: lo que Orbit y BlackBox descargaron en la consola (estado, disco, tamaño, archivo no encontrado) y sus archivos temporales (archivo comprimido conservado, descarga en curso, resto), leídos en su lado sin cambiar nada.
+- «Instalar…» en las herramientas de un juego, Paquetes .pkg y Descargas › Orbit y BlackBox: montarlo donde está (colocado en la carpeta de juegos de su disco, sin copia, montado por ShadowMount), o instalarlo en otro disco u otra PS5 (copia verificada, original conservado o retirado).
+- «Instalar… › Montarlo donde está» de un .pkg Kraken: el juego se declara a la consola y se ejecuta desde su paquete, sin descomprimir nada — con Kraken Mount si está instalado; si no, con nuestra versión integrada (el trabajo de Kraken Mount en nuestro motor, con ampr-emu-ng, pgo_stub y dlc_emu compilados por nosotros; requiere kstuff). Un juego ya tomado por ShadowMount o instalado por la consola no se toca. Primera versión, para probar.
+
+La aprobación de producción de Dropbox está pendiente. La sincronización automática entre PS5 y la instalación en otra consola son funciones iniciales con pruebas pendientes.
+
 <p align="center">
   <img src="../assets/screenshots/en-oled-home.png" alt="PS5 Backup Center — Pantalla de inicio" width="88%">
 </p>
@@ -14,7 +25,7 @@
 
 **Descarga, instala y transfiere tus juegos.** Recibe juegos de otra PS5 vinculada en tu red local. Respalda, compara, sincroniza y restaura partidas entre tus PS5, unidades USB, NAS y la nube, desde la TV o el navegador. Administra aplicaciones y DLC de PS5 y partidas de Switch y emuladores compatibles.
 
-[Novedades 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+[Novedades 3.2.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.2.0)
 
 **Tu colección. Tus partidas. Tus copias de seguridad.**
 

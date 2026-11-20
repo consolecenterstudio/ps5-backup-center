@@ -4,6 +4,17 @@
 
 [English](../../README.md) · [Français](README.fr.md) · [Français (Canada)](README.fr-CA.md) · [Español](README.es.md) · [Español (Latinoamérica)](README.es-419.md) · [Português (Brasil)](README.pt-BR.md) · [Português (Portugal)](README.pt-PT.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Nederlands](README.nl.md) · [Polski](README.pl.md) · [Türkçe](README.tr.md) · [Русский](README.ru.md) · [简体中文](README.zh-Hans.md) · [繁體中文](README.zh-Hant.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Tiếng Việt](README.vi.md) · [العربية](README.ar.md)
 
+## 3.2.0
+
+- 다운로드의 '+ 링크 추가'에서 마그넷 링크나 .torrent 파일도 받습니다. 저장할 디스크를 고르고(설정 › 네트워크의 디스크가 먼저), 진행 상황(소스, 속도, 남은 시간)을 보며 일시 정지, 재개, 제거할 수 있습니다(TV와 웹).
+- 다운로드 › 내 링크: 본체에서 준 모든 링크(BitTorrent, 본체 .zip, MEGA, OneDrive)를 QR 코드, 주소, 중지 방법과 함께 보여 줍니다. MEGA와 OneDrive 링크도 여기에 보관됩니다.
+- 계획: 대상에 이미 있는 세이브나 게임(어느 PS5가 복사했든 내용이 같으면)은 다시 복사하지 않으며, 결과에 '이미 최신'이라고 표시됩니다. 이를 위해 다시 읽지 않습니다.
+- 다운로드 › 'ORBIT 및 BLACKBOX': Orbit과 BlackBox가 콘솔에 다운로드한 항목(상태, 드라이브, 크기, 파일 없음)과 임시 파일(남은 압축 파일, 다운로드 중, 잔여 파일)을 앱 쪽을 바꾸지 않고 읽어 표시합니다.
+- 게임 도구, .pkg 패키지, 다운로드 › Orbit 및 BlackBox의 “설치…”: 그 자리에서 마운트(드라이브의 게임 폴더로 옮김, 복사 없음, ShadowMount가 마운트)하거나 다른 드라이브나 다른 PS5에 설치(검증된 복사, 원본 유지 또는 삭제).
+- Kraken .pkg의 “설치… › 그 자리에서 마운트”: 게임을 콘솔에 등록하고 패키지에서 바로 실행하며 아무것도 압축 해제하지 않습니다. Kraken Mount가 설치되어 있으면 그것으로, 아니면 우리 내장 버전으로 합니다(Kraken Mount가 하던 일을 우리 엔진에서, ampr-emu-ng, pgo_stub, dlc_emu는 우리가 빌드; kstuff 필요). ShadowMount가 이미 맡은 게임이나 콘솔에 설치된 게임은 건드리지 않습니다. 첫 버전이니 시험해 보세요.
+
+Dropbox 프로덕션 승인은 심사 중입니다. PS5 간 자동 동기화와 다른 콘솔로의 설치는 초기 기능이며 추가 실기 테스트가 필요합니다.
+
 <p align="center">
   <img src="../assets/screenshots/en-oled-home.png" alt="PS5 Backup Center — 홈 화면" width="88%">
 </p>
@@ -14,7 +25,7 @@
 
 **게임을 다운로드하고 설치하고 전송하세요.** 로컬 네트워크에서 페어링한 PS5의 게임을 받으세요. TV나 브라우저에서 PS5, USB 드라이브, NAS, 클라우드 간 저장 데이터를 백업하고 비교하고 동기화하고 복원하세요. PS5 앱과 DLC, Switch 및 호환 에뮬레이터 저장 데이터도 관리할 수 있습니다.
 
-[새로운 기능 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+[새로운 기능 3.2.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.2.0)
 
 **나의 컬렉션. 나의 진행 상황. 나의 백업.**
 

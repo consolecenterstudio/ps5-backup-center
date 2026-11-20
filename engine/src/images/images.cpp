@@ -30,6 +30,7 @@
 #include "core/json.hpp"
 #include "core/util.hpp"
 #include "images/gc_bridge.h"
+#include "images/fpkg_bridge.h"
 #include "scan/recognizers/title_dir.hpp"
 
 extern "C" {
@@ -160,6 +161,31 @@ bool free_space(const std::string& console_path, std::uint64_t& out) {
     const std::string parent(fs::dirname(host_dir));
     if (::stat(parent.c_str(), &b) != 0) return false;
     return a.st_dev != b.st_dev;
+}
+
+// Diagnostic (plan docs/PLAN-lancement-kraken.md, étape 1) : la table des montages entière — source, point de montage,
+// type — lue sans attente, sans rien écrire ni ouvrir dans les dossiers montés.
+Json mount_list_json(const std::string& prefix) {
+    Json a = Json::array();
+#if defined(PBCK_PS5)
+    const int n = ::getfsstat(nullptr, 0, MNT_NOWAIT);
+    if (n > 0) {
+        std::vector<struct ::statfs> v(static_cast<std::size_t>(n) + 16);
+        const int m = ::getfsstat(v.data(), static_cast<long>(v.size() * sizeof(struct ::statfs)), MNT_NOWAIT);
+        for (int i = 0; i < m; ++i) {
+            const auto& f = v[static_cast<std::size_t>(i)];
+            const std::string on = f.f_mntonname;
+            if (!prefix.empty() && on.rfind(prefix, 0) != 0) continue;
+            Json j = Json::object();
+            j.set("from", std::string(f.f_mntfromname)); j.set("on", on); j.set("type", std::string(f.f_fstypename));
+            j.set("flags", static_cast<std::int64_t>(f.f_flags));
+            a.push(j);
+        }
+    }
+#else
+    (void)prefix;
+#endif
+    return a;
 }
 
 // --- état du travail en cours (étape lisible, partagée avec le fil de suivi) ---------
@@ -967,6 +993,8 @@ bool safe_console_path(const std::string& p) {
 
 }  // namespace
 
+Json mounts_json(const std::string& prefix) { return mount_list_json(prefix); }
+
 // ===================================================================================
 const char* to_string(Kind k) {
     switch (k) {
@@ -976,6 +1004,7 @@ const char* to_string(Kind k) {
         case Kind::ffpfsc: return "ffpfsc";
         case Kind::ffpkg: return "ffpkg";
         case Kind::native: return "native";
+        case Kind::fpkg: return "fpkg";
         default: return "unknown";
     }
 }
@@ -993,8 +1022,41 @@ const char* container_of(Kind k) {
         case Kind::exfat: return "exfat";
         case Kind::ffpfs: return "ffpfs";
         case Kind::ffpkg: return "ffpkg";
+        case Kind::fpkg: return "pkg";
         default: return "";
     }
+}
+
+// Paquet PS5 (.pkg) : en-tête « \x7FCNT » ; l'identifiant de contenu est en clair au début du fichier.
+bool is_fpkg_file(const std::string& p) {
+    FILE* f = std::fopen(H(p).c_str(), "rb");
+    if (!f) return false;
+    unsigned char m[4] = {0};
+    // PS5 : « \x7FFIH » (paquet FPKG, Kraken / Dump Forge, Orbit) ; « \x7FCNT » : ancien conteneur (PS4 et autres).
+    const bool ok = std::fread(m, 1, 4, f) == 4 && m[0] == 0x7F &&
+                    ((m[1] == 'F' && m[2] == 'I' && m[3] == 'H') || (m[1] == 'C' && m[2] == 'N' && m[3] == 'T'));
+    std::fclose(f);
+    return ok;
+}
+std::string fpkg_content_id(const std::string& p) {
+    std::string head(4096, '\0');
+    FILE* f = std::fopen(H(p).c_str(), "rb");
+    if (!f) return {};
+    head.resize(std::fread(head.data(), 1, head.size(), f));
+    std::fclose(f);
+    // XX0000-AAAA00000_00-XXXXXXXXXXXXXXXX (36 caractères)
+    auto up = [](char c) { return c >= 'A' && c <= 'Z'; };
+    auto dg = [](char c) { return c >= '0' && c <= '9'; };
+    auto an = [&](char c) { return up(c) || dg(c); };
+    for (std::size_t i = 0; i + 36 <= head.size(); ++i) {
+        const char* c = head.data() + i;
+        if (!up(c[0]) || !up(c[1]) || !dg(c[2]) || !dg(c[3]) || !dg(c[4]) || !dg(c[5]) || c[6] != '-') continue;
+        bool ok = up(c[7]) && up(c[8]) && up(c[9]) && up(c[10]) && c[16] == '_' && dg(c[17]) && dg(c[18]) && c[19] == '-';
+        for (int k = 11; ok && k < 16; ++k) ok = dg(c[k]);
+        for (int k = 20; ok && k < 36; ++k) ok = an(c[k]);
+        if (ok) return std::string(c, 36);
+    }
+    return {};
 }
 
 Kind kind_of(const std::string& p) {
@@ -1011,6 +1073,7 @@ Kind kind_of(const std::string& p) {
     if (ends_with_ci(p, ".exfat")) return Kind::exfat;
     if (ends_with_ci(p, ".ffpfs") || ends_with_ci(p, ".pfs")) return Kind::ffpfs;
     if (ends_with_ci(p, ".ffpkg")) return Kind::ffpkg;
+    if (ends_with_ci(p, ".pkg") && is_fpkg_file(p)) return Kind::fpkg;
     return Kind::unknown;
 }
 
@@ -1150,11 +1213,13 @@ Json Info::to_json() const {
         if (data_size) j.set("ratio", static_cast<double>(size) / static_cast<double>(data_size));
     }
     if (kind == Kind::folder) j.set("apr_indexed", apr_indexed);
+    if (kind == Kind::fpkg) j.set("content_id", content_id);
     j.set("mounted", mounted);
     j.set("registered", registered);
     if (!mount_path.empty()) j.set("mount_path", mount_path);
     j.set("running", running);
     j.set("validation", validation.is_null() ? Json("unknown") : validation["state"]);
+    if (validation.is_object() && validation["checked"].as_int() > 0) j.set("validated_at", validation["checked"]);
     if (validation.is_object()) j.set("validation_detail", validation);
     return j;
 }
@@ -1195,6 +1260,19 @@ bool inspect(const std::string& p, Info& out, std::string& error, bool measure) 
             out.title_id = a.title_id;
             break;
         }
+        case Kind::fpkg:  // paquet .pkg : identifiant dans l'en-tête ; vérifié par la bibliothèque des paquets
+            out.size = out.data_size = e.size;
+            {   // identité lue par la bibliothèque des paquets (le conteneur est plus loin dans le fichier) ; sinon l'en-tête
+                char inf[1024] = {0};
+                Json id;
+                if (pbc_fpkg_info(H(p).c_str(), inf, sizeof inf) == 0 && Json::parse(inf, id)) {
+                    out.content_id = id["content_id"].as_string();
+                    out.title = id["title"].as_string();
+                }
+                if (out.content_id.empty()) out.content_id = fpkg_content_id(p);
+            }
+            out.title_id = out.content_id.size() == 36 ? out.content_id.substr(7, 9) : title_in_name(std::string(fs::basename(p)));
+            break;
         case Kind::ffpkg:  // paquet monté par ShadowMountPlus : format non décodé par le moteur
             out.size = out.data_size = e.size;
             out.title_id = title_in_name(std::string(fs::basename(p)));
@@ -1205,7 +1283,7 @@ bool inspect(const std::string& p, Info& out, std::string& error, bool measure) 
             if (measure) out.size = out.data_size = tree_bytes(H(p));
             break;
         }
-        default: error = "ni dossier de jeu, ni image .exfat / .ffpfs / .ffpfsc / .ffpkg, ni jeu installé"; return false;
+        default: error = "ni dossier de jeu, ni image .exfat / .ffpfs / .ffpfsc / .ffpkg, ni paquet .pkg, ni jeu installé"; return false;
     }
     if (out.title.empty() && !out.title_id.empty()) {
         std::string tid, name;
@@ -1233,7 +1311,8 @@ std::vector<Info> discover(bool measure_folders) {
             if (e.name.empty() || e.name[0] == '.') continue;  // fichiers temporaires cachés
             const std::string p = fs::join(r, e.name);
             if (e.dir ? fs::exists(H(fs::join(p, "sce_sys/param.json"))) && (fs::exists(H(fs::join(p, "eboot.bin"))) || fs::exists(H(fs::join(p, "iboot.bin"))))
-                      : (ends_with_ci(e.name, ".ffpfsc") || ends_with_ci(e.name, ".exfat") || ends_with_ci(e.name, ".ffpfs") || ends_with_ci(e.name, ".ffpkg")))
+                      : (ends_with_ci(e.name, ".ffpfsc") || ends_with_ci(e.name, ".exfat") || ends_with_ci(e.name, ".ffpfs") || ends_with_ci(e.name, ".ffpkg") ||
+                         (ends_with_ci(e.name, ".pkg") && is_fpkg_file(p))))
                 add(p);
         }
     }
@@ -1264,9 +1343,9 @@ std::vector<Info> discover(bool measure_folders) {
 
 // --- options -------------------------------------------------------------------------------
 namespace {
-constexpr const char* op_names[] = {"compress", "uncompress", "make_image", "extract_image", "validate", "read_speed", "ampr_index", "set_read_only", "transfer"};
-constexpr const char* task_names[] = {"compress", "uncompress", "make_image", "extract_image", "validate_image", "read_speed_test", "build_ampr_index", "set_read_only", "transfer"};
-constexpr int op_count = 9;
+constexpr const char* op_names[] = {"compress", "uncompress", "make_image", "extract_image", "validate", "read_speed", "ampr_index", "set_read_only", "transfer", "make_pkg"};
+constexpr const char* task_names[] = {"compress", "uncompress", "make_image", "extract_image", "validate_image", "read_speed_test", "build_ampr_index", "set_read_only", "transfer", "make_pkg"};
+constexpr int op_count = 10;
 }
 const char* to_string(Op o) { return op_names[static_cast<int>(o)]; }
 const char* task_type(Op o) { return task_names[static_cast<int>(o)]; }
@@ -1401,6 +1480,10 @@ bool Options::from_json(const Json& b, Options& o, std::string& error) {
     o.adopt = b["adopt"].as_bool(false);
     o.previous = b["previous"].as_string();
     o.compress = b["compress"].as_bool();
+    o.pkg_level = static_cast<int>(b["pkg_level"].as_int(1));
+    o.format = b["format"].as_string() == "pkg" ? "pkg" : "ffpfsc";
+    if (o.pkg_level < 0 || o.pkg_level > 3) { error = "compression du paquet : 0 (sans) à 3"; return false; }
+    if (o.op == Op::make_pkg && (o.delete_source || o.destructive)) { error = "paquet : la source est toujours gardée"; return false; }
     if (o.op == Op::transfer && o.mode != "copy" && o.mode != "move") { error = "transfert : mode copy ou move"; return false; }
     if (o.op == Op::transfer && o.target_dir.empty() && o.output.empty()) { error = "transfert : destination manquante"; return false; }
     while (o.source.size() > 1 && o.source.back() == '/') o.source.pop_back();
@@ -1432,6 +1515,7 @@ Json Options::to_json() const {
     j.set("shadowmount_hints", shadowmount_hints);
     j.set("mount", mount);
     j.set("seconds", seconds);
+    if (op == Op::make_pkg || format == "pkg") { j.set("pkg_level", pkg_level); j.set("format", format); }  // relu tel quel par la file des tâches
     if (op == Op::transfer) { j.set("mode", mode); j.set("verify", verify); j.set("verify_mode", verify_mode); if (adopt) j.set("adopt", true); j.set("compress", compress); if (!previous.empty()) j.set("previous", previous); }
     return j;
 }
@@ -1462,6 +1546,14 @@ bool writes_source(const Options& o) {
 // Transfert avec compression = compression vers la destination (suppression vérifiée pour un déplacement).
 Options normalize(const Options& in) {
     Options o = in;
+    // Compresser en .pkg (Transferts › Compresser, ou « Compresser avant l'envoi » en .pkg) : un paquet vérifié écrit à
+    // destination ; la source reste toujours (un « Déplacer » en .pkg est refusé pour l'instant, voir make_plan).
+    if ((o.op == Op::compress || (o.op == Op::transfer && o.compress)) && o.format == "pkg") {
+        o.pkg_move = in.op == Op::transfer && in.mode == "move";
+        o.op = Op::make_pkg;
+        o.delete_source = o.destructive = o.mount = false;
+        return o;
+    }
     if (o.op == Op::transfer && o.compress && kind_of(o.source) != Kind::ffpfsc) {
         o.op = Op::compress;
         o.delete_source = in.mode == "move";
@@ -1476,7 +1568,7 @@ Plan make_plan(const Options& o, Info& src) {
     Plan p;
     auto fail = [&](const char* code, std::string msg) { p.ok = false; p.code = code; p.error = std::move(msg); return p; };
     std::string err;
-    const bool need_size = o.op == Op::compress || o.op == Op::make_image || o.op == Op::extract_image || o.op == Op::transfer;
+    const bool need_size = o.op == Op::compress || o.op == Op::make_image || o.op == Op::extract_image || o.op == Op::transfer || o.op == Op::make_pkg;
     if (!inspect(o.source, src, err, need_size)) return fail(fs::exists(H(o.source)) ? "unsupported" : "not_found", err);
     p.title_id = src.title_id;
     p.source_bytes = src.data_size;
@@ -1501,9 +1593,13 @@ Plan make_plan(const Options& o, Info& src) {
                 return fail("native", "opération réservée aux images et dossiers montés par ShadowMountPlus, pas aux jeux installés nativement");
         }
     }
-    if (src.kind == Kind::ffpkg && o.op != Op::validate && o.op != Op::read_speed && o.op != Op::transfer)
+    if (src.kind == Kind::ffpkg && o.op != Op::validate && o.op != Op::read_speed && o.op != Op::transfer && o.op != Op::make_pkg)
         return fail("unsupported", "image .ffpkg : copie, déplacement, contrôle de lecture et test de vitesse seulement "
                                    "(format non compressible ni extractible par le moteur)");
+    if (src.kind == Kind::fpkg && o.op != Op::validate && o.op != Op::read_speed && o.op != Op::transfer)
+        return fail("unsupported", "paquet .pkg : vérification, copie, déplacement et test de vitesse seulement");
+    if (o.op == Op::transfer && o.compress && src.kind == Kind::fpkg)
+        return fail("unsupported", "paquet .pkg : déjà compressé, transfert sans compression seulement");
     if (o.op == Op::transfer && o.compress && src.kind == Kind::ffpkg)
         return fail("unsupported", "image .ffpkg : transfert sans compression seulement");
     const bool relinks = o.op == Op::transfer || (o.op == Op::compress && o.mount && o.delete_source && !o.destructive);
@@ -1555,6 +1651,18 @@ Plan make_plan(const Options& o, Info& src) {
             if (!src.mounted || src.mount_path.empty()) return fail("not_mounted", "l'image doit être montée par ShadowMountPlus pour être extraite");
             p.output = o.output.empty() ? fs::join(dir, src.title_id + "-app") : o.output;
             p.required_bytes = tree_bytes(H(src.mount_path));
+            break;
+        }
+        case Op::make_pkg: {  // paquet FPKG (Kraken) : depuis un dossier ou une image, la source n'est jamais touchée
+            if (o.pkg_move) return fail("unsupported", "déplacer en .pkg : pas encore — copiez en .pkg, l'original reste (le jeu continue de se lancer depuis lui)");
+            if (src.kind != Kind::folder && src.kind != Kind::exfat && src.kind != Kind::ffpkg && src.kind != Kind::ffpfsc)
+                return fail("unsupported", "un .pkg se crée depuis un jeu en dossier ou une image (.exfat, .ffpkg, .ffpfsc)");
+            p.output = o.output.empty() ? fs::join(dir, src.title_id + ".pkg") : o.output;
+            if (!ends_with_ci(p.output, ".pkg")) return fail("bad_output", "la sortie doit finir par .pkg");
+            if (fs::exists(H(p.output + ".part"))) ::unlink(H(p.output + ".part").c_str());  // reste d'un essai coupé : le nôtre
+            // Pire cas (sans compression) : la taille du jeu, plus les tables du paquet ; le fichier de travail est le paquet lui-même.
+            p.required_bytes = src.data_size + src.data_size / 50 + (128u << 20);
+            p.estimate = true;
             break;
         }
         case Op::ampr_index:
@@ -1722,6 +1830,56 @@ Result run_compress(Ctx& c) {
     return r;
 }
 
+// Paquet FPKG (Kraken) par notre façade Rust (engine/fpkg/pbc-fpkg, code de Dump Forge) : écrit dans <sortie>.part,
+// relu et vérifié en entier, puis renommé ; une annulation ou une erreur ne laisse rien ; la source n'est jamais touchée.
+Result run_make_pkg(Ctx& c) {
+    Result& r = c.r;
+    struct U { Ctx* c; std::atomic<bool> stop{false}; unsigned stage = 0; } u;
+    u.c = &c;
+    static const char* const steps[] = {"Préparation", "Lecture du jeu", "Plan du paquet", "Compression (Kraken)", "Écriture du paquet", "Vérification du paquet"};
+    auto cb = [](void* ud, unsigned st, std::uint64_t done, std::uint64_t total) {
+        U* x = static_cast<U*>(ud);
+        if (cancelled(x->c->interrupt)) x->stop = true;
+        if (st != x->stage && st < 6) { x->stage = st; set_step(steps[st]); }
+        if (total) pbc_gc_job_set_progress(done, total);
+        yield_to_ui();
+    };
+    set_step(steps[1]);
+#if defined(PBCK_PS5)
+    // La PS5 ne donne au moteur que quelques cœurs (5 sur la 02) mais en annonce 16 : sans limite, la compression Kraken
+    // lance trop de fils et ralentit (Dump Forge l'a mesuré : 9 Mo/s à 15 fils, 43 à 4).
+    const unsigned pkg_threads = 4;
+#else
+    const unsigned pkg_threads = 0;
+#endif
+    char info[4096] = {0};
+    static const char* const levels[] = {"stored", "fast", "balanced", "smallest"};
+    const int rc = pbc_fpkg_build(H(c.o.source).c_str(), H(c.plan.output).c_str(), static_cast<unsigned>(c.o.pkg_level), pkg_threads, cb, &u,
+                                  reinterpret_cast<const void*>(&u.stop), info, sizeof info);
+    if (rc == 1 || (rc != 0 && cancelled(c.interrupt))) return fail_r(r, "cancelled", "création du paquet annulée : rien n'est gardé");
+    if (rc != 0) {
+        const std::string why = info;
+        if (why.find("no content id") != std::string::npos)
+            return fail_r(r, "no_content_id", "ce jeu n'a pas d'identifiant de contenu (contentId) dans sce_sys/param.json : paquet impossible");
+        return fail_r(r, "failed", "paquet : " + why);
+    }
+    Json made;
+    Json::parse(info, made);
+    r.output = c.plan.output;
+    Json rep = Json::object();
+    rep.set("source", c.o.source);
+    rep.set("output", r.output);
+    rep.set("source_bytes", c.src.data_size);
+    rep.set("output_bytes", made["size"].as_int());
+    rep.set("content_id", made["content_id"].as_string());
+    rep.set("pkg_level", levels[std::clamp(c.o.pkg_level, 0, 3)]);
+    rep.set("verified", true);
+    if (made["warnings"].is_array() && !made["warnings"].items().empty()) rep.set("warnings", made["warnings"]);
+    r.report = rep;
+    r.ok = true;
+    return r;
+}
+
 Result run_make_image(Ctx& c) {
     Result& r = c.r;
     const std::string out_h = H(c.plan.output);
@@ -1863,6 +2021,31 @@ Result run_validate(Ctx& c) {
     Json mem = Json::object();
     std::string err;
     bool good = true;
+    if (c.src.kind == Kind::fpkg) {  // chaque bloc et chaque empreinte du paquet, relus en entier
+        set_step("Vérification du paquet");
+        struct U { Ctx* c; std::atomic<bool> stop{false}; } u;
+        u.c = &c;
+        auto cb = [](void* ud, unsigned, std::uint64_t done, std::uint64_t total) {
+            U* x = static_cast<U*>(ud);
+            if (cancelled(x->c->interrupt)) x->stop = true;
+            if (total) pbc_gc_job_set_progress(done, total);
+            yield_to_ui();
+        };
+        char info[1024] = {0};
+        const int rc = pbc_fpkg_verify(H(c.o.source).c_str(), cb, &u, reinterpret_cast<const void*>(&u.stop), info, sizeof info);
+        if (rc == 1) return fail_r(r, "cancelled", "vérification arrêtée");
+        rep.set("verified", rc == 0);
+        if (rc != 0) rep.set("problem", std::string(info));
+        Json v = Json::object();
+        v.set("state", rc == 0 ? "ok" : "bad");
+        v.set("at", static_cast<std::int64_t>(std::time(nullptr)));
+        v.set("method", "fpkg");
+        remember_validation(c.o.source, v);
+        r.report = rep;
+        if (rc != 0) return fail_r(r, "verify_failed", std::string("paquet abîmé : ") + info);
+        r.ok = true;
+        return r;
+    }
     if (c.src.kind == Kind::ffpfsc) {
         set_step("Vérification logicielle des blocs");
         VerifyStats vs;
@@ -2225,7 +2408,8 @@ Result run_transfer(Ctx& c) {
     }
     if (!move) {
         // Copie à installer (autre console, copie de backup) : réglages ShadowMountPlus puis demande de montage.
-        if (c.o.mount && !c.src.title_id.empty() && fs::is_dir(H(r.output))) {  // dossier : inscription seule, pas de réglages d'image
+        if (c.src.kind == Kind::fpkg) {}  // paquet .pkg : jamais inscrit dans ShadowMount (Kraken Mount le lit tel quel)
+        else if (c.o.mount && !c.src.title_id.empty() && fs::is_dir(H(r.output))) {  // dossier : inscription seule, pas de réglages d'image
             std::string merr;
             rep.set("mount_requested", request_mount(c.src.title_id, r.output, merr) ? Json(true) : Json(merr));
             report_smp(rep);
@@ -2264,11 +2448,11 @@ Result run_transfer(Ctx& c) {
     if (del) ::unlink(H(c.o.source + ".vhash").c_str());
     rep.set("source_deleted", del);
     std::string which;
-    const bool relinked = relink(c.src.title_id, c.o.source, c.plan.output, which);
+    const bool relinked = c.src.kind != Kind::fpkg && relink(c.src.title_id, c.o.source, c.plan.output, which);
     if (relinked) rep.set("relinked", which);
     // Inscription ShadowMountPlus seulement si on a déplacé LE jeu inscrit (ou si on l'a demandé) : déplacer une
     // simple copie de travail ne doit jamais remplacer l'inscription du vrai jeu (même Title ID).
-    if (!c.src.title_id.empty() && (relinked || c.o.mount)) {
+    if (!c.src.title_id.empty() && c.src.kind != Kind::fpkg && (relinked || c.o.mount)) {
         std::string merr;
         rep.set("mount_requested", request_mount(c.src.title_id, c.plan.output, merr) ? Json(true) : Json(merr));
         report_smp(rep);
@@ -2315,7 +2499,7 @@ Result run_adopt(Ctx& c) {
     rep.set("verify_mode", skipped ? "none" : "full");
     // Inscription à la nouvelle place (comme un déplacement), l'original reste en place.
     std::string which;
-    const bool relinked = relink(c.src.title_id, c.o.source, c.plan.output, which);
+    const bool relinked = c.src.kind != Kind::fpkg && relink(c.src.title_id, c.o.source, c.plan.output, which);
     if (relinked) rep.set("relinked", which);
     if (!c.src.title_id.empty() && relinked) {
         std::string merr;
@@ -2374,6 +2558,7 @@ Result run(const Options& in, const std::function<void(const Progress&)>& progre
             case Op::ampr_index: r = run_ampr(c); break;
             case Op::set_read_only: r = run_set_read_only(c); break;
             case Op::transfer: r = run_transfer(c); break;
+            case Op::make_pkg: r = run_make_pkg(c); break;
         }
         set_step(r.ok ? "Terminé" : "Arrêté");
         m.stop();

@@ -14,7 +14,15 @@ const mgCk = (c) => c.place + "|" + c.bundle;
 const mgGk = (g) => (g.full ? "full|" + (g.item || g.title) : g.account + "|" + (g.title_id || g.title));
 const mgBytes = (c) => c.content_bytes || c.bytes || 0;  // contenu comparé (sauvegarde), sinon taille du backup complet
 const mgKind = (k) => (k === "app" ? T("Appli") : k === "rom" ? "ROM" : T("Jeu"));
-const mgDate = (t, hour = true) => (t > 0 ? new Date(t * 1000).toLocaleString(I18N.code, hour ? { dateStyle: "short", timeStyle: "short" } : { dateStyle: "short" }) : "?");
+// Heure seule, comme la télé : « 14:36 ».
+const mgTime = (t) => { const d = new Date(t * 1000), z = (n) => String(n).padStart(2, "0"); return `${z(d.getHours())}:${z(d.getMinutes())}`; };
+// Même format que la télé (date_text) dans toutes les langues : « 17/11/2026 14:36 ».
+const mgDate = (t, hour = true) => {
+  if (!(t > 0)) return "?";
+  const d = new Date(t * 1000), z = (n) => String(n).padStart(2, "0");
+  const day = `${z(d.getDate())}/${z(d.getMonth() + 1)}/${d.getFullYear()}`;
+  return hour ? `${day} ${z(d.getHours())}:${z(d.getMinutes())}` : day;
+};
 const mgPlay = (s) => (s > 0 ? (s < 3600 ? `${Math.max(1, Math.floor(s / 60))} min` : `${Math.floor(s / 3600)} h ${String(Math.floor(s / 60) % 60).padStart(2, "0")}`) : "");
 const mgAccount = () => (((state.overview && state.overview.accounts) || []).find((a) => a.on_console && a.platform === "PS5") || {}).key || "";
 // Copie « à vérifier » : incomplète, ou vide (contenu de 0 octet) — mise à part, rien n'est supprimé.
@@ -56,14 +64,16 @@ const spreadCopy = (c, by) => !c.other_account && !c.on_peer && c.complete !== f
 const spreadLine = (g) => { const sp = g.full ? [] : mainSpread(g); return sp.length >= 2 ? T("Même partie à %d endroits : %s", sp.length, sp.join(" · ")) : ""; };
 function mgTidyUndo() { for (const k of mg.tidyGames || []) mg.csel.delete(k); mg.tidyGames = []; }
 // Un jeu (g) : chaque copie dont la partie existe ailleurs, cochée = gardée. Sans g : chaque endroit, pour tous les jeux de la vue.
+// Copie rangée dans un partage reçu (lecture seule) : on la lit, on la restaure, on ne la supprime pas.
+const roPlace = (id) => !!(state.places || []).find((p) => p.id === id && p.readonly);
 function mgTidy(g, list) {
   const rows = [];
   if (g) {
     const by = spreadOf(g);
-    for (const c of g.copies) if (spreadCopy(c, by) && !mg.prot.has(mgCk(c))) rows.push({ key: mgCk(c), label: spotName(c), letter: c.group, sub: T("copiée le %s", mgDate(c.created_unix, false)) + " · " + T("même partie à %d endroits", by.get(c.group).length), keep: true });
+    for (const c of g.copies) if (spreadCopy(c, by) && !mg.prot.has(mgCk(c)) && !roPlace(c.place)) rows.push({ key: mgCk(c), label: spotName(c), letter: c.group, sub: T("copiée le %s", mgDate(c.created_unix, false)) + " · " + T("même partie à %d endroits", by.get(c.group).length), keep: true });
   } else {
     const at = new Map();
-    for (const x of list) { const by = spreadOf(x); for (const c of x.copies) if (spreadCopy(c, by) && !mg.prot.has(mgCk(c))) { const r = at.get(c.place) || { key: c.place, label: spotName(c), n: 0, keep: true }; r.n++; at.set(c.place, r); } }
+    for (const x of list) { const by = spreadOf(x); for (const c of x.copies) if (spreadCopy(c, by) && !mg.prot.has(mgCk(c)) && !roPlace(c.place)) { const r = at.get(c.place) || { key: c.place, label: spotName(c), n: 0, keep: true }; r.n++; at.set(c.place, r); } }
     for (const r of at.values()) { r.sub = T("%d copie(s) d'une partie rangée aussi ailleurs", r.n); rows.push(r); }
   }
   if (!rows.length) { toast(T("Rien à trier ici")); return; }
@@ -208,6 +218,17 @@ async function openVersions(ref) {
   mg.game = mgGk(g);
   setTab("backups");
 }
+// « Comparer » d'un jeu (Bibliothèque, comme la télé) : l'outil Comparer · trier, ouvert sur ce jeu ; on prévient s'il
+// n'a de copies qu'à un seul endroit.
+async function openCompare(ref) {
+  const sum = await mgReady();
+  closeSheet();
+  mg.back = ""; mg.game = ""; mg.place = "compare"; mg.cfilter = 0;
+  const g = ((sum && sum.games) || []).find((x) => (ref.title_id && x.title_id === ref.title_id) || (ref.key && x.item === ref.key));
+  if (sum && (!g || cmpPlaces(g) <= 1)) toast(T("Ce jeu n'a pas de copies à plusieurs endroits."));
+  mg.cmpFocus = g && cmpPlaces(g) > 1 ? mgGk(g) : "";
+  setTab("backups");
+}
 
 // Endroits : Partout, chaque disque USB, chaque NAS (et l'interne s'il garde des copies), Corbeille.
 const TRASH_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="trash-ico" aria-hidden="true"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/></svg>`;
@@ -221,19 +242,21 @@ function mgPlaceList() {
     if (c.on_peer) { const k = mgPeerKey(c); const x = peers.get(k) || { name: c.peer_name, n: 0 }; x.n++; peers.set(k, x); continue; }
     count.set(c.place, (count.get(c.place) || 0) + 1);
   }
-  const out = [{ id: "", name: T("Partout"), sub: T("%d jeu(x)", mg.sum.games.length), icon: ICONS.consoles }];
+  const own = ((mg.sum && mg.sum.games) || []).reduce((n, g) => n + g.copies.filter((c) => !c.other_account).length, 0);
+  const out = [{ id: "", name: T("Partout"), sub: T("%d copie(s)", own), sub2: T("%d jeu(x)", mg.sum.games.length), icon: ICONS.consoles }];  // comme la télé : deux lignes
   for (const p of state.places) {
     const n = count.get(p.id) || 0;
     if (!(p.type === "usb" || p.type === "ftp" || n) || p.use === "sync" || p.same_backups_as) continue;  // NAS « Synchro seulement » : pas ici ; même NAS en FTP et WebDAV : une fois
     if (p.type === "switch" && !n) continue;
+    if (!n && p.type === "ftp" && ["s3", "gdrive", "onedrive", "dropbox", "mega"].includes(p.protocol)) continue;  // nuage sans copie : pas de carte (comme la télé)
     const free = p.type === "usb" || p.type === "internal" ? " · " + T("%s libres", size(p.free)) : "";
-    out.push({ id: p.id, name: p.label, sub: (n ? T("%d copie(s)", n) : T("vide")) + free, icon: p.type === "ftp" && ["s3", "gdrive", "onedrive", "dropbox"].includes(p.protocol) ? cloudIcon(p.protocol, p.service) : ICONS[p.type === "usb" ? "usb" : p.type === "internal" ? "ps5" : p.type === "switch" ? "switch" : "nas"] });  // nuage : logo du service
+    out.push({ id: p.id, n, name: p.label, sub: (n ? T("%d copie(s)", n) : T("vide")) + free, icon: p.type === "ftp" && ["s3", "gdrive", "onedrive", "dropbox", "mega"].includes(p.protocol) ? cloudIcon(p.protocol, p.service) : ICONS[p.type === "usb" ? "usb" : p.type === "internal" ? "ps5" : p.type === "switch" ? "switch" : "nas"] });  // nuage : logo du service
   }
   for (const [id, n] of count) if (!out.some((p) => p.id === id)) {  // disque absent : ses copies restent visibles
     const g = mg.sum.games.find((x) => x.copies.some((c) => c.place === id)), c = g && g.copies.find((x) => x.place === id);
-    out.push({ id, name: c ? c.place_label : id, sub: T("%d copie(s)", n) + " · " + T("Disque absent"), icon: ICONS.usb });
+    out.push({ id, n, name: c ? c.place_label : id, sub: T("%d copie(s)", n) + " · " + T("Disque absent"), icon: ICONS.usb });
   }
-  for (const [id, x] of peers) out.push({ id, name: x.name, sub: T("%d copie(s)", x.n), icon: ICONS.ps5, peer: true });
+  for (const [id, x] of peers) out.push({ id, n: x.n, name: x.name, sub: T("%d copie(s)", x.n), icon: ICONS.ps5, peer: true });
   // Même ordre que la télé : Partout, cette PS5 (interne, USB), les autres PS5, le NAS, le nuage, puis la Corbeille.
   const placeOf = (id) => state.places.find((p) => p.id === id);
   const rank = (o) => {
@@ -241,10 +264,13 @@ function mgPlaceList() {
     if (o.peer) return 2;
     const p = placeOf(o.id);
     if (!p || p.type === "usb" || p.type === "internal") return 1;
-    return p.type === "ftp" && ["s3", "gdrive", "onedrive", "dropbox"].includes(p.protocol) ? 4 : 3;
+    return p.type === "ftp" && ["s3", "gdrive", "onedrive", "dropbox", "mega"].includes(p.protocol) ? 4 : 3;
   };
   const sorted = out.map((o, i) => [o, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map((x) => x[0]);
-  sorted.push({ id: "compare", name: T("Comparer et trier"), sub: T("par contenu"), icon: COMPARE_ICON });
+  // Famille de chaque endroit (comme la télé) : cette PS5 (interne, USB), chaque autre PS5, le NAS, le nuage.
+  for (const o of sorted) { const r = rank(o); o.n = o.n || 0; o.fam = r === 0 ? "all" : r === 1 ? "ps5" : r === 2 ? "peer:" + o.id : r === 3 ? "nas" : "cloud"; }
+  const left = (mg.sum && mg.sum.to_compare) || 0;  // l'outil dit où on en est (comme la télé)
+  sorted.push({ id: "compare", name: T("Comparer · trier"), sub: left ? T("%d à comparer", left) : T("Tout est comparé"), tone: left ? "warn" : "ok", icon: COMPARE_ICON });
   sorted.push({ id: "trash", name: T("Corbeille"), sub: T("gardée 30 jours"), icon: TRASH_ICON });
   return sorted;
 }
@@ -278,7 +304,7 @@ function backupsTab() {
   }
   const view = $("#view");
   if (!state.overview) {  // le compte de la console vient de /saves/overview
-    view.innerHTML = `<h1>${T("Sauvegardes")}</h1>${loading(T("Lecture des sauvegardes…"))}`;
+    view.innerHTML = `<h1>${T("Sauvegardes")}</h1>${loading(T("Lecture des sauvegardes…"))}<p class="hint">${esc(T("Copies sur les disques et le NAS, et ce que dit leur contenu."))}</p>`;
     selBar(0);
     loadOverview().then(() => { if (state.tab === "backups") backupsTab(); });
     return;
@@ -287,22 +313,43 @@ function backupsTab() {
   if (mg.account !== acc) { mg.account = acc; mg.sum = null; mg.error = ""; }
   if (!mg.sum && !mg.loadP && !mg.error) mgLoad();
   if (mg.game && mgGame(mg.game)) return mgGameView(view);
-  if (mg.game && !mg.sum) { view.innerHTML = `<h1>${T("Toutes les versions")}</h1>${loading(T("Lecture des sauvegardes…"))}`; selBar(0); return; }
+  if (mg.game && !mg.sum) { view.innerHTML = `<h1>${T("Détails")}</h1>${loading(T("Lecture des sauvegardes…"))}`; selBar(0); return; }
   mg.game = "";
   const places = mgPlaceList();
   if (!places.some((p) => p.id === mg.place)) mg.place = "";
-  view.innerHTML = `<h1>${T("Sauvegardes")}<small>${mg.sum ? esc(T("%d jeu(x) · %d copie(s)", mg.sum.games.length, mg.sum.copies || 0)) : ""}${mg.loading ? " " + SPIN : ""}</small></h1><p class="hint tab-help">${esc(T("Des COPIES de vos parties : sur les disques de cette console, le NAS et les autres PS5 — pas la partie active."))}</p>
+  // Comme la télé : une famille de deux endroits ou plus tient en une carte (« Cette PS5 · 40 copie(s) · 3 endroits › ») ;
+  // un clic l'ouvre, une seule famille ouverte à la fois, et celle de l'endroit choisi reste ouverte.
+  const famSize = {};
+  for (const p of places) if (p.fam) famSize[p.fam] = (famSize[p.fam] || 0) + 1;
+  const chosenFam = (places.find((p) => p.id === mg.place) || {}).fam;
+  if (chosenFam && chosenFam !== "all" && famSize[chosenFam] > 1) mg.famOpen = chosenFam;
+  const famName = (f) => f === "ps5" ? T("Cette PS5") : f === "cloud" ? T("Nuage") : "NAS";
+  const famIcon = (f) => f === "ps5" ? ICONS.ps5 : f === "cloud" ? ICONS.cloud : ICONS.nas;
+  const famCopies = (f) => places.filter((p) => p.fam === f).reduce((n, p) => n + (p.n || 0), 0);
+  const cards = [], seenFam = new Set();
+  for (const p of places.filter((x) => x.id !== "compare" && x.id !== "trash")) {
+    if (p.fam && p.fam !== "all" && famSize[p.fam] > 1 && mg.famOpen !== p.fam) {
+      if (seenFam.has(p.fam)) continue;
+      seenFam.add(p.fam);
+      cards.push(`<button class="tr-dev place-card fam-card" data-fam="${esc(p.fam)}"><span class="dev-ico">${famIcon(p.fam)}</span><span class="grow"><b>${esc(famName(p.fam))}</b><span class="hint">${esc(T("%d copie(s)", famCopies(p.fam)))}</span><span class="hint accent">${esc(T("%d endroits ›", famSize[p.fam]))}</span></span></button>`);
+      continue;
+    }
+    cards.push(`<button class="tr-dev place-card ${mg.place === p.id ? "chosen" : ""} ${p.fam && mg.famOpen === p.fam && famSize[p.fam] > 1 ? "fam-open" : ""}" data-place="${esc(p.id)}">
+      <span class="dev-ico">${p.icon}</span><span class="grow"><b>${esc(p.name)}</b><span class="hint">${esc(p.sub)}</span>${p.sub2 ? `<span class="hint">${esc(p.sub2)}</span>` : ""}</span></button>`);
+  }
+  view.innerHTML = `<h1>${T("Sauvegardes")}${mg.loading ? " " + SPIN : ""}</h1><p class="hint tab-help">${esc(T("Vos copies : sur la console, le NAS, le nuage et l'autre PS5."))}</p>
     <div class="tr-label">${T("ENDROITS")}</div>
-    <div class="places-wrap"><div class="places" data-scroll="bk-places">${places.filter((p) => p.id !== "compare" && p.id !== "trash").map((p) => `<button class="tr-dev place-card ${mg.place === p.id ? "chosen" : ""}" data-place="${esc(p.id)}">
-      <span class="dev-ico">${p.icon}</span><span class="grow"><b>${esc(p.name)}</b><span class="hint">${esc(p.sub)}</span></span></button>`).join("")}</div>
-      <div class="place-tools">${places.filter((p) => p.id === "compare" || p.id === "trash").map((p) => `<button class="tr-dev place-card ${p.id === "trash" ? "trash-card" : ""} ${mg.place === p.id ? "chosen" : ""}" data-place="${esc(p.id)}"><b>${esc(p.name)}</b></button>`).join("")}</div></div>
+    <div class="places-wrap"><div class="places" data-scroll="bk-places">${cards.join("")}</div>
+      <div class="place-tools">${places.filter((p) => p.id === "compare" || p.id === "trash").map((p) => `<button class="tr-dev place-card ${p.id === "trash" ? "trash-card" : ""} ${mg.place === p.id ? "chosen" : ""}" data-place="${esc(p.id)}">
+        <span class="dev-ico tool-ico">${p.icon}</span><span class="grow"><b>${esc(p.name)}</b><span class="hint ${p.tone || ""}">${esc(p.sub)}</span></span></button>`).join("")}</div></div>
     <div id="bk-main"></div>`;
+  $$("[data-fam]", view).forEach((b) => b.onclick = () => { mg.famOpen = b.dataset.fam; backupsTab(); });
   $$("[data-place]", view).forEach((b) => b.onclick = () => { mg.place = b.dataset.place; mg.gsel.clear(); mg.csel.clear(); if (mg.place === "trash") mg.trash = {}; backupsTab(); });
   const main = $("#bk-main");
   if (!mg.sum) {
     main.innerHTML = mg.error
       ? `<div class="empty"><p class="bad">${esc(T("Lecture impossible : %s", mg.error))}</p><p class="hint">${T("Il faut le moteur 2.33 ou plus récent pour cet écran.")}</p><button class="secondary" id="mg-retry">${T("Actualiser")}</button></div>`
-      : loading(T("Lecture des sauvegardes…"));
+      : loading(T("Lecture des sauvegardes…")) + `<p class="hint">${esc(T("Copies sur les disques et le NAS, et ce que dit leur contenu."))}</p>`;
     const r = $("#mg-retry");
     if (r) r.onclick = () => { mg.error = ""; backupsTab(); };
     selBar(0);
@@ -321,7 +368,8 @@ function backupsTab() {
 // Synchro des copies (comme la télé) : aperçu de ce qui manque de chaque côté, puis validation.
 async function syncCopiesDialog(peer, name, full) {
   let plan;
-  try { plan = await api(`/sync/copies/plan?peer=${encodeURIComponent(peer)}${full ? "&full=1" : ""}`); } catch (e) { toast(e.message); return; }
+  toast(T("Calcul de ce qui manque de chaque côté…"));  // comme la télé : un retour pendant le calcul
+  try { plan = await api(`/sync/copies/plan?peer=${encodeURIComponent(peer)}${full ? "&full=1" : ""}`); } catch (e) { toast(e.message || T("réponse illisible")); return; }
   if (plan.error) { toast(plan.error); return; }
   const np = plan.pull.length, ns = plan.push.length, jf = (plan.pull_full || 0) + (plan.push_full || 0);
   let note = np + ns === 0 ? T("Rien ne manque : les deux consoles ont les mêmes copies.") + " "
@@ -373,7 +421,11 @@ async function loadSyncState() {
 
 function mgOverview(main) {
   const s = mg.sum, games = s.games, place = mg.place;
-  const st = mgStats(place);
+  // Les trois bulles disent la même chose que la télé : pour toutes les copies (pas seulement l'endroit choisi) ;
+  // « À vérifier » compte les jeux qui ont au moins une copie à vérifier.
+  const st0 = mgStats("");
+  const st = { ...st0, freed: s.freed_bytes != null ? Math.max(0, s.freed_bytes) : st0.freed, cmp: s.to_compare != null ? s.to_compare : st0.cmp,
+    chk: ((s && s.games) || []).filter((g) => g.copies.some(mgSuspect)).length };
   const here = games.filter((g) => g.copies.some((c) => mgIn(c, place)));
   const rank = (g) => (mgChosen(g, place).size && !mg.csel.has(mgGk(g)) ? 0 : !g.compared && !g.full ? 1 : 2);
   const rows = here.filter((g) => (mg.view === 1 ? g.copies.some((c, i) => mgIn(c, place) && (g.remove || []).includes(i)) : mg.view === 2 ? !g.compared && !g.full
@@ -384,13 +436,11 @@ function mgOverview(main) {
   let nc = 0, bytes = 0;
   for (const g of picked) { const ch = mgChosen(g, place); nc += ch.size; for (const c of g.copies) if (ch.has(mgCk(c))) bytes += mgBytes(c); }
   const shownOn = rows.filter((g) => mg.gsel.has(mgGk(g))).length;
-  main.innerHTML = `<div class="mg-stats three">
-      <div class="mg-stat"><span class="hint">${T("Doublons sûrs")}</span><b class="${st.dup ? "ok" : ""}">${esc(T("%s à libérer", size(st.freed)))}</b><span class="hint">${esc(T("%d copie(s)", st.dup))}</span>
-        <button class="secondary small" id="mg-clean" ${st.dup ? "" : "disabled"}>${T("Nettoyer les doublons…")}</button></div>
-      <div class="mg-stat"><span class="hint">${T("Pas encore comparés")}</span><b class="${st.cmp ? "warn" : "ok"}">${esc(T("%d jeu(x)", st.cmp))}</b>
-        <span class="hint">${mg.comparing ? SPIN + esc(T("comparaison en cours : %d jeu(x)", mg.comparing)) : ""}</span>
-        <button class="secondary small" id="mg-compare" ${s.to_compare ? "" : "disabled"}>${T("Tout comparer")}</button></div>
-      <button class="mg-stat" data-goview="3"><span class="hint">${T("À vérifier")}</span><b class="${st.chk ? "warn" : "ok"}">${esc(T("%d copie(s)", st.chk))}</b><span class="hint">${T("vides ou incomplètes : mises à part, rien n'est supprimé")}</span></button>
+  // Les trois bulles de la télé (mêmes textes, mêmes couleurs) ; un clic : nettoyer, tout comparer, voir les copies à vérifier.
+  main.innerHTML = `<div class="mg-pills">
+      <button class="mg-pill ok" id="mg-clean" ${st.dup ? "" : "disabled"} title="${esc(T("Nettoyer les doublons…"))}">${esc(T("Doublons sûrs : %s à libérer", size(st.freed)))}</button>
+      <button class="mg-pill ${s.to_compare ? "warn" : "ok"}" id="mg-compare" ${s.to_compare ? "" : "disabled"} title="${esc(T("Tout comparer"))}">${mg.comparing ? SPIN + esc(T("comparaison en cours : %d jeu(x)", mg.comparing)) : esc(T("Pas encore comparés : %lld jeu(x)").replace("%lld", st.cmp))}</button>
+      <button class="mg-pill ${st.chk ? "warn" : "ok"}" data-goview="3" title="${esc(T("vides ou incomplètes : mises à part, rien n'est supprimé"))}">${esc(T("À vérifier : %d", st.chk))}</button>
     </div>
     <div class="filters mg-bar"><div class="pills">${mgViews().map((l, i) => `<button data-v="${i}" class="${mg.view === i ? "active" : ""}">${esc(l)}</button>`).join("")}</div></div>
     <div class="list-head">${allBoxHtml("mg-all", shownOn, rows.length)}<span class="hint">${esc(T("%d jeu(x)", rows.length))}${place ? " · " + esc(placeLabel(place)) : ""}</span></div>
@@ -411,7 +461,9 @@ function mgOverview(main) {
       let line = mgSummary(g), tag = [badge, tone];
       if (hereC.length) {
         const last = Math.max(...hereC.map((c) => c.created_unix || 0));
-        line = T("%d copie(s) sur %s · la dernière le %s", hereC.length, spotName(hereC[0]), mgDate(last, false)) + (nPlaces > 1 ? " · " + T("aussi à %d autre(s) endroit(s)", nPlaces - 1) : "");
+        line = hereC[0].on_peer  // carte d'une autre PS5 (comme la télé) : ses copies se gèrent depuis cette console-là
+          ? T("%d copie(s) sur %s · la dernière le %s · gérées depuis cette console-là", hereC.length, hereC[0].peer_name || spotName(hereC[0]), mgDate(last, false))
+          : T("%d copie(s) sur %s · la dernière le %s", hereC.length, spotName(hereC[0]), mgDate(last, false)) + (nPlaces > 1 ? " · " + T("aussi à %d autre(s) endroit(s)", nPlaces - 1) : "");
         if (!on && !g.full && !hereC[0].on_peer && !(bad && mg.view === 3)) tag = ch.size ? [T("%d doublon(s) ici", ch.size), "ok"] : !g.compared ? [T("À comparer"), "warn"] : [T("Rien à faire ici"), "muted"];
       }
       return `<div class="row mg-game ${on ? "on" : ""}" data-g="${esc(k)}">${ckHtml(`data-c="${esc(k)}"`, on)}${mgCover(g)}
@@ -452,7 +504,7 @@ function mgRowMenu(anchor, g) {
   const allProt = own.length && own.every((c) => mg.prot.has(mgCk(c)));
   const k = mgGk(g);
   openMenu(anchor, [
-    { label: T("Toutes les versions"), run: () => { mg.back = ""; mg.game = k; window.scrollTo(0, 0); backupsTab(); } },
+    { label: T("Détails"), run: () => { mg.back = ""; mg.game = k; window.scrollTo(0, 0); backupsTab(); } },
     ...(g.on_peer_only ? [] : [{ label: T("Supprimer…"), cls: "bad", run: () => {
       if (mgChosen(g, mg.place).size) return mgPreview([g], mg.place);
       mg.back = ""; mg.game = k; backupsTab(); toast(T("Cochez les versions à supprimer"));
@@ -502,7 +554,7 @@ function mgGameView(main) {
   const order = (list) => list.map((c) => [c, g.copies.indexOf(c)]).sort((a, b) => b[0].created_unix - a[0].created_unix);
   const own = order(mine), others = order(g.copies.filter((c) => c.other_account && !c.on_peer)), onPeer = order(g.copies.filter((c) => c.on_peer));
   const cg = g.console && g.console.group;
-  const selectable = mine.filter((c) => !mg.prot.has(mgCk(c)));
+  const selectable = mine.filter((c) => !mg.prot.has(mgCk(c)) && !roPlace(c.place));
   const canRestore = (c) => !c.on_peer && c.complete !== false && (g.full || (g.account || "").startsWith("ps5:"));
   const copyRow = ([c, i]) => {
     const ck = mgCk(c), prot = mg.prot.has(ck), other = !!c.other_account || !!c.on_peer;
@@ -577,9 +629,10 @@ function mgGameView(main) {
         pickAccount(b, "", T("cette console"), async (uid) => {
         try { await post("/backups/install", { place: c.place, bundle: c.bundle, target: p.id, format, user_id: uid }); toast(T("Installation de « %s » en cours (suivie dans Tâches) ; le jeu apparaît sur l'accueil une fois l'application fermée", g.title)); } catch (e) { toast(e.message); }
         });
-      }) })) : []),
-      { label: prot ? T("Retirer la protection") : T("Protéger"), run: () => mgProtect([c], !prot) },
-      ...(!prot && !c.other_account ? [{ label: T("Supprimer…"), cls: "bad", run: () => { mg.csel.set(k, new Set([ck])); mg.gsel.add(k); mgPreview([g]); } }] : []),
+      }, T("Format de « %s » sur %s", g.title, p.type === "internal" ? T("Interne") : p.label)) })) : []),
+      ...(c.complete !== false ? [{ label: T("Partager cette copie…"), run: () => shareCopyMenu(b, g, c) }] : []),
+      ...(roPlace(c.place) ? [] : [{ label: prot ? T("Retirer la protection") : T("Protéger"), run: () => mgProtect([c], !prot) }]),  // partage reçu : lecture seule
+      ...(!prot && !c.other_account && !roPlace(c.place) ? [{ label: T("Supprimer…"), cls: "bad", run: () => { mg.csel.set(k, new Set([ck])); mg.gsel.add(k); mgPreview([g]); } }] : []),
     ]);
   });
   const picked = g.copies.filter((c) => ch.has(mgCk(c)));
@@ -666,20 +719,26 @@ function mgCompareView(main) {
       tiles.push(t);
     });
     const note = spreadLine(g) || (full ? T("Copie complète") : T("Sauvegarde")) + (g.console ? " · " + T("partie active sur cette console") : "");
-    return `<div class="cmp-game"><div class="cmp-head">${mgCover(g)}<div class="grow"><b>${esc(g.title)}</b><div class="hint">${esc(note)}</div></div><span class="cmp-verdict ${cls}">${esc(verdict)}</span></div>
+    return `<div class="cmp-game" data-cmp-gk="${esc(mgGk(g))}"><div class="cmp-head">${mgCover(g)}<div class="grow"><b>${esc(g.title)}</b><div class="hint">${esc(note)}</div></div><span class="cmp-verdict ${cls}">${esc(verdict)}</span></div>
       <div class="cmp-copies">${tiles.map((t) => `<div class="cmp-copy ${t.same ? "same" : ""}"><span class="cmp-tag ${t.tone}">${esc(t.tag)}</span><b>${esc(t.where)}</b><small>${esc(t.line)}</small></div>`).join("")}</div>
-      <div class="actions">${f === 7 ? `<button data-cmp-tidy="${esc(mgGk(g))}">${T("Faire le tri")}</button>` : ""}<button class="secondary" data-cmp-open="${esc(mgGk(g))}">${T("Toutes les versions")}</button>${full ? "" : `<button class="secondary" data-cmp-run="${esc(mgGk(g))}">${T("Comparer ce jeu")}</button>`}</div></div>`;
+      <div class="actions">${f === 7 ? `<button data-cmp-tidy="${esc(mgGk(g))}">${T("Faire le tri")}</button>` : ""}<button class="secondary" data-cmp-open="${esc(mgGk(g))}">${T("Détails")}</button>${full ? "" : `<button class="secondary" data-cmp-run="${esc(mgGk(g))}">${T("Comparer ce jeu")}</button>`}</div></div>`;
   };
   main.innerHTML = `<div class="cmp-sum">
       <div class="mg-stat"><b>${multi}</b><span class="hint">${T("jeux avec des copies à plusieurs endroits")}</span></div>
       <div class="mg-stat"><b>${dups}</b><span class="hint">${T("copies identiques (doublons)")}</span></div>
       <div class="mg-stat"><b class="${newer ? "warn" : ""}">${newer}</b><span class="hint">${T("copie(s) plus récente(s) ailleurs")}</span></div>
       <div class="mg-stat"><b>${esc(size(Math.max(0, mg.sum.freed_bytes || 0)))}</b><span class="hint">${T("récupérables en gardant une copie par contenu")}</span></div></div>
-    <div class="cmp-filters">${cmpFilters().map((x, i) => `<button class="${i === f ? "on" : ""}" data-cf="${i}">${esc(x)}</button>`).join("")}</div>
+    <div class="cmp-filters">${cmpFilters().map((x, i) => `<button class="${i === f ? "on" : ""}" data-cf="${i}">${esc(x)}</button>`).join("")}<button class="secondary small" id="cmp-all">${T("Tout comparer")}</button></div>
     ${f === 7 && rows.length ? `<div class="actions"><button class="secondary" id="cmp-keep">${T("Garder seulement sur…")}</button></div>` : ""}
     ${rows.length ? rows.map(card).join("") : `<div class="empty"><p class="hint">${f === 0 ? T("Aucun jeu n'a de copies à plusieurs endroits.") : T("Rien dans cette vue.")}</p></div>`}`;
+  if (mg.cmpFocus) {  // ouvert depuis « Comparer » d'un jeu : on va sur sa carte
+    const el = $$("[data-cmp-gk]", main).find((x) => x.dataset.cmpGk === mg.cmpFocus);
+    mg.cmpFocus = "";
+    if (el) { el.classList.add("focus"); setTimeout(() => el.scrollIntoView({ block: "center" }), 0); }
+  }
   $$("[data-cf]", main).forEach((b) => b.onclick = () => { mg.cfilter = +b.dataset.cf; backupsTab(); });
   $$("[data-cmp-open]", main).forEach((b) => b.onclick = () => { mg.back = ""; mg.game = b.dataset.cmpOpen; window.scrollTo(0, 0); backupsTab(); });
+  if ($("#cmp-all", main)) $("#cmp-all", main).onclick = () => mgCompareAll();
   $$("[data-cmp-run]", main).forEach((b) => b.onclick = () => { const g = games.find((x) => mgGk(x) === b.dataset.cmpRun); if (g) mgCompare(g); });
   $$("[data-cmp-tidy]", main).forEach((b) => b.onclick = () => { const g = games.find((x) => mgGk(x) === b.dataset.cmpTidy); if (g) mgTidy(g); });
   if ($("#cmp-keep", main)) $("#cmp-keep", main).onclick = () => mgTidy(null, rows);
@@ -763,8 +822,8 @@ async function mgDiskExtras(root, placeId, again = false) {
       root.innerHTML = head + `<div class="list">${list.map((b) => `<div class="row">
         <div class="thumb">${coverHtml(itemFor(b), true)}</div>
         <div><div class="t">${esc(b.title || b.bundle)}${b.complete === false ? `<span class="state failed">${T("Incomplète")}</span>` : ""}</div>
-          <div class="d">${esc(new Date(b.created).toLocaleString(I18N.code))} · ${b.bytes ? size(b.bytes) : T("taille ?")} · ${(b.parts || []).map((p) => PARTS[p] || p).join(", ")}</div></div>
-        <div class="btns"><button data-bundle="${esc(b.bundle)}" ${b.complete !== false && place.type === "usb" ? "" : "disabled"}>${T("Restaurer dans un dossier neuf")}</button><button class="bad" data-trash="${esc(b.bundle)}" data-name="${esc(b.title || b.bundle)}">${T("Corbeille…")}</button></div></div>`).join("")}</div>`;
+          <div class="d">${esc(mgDate(new Date(b.created).getTime() / 1000))} · ${b.bytes ? size(b.bytes) : T("taille ?")} · ${(b.parts || []).map((p) => PARTS[p] || p).join(", ")}</div></div>
+        <div class="btns"><button data-bundle="${esc(b.bundle)}" ${b.complete !== false && place.type === "usb" ? "" : "disabled"}>${T("Restaurer dans un dossier neuf")}</button>${place.readonly ? "" : `<button class="bad" data-trash="${esc(b.bundle)}" data-name="${esc(b.title || b.bundle)}">${T("Corbeille…")}</button>`}</div></div>`).join("")}</div>`;
     }
     $("#disk-refresh", root).onclick = () => mgDiskExtras(root, placeId, true);
     $$("button[data-trash]", root).forEach((b) => b.onclick = async () => {
@@ -777,6 +836,8 @@ async function mgDiskExtras(root, placeId, again = false) {
     });
     $$("button[data-bundle]", root).forEach((b) => b.onclick = async () => {
       const target = `${place.mount}/PBC Restaurations/${b.dataset.bundle.replace(/\.pbck$/, "")}`;
+      // Le bouton propose, il ne lance pas d'un coup (charte §1), comme la télé.
+      if (!await ask(T("Restaurer cette sauvegarde complète ?"), `<p class="hint">${esc(T("Les fichiers sont remis dans « PBC Restaurations », sur le même disque. Rien n'est écrasé."))}</p>`, T("Restaurer"))) return;
       try { await post("/tasks", { type: "restore", place: placeId, bundle: b.dataset.bundle, target }); toast(T("Restauration ajoutée aux tâches")); }
       catch (e) { toast(e.message); }
     });
@@ -787,7 +848,7 @@ async function mgDiskExtras(root, placeId, again = false) {
   const cur = mg.disk[placeId] = { ...(cached || {}), loading: true };
   draw(cur);
   let idx;
-  try { idx = await api("/backups?place=" + encodeURIComponent(placeId)); } catch (e) { idx = { error: e.message, backups: [] }; }
+  try { idx = await api("/backups?place=" + encodeURIComponent(placeId)); } catch (e) { idx = { error: e.message || T("réponse illisible"), backups: [] }; }
   idx.at = Date.now();
   mg.disk[placeId] = idx;
   const r = $("#bk-extra");
@@ -796,7 +857,7 @@ async function mgDiskExtras(root, placeId, again = false) {
 
 // Corbeille de chaque disque USB et du NAS, par jour ; « Remettre » remet la copie à sa place.
 async function mgTrashView(root) {
-  const places = (state.places || []).filter((p) => (p.type === "usb" || p.type === "ftp") && p.use !== "sync" && !p.same_backups_as);
+  const places = (state.places || []).filter((p) => (p.type === "usb" || p.type === "ftp") && p.use !== "sync" && !p.same_backups_as && !p.readonly);
   const draw = () => {
     if (!root.isConnected) return;
     const withAny = places.filter((p) => Array.isArray(mg.trash[p.id]) && mg.trash[p.id].length);
@@ -807,16 +868,27 @@ async function mgTrashView(root) {
       if (list.error) return `<h3>${esc(p.label)}</h3><p class="bad">${esc(list.error)}</p>`;
       if (!list.length) return `<h3>${esc(p.label)} <span class="hint">· ${T("corbeille vide")}</span></h3>`;
       const days = [...new Set(list.map((t) => t.day))].sort().reverse();
-      return `<h3>${esc(p.label)} <span class="hint">· ${esc(T("%d copie(s)", list.length))}</span></h3>` + days.map((d) => {
+      return `<h3>${esc(p.label)} <span class="hint">· ${esc(T("%d copie(s)", list.length))}</span> <button class="secondary small danger" data-empty="${esc(p.id)}" data-label="${esc(p.label)}" data-count="${list.length}">${T("Vider la corbeille")}</button></h3>` + days.map((d) => {
         const [y, m, dd] = d.split("-");
         return `<p class="hint">${esc(T("Mise à la corbeille le %s", dd && m ? `${dd}/${m}/${y}` : d))}</p><div class="list">${list.filter((t) => t.day === d).map((t) => {
           const plain = (s) => (s || "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, ""), pb = plain(t.bundle);
           const g = (mg.sum.games || []).find((x) => (x.title_id && t.bundle.includes(x.title_id)) || (plain(x.title) && pb.includes(plain(x.title))));
           return `<div class="row"><div><div class="t">${esc(g ? g.title : t.bundle.split("/").pop())}</div><div class="d">${esc(t.bundle)}</div></div>
-            <div class="btns"><button data-place="${esc(p.id)}" data-path="${esc(t.path)}">${T("Remettre")}</button></div></div>`;
+            <div class="btns"><button data-place="${esc(p.id)}" data-path="${esc(t.path)}">${T("Remettre")}</button><button class="secondary danger" data-del-place="${esc(p.id)}" data-del-path="${esc(t.path)}" data-del-name="${esc(t.bundle)}">${T("Supprimer définitivement…")}</button></div></div>`;
         }).join("")}</div>`;
       }).join("");
     }).join("") + `<p class="hint">${T("Les copies restent 30 jours dans « PBC Backup/Corbeille » de leur disque ou NAS.")}</p>` : `<div class="empty">${T("Aucun disque USB ni NAS.")}</div>`;
+    // Supprimer pour de bon (une copie, ou toute la corbeille d'un endroit) : bouton maintenu, comme sur la télé.
+    const purge = async (place, body, title, note, done) => {
+      if (!(await holdAsk(title, `<p>${esc(note)}</p>`, T("Maintenir 5 s pour supprimer")))) return;
+      try { await post("/trash/delete", Object.assign({ place, confirm: true }, body)); toast(done); } catch (e) { toast(e.message); }
+      mg.trash[place] = undefined;
+      load(places.find((p) => p.id === place));
+    };
+    $$("[data-del-path]", root).forEach((b) => b.onclick = () => purge(b.dataset.delPlace, { path: b.dataset.delPath }, T("Supprimer définitivement ?"),
+      T("« %s » sera effacée pour de bon : elle ne pourra plus être remise.", b.dataset.delName), T("Copie supprimée pour de bon")));
+    $$("[data-empty]", root).forEach((b) => b.onclick = () => purge(b.dataset.empty, { all: true }, T("Vider la corbeille de %s ?", b.dataset.label),
+      T("%d copie(s) seront effacées pour de bon : elles ne pourront plus être remises.", +b.dataset.count), T("Corbeille vidée")));
     $$("[data-path]", root).forEach((b) => b.onclick = async () => {
       b.disabled = true; b.innerHTML = SPIN;
       try { await post("/trash/restore", { place: b.dataset.place, path: b.dataset.path }); toast(T("Copie remise à sa place")); state.overview = null; }
@@ -830,7 +902,7 @@ async function mgTrashView(root) {
     if (!p || mg.trashLoading.has(p.id)) return;
     mg.trashLoading.add(p.id);
     try { mg.trash[p.id] = await api(`/trash?place=${encodeURIComponent(p.id)}`); }
-    catch (e) { mg.trash[p.id] = { error: e.message }; }
+    catch (e) { mg.trash[p.id] = { error: e.message || T("réponse illisible") }; }
     mg.trashLoading.delete(p.id);
     draw();
   };
@@ -894,3 +966,235 @@ function ignoreDialog(targets, copies, done) {
     if (done) done();
   });
 }
+
+// ---- Partager ma copie (3.1.43), comme la télé : lien temporaire de la console (.zip), BitTorrent ou MEGA ----
+function shareCopyMenu(anchor, g, c) {
+  const pl = state.places.find((p) => p.id === c.place) || {};
+  const local = !String(c.place).startsWith("remote:") && !String(c.place).startsWith("peer");
+  const where = `${copyKindText(g, c)} · ${c.place_label || placeLabel(c.place)} · ${mgDate(c.created_unix)}`;
+  const req = async (kind, hours) => {
+    try {
+      const r = await post("/shares/out", { place: c.place, bundle: c.bundle, kind, hours, title: g.title });
+      if (kind === "bt") { showNewBtLink(r.job, g.title); return; }
+      shareShow({ ...r, title: g.title, where });
+    } catch (e) { toast(e.message); }
+  };
+  openMenu(anchor, [
+    { label: T("Lien de la console (.zip) · maison ou Internet…"), run: () => openMenu(anchor, [
+      { label: T("Pendant 1 heure"), run: () => req("local", 1) },
+      { label: T("Pendant 24 heures"), run: () => req("local", 24) },
+      { label: T("Pendant 7 jours"), run: () => req("local", 24 * 7) },
+    ], T("Le lien s'arrête seul à la fin ; vous pouvez l'arrêter avant dans Téléchargements › Mes liens.")) },
+    ...(local && !c.on_peer ? [{ label: T("Lien BitTorrent (magnet) · sans copie"), run: () => req("bt", 0) }] : []),
+    ...(pl.protocol === "mega" ? [{ label: T("Lien %s · du service", "MEGA"), run: () => req("mega", 0) }] : []),
+    // OneDrive et Dropbox (comme la télé) : Google Drive refuse de partager un dossier avec l'accès limité de l'appli ;
+    // pour lui, le lien temporaire de la console.
+    ...(pl.protocol === "onedrive" ? [{ label: T("Lien %s · du service", "OneDrive"), run: () => req("service", 0) }] : []),
+    ...(pl.protocol === "dropbox" ? [{ label: T("Lien %s · du service", "Dropbox"), run: () => req("service", 0) }] : []),
+    { label: T("Mes liens…"), run: () => myShares(anchor) },
+  ], `${where} · ${T("Le lien donne cette copie seulement, en lecture : rien n'est effacé ni modifié.")}`);
+}
+
+// Depuis la fiche : la copie à partager (la plus récente d'abord).
+// Ce qu'est une copie, en clair (comme la télé) : la sauvegarde de partie de quel compte, ou une copie du jeu.
+function copyKindText(g, c) {
+  if (g.full || (c.parts || []).includes("app")) return T("Copie du jeu");
+  const a = ((state.overview && state.overview.accounts) || []).find((x) => x.key === g.account);
+  const who = c.owner_name || (a && a.name) || "";
+  return who ? T("Sauvegarde de partie · %s", who) : T("Sauvegarde de partie");
+}
+// « Que partager ? » (comme la télé) : le jeu lui-même (là où il est : interne, USB…, lien BitTorrent, sans copie), une
+// sauvegarde de partie, ou une copie du jeu (le jeu et sa partie ensemble) ; puis la liste, la plus récente d'abord.
+async function shareFromSheet(anchor, it) {
+  let sum;
+  toast(T("Un instant : lecture des copies…"));
+  try { sum = await api("/backups/summary"); } catch (e) { toast(e.message); return; }
+  const saves = [], games = [];
+  for (const g of sum.games || []) {
+    if (!((it.title_id && g.title_id === it.title_id) || g.item === it.key)) continue;
+    for (const c of g.copies || []) if (c.complete !== false) (copyKindText(g, c) === T("Copie du jeu") ? games : saves).push([g, c]);
+  }
+  const newest = (a, b) => b[1].created_unix - a[1].created_unix;
+  saves.sort(newest); games.sort(newest);
+  const pick = (list, what) => openMenu(anchor, list.slice(0, 12).map(([g, c]) => ({
+    label: `${copyKindText(g, c)} · ${c.place_label || placeLabel(c.place)} · ${mgDate(c.created_unix, false)}${mgBytes(c) ? " · " + size(mgBytes(c)) : ""}`,
+    run: () => shareCopyMenu(anchor, g, c) })));
+  let appComps = (it.components || []).filter((c) => c.part === "app");  // le jeu lui-même : « app », sinon « game » (ROM)
+  if (!appComps.length) appComps = (it.components || []).filter((c) => c.part === "game");
+  const appBytes = appComps.reduce((n, c) => n + (c.bytes || 0), 0);
+  const acts = [];
+  let where = placeLabel(it.place);  // comme la fiche : le vrai disque des données (une image sur une clé USB…)
+  if (appComps.length) { try { const img = (await loadImages()).get(it.key); if (img && img.disk && img.disk.label) where = T(img.disk.label); } catch (e) {} }
+  if (appComps.length) acts.push({ label: T("Le jeu · %s · %s · lien BitTorrent (magnet), sans copie", where, size(appBytes)), run: async () => {
+    if (!(await ask(T("Créer un lien pour « %s » ?", it.title), `<p class="hint">${esc(T("La console calcule les empreintes (quelques minutes pour un gros jeu), puis le partage depuis là où il est : rien n'est copié. Le lien et son code QR restent dans Téléchargements › Mes liens."))}</p>`, T("Oui, créer le lien")))) return;
+    try { const r = await post("/shares/out", { kind: "game", item: it.key }); showNewBtLink(r.job, it.title); } catch (e) { toast(e.message); }
+  } });
+  if (saves.length) acts.push({ label: T("Une sauvegarde de partie… (%d)", saves.length), run: () => pick(saves) });
+  if (games.length) acts.push({ label: T("Une copie du jeu, avec sa partie… (%d)", games.length), run: () => pick(games) });
+  if (!acts.length) { toast(T("Aucune copie de cet élément pour l'instant : sauvegardez-le d'abord")); return; }
+  acts.push({ label: T("Mes liens…"), run: () => myShares(anchor) });
+  openMenu(anchor, acts);
+}
+
+// Mes liens (comme la télé) : tous les liens donnés depuis la console — BitTorrent (en préparation ou partagé), .zip de la
+// console, MEGA, lien du service (OneDrive…). Chacun s'ouvre avec son code QR, son adresse, et de quoi l'arrêter.
+function linkLine(l) {
+  const what = l.kind === "bt" ? "BitTorrent" : l.kind === "local" ? T("Lien de la console (.zip)") : l.kind === "mega" ? "MEGA" : (l.place_label || T("Lien du service"));
+  let st;
+  if (l.state === "preparing") st = l.total > 0 ? T("en préparation · %d %%", Math.floor((l.done || 0) * 100 / l.total)) : T("en préparation");
+  else if (l.state === "error") st = T("erreur");
+  else if (l.state === "paused") st = T("en pause");
+  else if (l.state === "checking") st = T("vérification des fichiers");
+  else if (l.state === "missing") st = T("fichiers introuvables");
+  else if (l.kind === "bt") st = T("partagé · %d pair(s)", l.peers || 0);
+  else if (l.kind === "local") st = T("jusqu'au %s · %d téléchargement(s)", mgDate(l.expires), l.downloads || 0);
+  else st = T("ouvert");
+  return `${l.title} · ${what} · ${st}`;
+}
+function linkShow(l) {
+  const where = l.kind === "local" ? T("jusqu'au %s", mgDate(l.expires)) : l.kind === "bt" ? "BitTorrent (magnet)" + (l.total > 0 ? " · " + size(l.total) : "")
+    : l.kind === "mega" ? "MEGA" : (l.place_label || "");
+  shareShow({ ...l, where, match: l.kind === "bt" ? (l.file || l.title) : "" });
+}
+function showNewBtLink(job, title) {
+  state.linksAt = 0;
+  shareShow({ kind: "bt", id: job, title, state: "preparing", where: "BitTorrent (magnet)" });
+}
+async function myShares(anchor) {
+  let r;
+  try { r = await api("/links"); } catch (e) { toast(e.message || T("Liste impossible")); return; }
+  state.links = r.links || [];
+  const acts = state.links.map((l) => ({ label: linkLine(l), run: () => linkShow(l) }));
+  if (!acts.length) { toast(T("Aucun lien pour l'instant : Partager… crée un lien pour un jeu, une ROM ou une sauvegarde")); return; }
+  openMenu(anchor, acts, T("Tous les liens donnés depuis cette console : choisissez-en un pour son code QR, son adresse, ou pour l'arrêter."));
+}
+
+async function shareShow(s) {
+  const local = s.kind === "local", bt = s.kind === "bt", stoppable = local || s.kind === "mega" || s.kind === "service" || (bt && !!s.id);
+  if (bt && s.state === "preparing") return btPreparing(s);
+  const text = bt ? (s.state === "error" ? T("Le lien n'a pas pu être fait : %s", s.error || "")
+      : s.state === "missing" ? T("Les fichiers de ce lien ne sont plus là où ils étaient (déplacés ou retirés) : il ne partage rien. Arrêtez-le, puis refaites un lien avec Partager…")
+      : T("Lien magnet : scannez-le avec le téléphone ou ouvrez-le dans un logiciel BitTorrent (une autre PS5, qBittorrent…). La console partage le jeu tant qu'elle est allumée et que le lien reste dans Mes liens."))
+    : s.kind === "mega" ? T("Lien MEGA : il s'ouvre partout, dans un navigateur ou l'appli MEGA. Il contient la clé : ne le donnez qu'aux personnes voulues.")
+    : s.kind === "service" ? T("Lien du service : il s'ouvre partout, pour toute personne qui a le lien, en lecture. La console peut être éteinte. Arrêtez-le quand il ne sert plus.")
+    : T("Scannez avec le téléphone, ou ouvrez l'adresse sur un ordinateur : la copie se télécharge en .zip, lue directement là où elle est rangée.");
+  if (bt && s.state === "missing") s = { ...s, qr: null, url: "" };  // un lien sans ses fichiers : ni code QR ni adresse à donner
+  // Deux liens quand la console connaît son adresse publique (comme la télé, touche Carré) : « Lien de la maison » et
+  // « Lien Internet » ; le bouton passe de l'un à l'autre et le code QR, l'adresse et « Copier » suivent.
+  const two = !!s.url_public && !(bt && s.state !== "ready");
+  const hintFor = (pub) => local ? T("Le lien s'arrête seul le %s.", mgDate(s.expires)) + " " + (pub
+        ? T("Lien Internet, pour quelqu'un de loin : la console doit rester allumée et son port 52370 ouvert sur la box (UPnP le fait seul s'il est activé dans Paramètres › Réseau).")
+        : T("Il marche sur le réseau de la maison ; par Internet seulement si le port 52370 de la console est ouvert sur la box. La console doit rester allumée."))
+    : bt && s.state === "ready" ? (pub ? T("Lien Internet, pour quelqu'un de loin (%s) : la console doit rester allumée et son port BitTorrent ouvert sur la box (UPnP le fait seul s'il est activé dans Paramètres › Réseau).", s.public || "")
+        : two ? T("Lien de la maison : pour une autre PS5 ou un PC sur le même réseau.") : T("Marche sur le réseau de la maison ; depuis Internet, dès que l'adresse publique est connue"))
+    : "";
+  const html = `<p class="hint">${esc(s.where || "")}</p>
+    ${two ? `<div class="seg" id="sh-seg"><button class="secondary small chosen" data-pub="0">${T("Lien de la maison")}</button><button class="secondary small" data-pub="1">${T("Lien Internet")}</button></div>` : ""}
+    <div class="row-inline" style="gap:20px;align-items:flex-start;flex-wrap:wrap"><div class="qr" id="sh-qr" ${s.qr && s.qr.length ? "" : "hidden"}>${s.qr && s.qr.length ? qrSvg(s.qr) : ""}</div><div style="flex:1;min-width:240px">
+    <p>${esc(text)}</p>${s.url ? `<p><a id="sh-url" href="${esc(s.url)}" target="_blank" rel="noopener" style="word-break:break-all">${esc(s.url)}</a></p>
+    <p><button class="secondary small" id="sh-copy">${T("Copier le lien")}</button>` : "<p>"}${local ? ` <button class="secondary small" id="sh-refresh">${T("Actualiser l'adresse")}</button>` : ""}</p>
+    <p class="hint" id="sh-hint">${esc(hintFor(false))}</p></div></div>`;
+  const p = ask(T("Partager « %s »", s.title || ""), html, stoppable ? (bt ? T("Arrêter le partage…") : T("Arrêter le lien…")) : T("Fermer"), stoppable ? T("Fermer") : "");
+  let shown = s.url;
+  const cp = document.getElementById("sh-copy");
+  const copy = async () => { try { await navigator.clipboard.writeText(shown || ""); toast(T("Lien copié")); } catch (e) { toast(T("Copie impossible : sélectionnez le lien")); } };
+  if (cp) cp.onclick = copy;
+  document.querySelectorAll("#sh-seg [data-pub]").forEach((b) => b.onclick = () => {
+    const pub = b.dataset.pub === "1", qr = pub ? s.qr_public : s.qr;
+    shown = pub ? s.url_public : s.url;
+    document.querySelectorAll("#sh-seg [data-pub]").forEach((x) => x.classList.toggle("chosen", x === b));
+    const q = document.getElementById("sh-qr"); q.innerHTML = qr && qr.length ? qrSvg(qr) : ""; q.hidden = !(qr && qr.length);
+    const a = document.getElementById("sh-url"); if (a) { a.href = shown; a.textContent = shown; }
+    document.getElementById("sh-hint").textContent = hintFor(pub);
+  });
+  const rf = document.getElementById("sh-refresh");
+  if (rf) rf.onclick = async () => {  // redemander l'adresse publique, puis rouvrir ce lien à jour
+    try {
+      await post("/public-address", { refresh: true });
+      const all = (await api("/shares/out")).shares || [];
+      const x = all.find((y) => y.token === s.token);
+      const box = rf.closest(".modal"); if (box && box.cancel) box.cancel();
+      toast(x && x.url_public ? T("Adresse publique à jour") : T("Adresse publique inconnue : la console n'a pas pu la demander"));
+      if (x) setTimeout(() => shareShow({ ...x, kind: "local", where: s.where }), 50);
+    } catch (e) { toast(e.message); }
+  };
+  if (!(await p) || !stoppable) return;
+  if (bt) {
+    if (!(await ask(T("Arrêter ce partage ?"), `<p>${esc(T("Le lien ne marchera plus. Rien n'est effacé : le jeu et ses fichiers restent où ils sont."))}</p>`, T("Arrêter ce partage")))) return;
+    try { await post("/shares/out/stop", { kind: "bt", id: s.id }); toast(T("Partage arrêté : le jeu reste sur la console")); } catch (e) { toast(e.message); }
+    state.linksAt = 0;
+    return;
+  }
+  if (!(await ask(T("Arrêter ce lien ?"), `<p>${esc(T("Il ne s'ouvrira plus, pour personne. La copie n'est pas touchée."))}</p>`, T("Arrêter ce lien")))) return;
+  try {
+    if (local) await post("/shares/out/stop", { token: s.token });
+    else await post("/shares/out", { kind: s.kind, off: true, place: s.place, bundle: s.bundle });  // MEGA, Drive, OneDrive, Dropbox : retiré chez le service
+    toast(T("Lien arrêté : il ne s'ouvre plus"));
+  } catch (e) { toast(e.message); }
+}
+
+// Lien BitTorrent en préparation : la barre avance (relue toutes les 2 s) ; à la fin, la fenêtre montre le code QR.
+async function btPreparing(s) {
+  const bar = (l) => { const t = l.total || 0, d = l.done || 0;
+    return `<div class="bar"><span style="width:${t ? Math.max(1, Math.floor(d * 100 / t)) : 1}%"></span></div><p class="hint">${esc(t ? T("Préparation : %d %%  ·  %s sur %s", Math.floor(d * 100 / t), size(d), size(t)) : T("Préparation…"))}</p>`; };
+  const html = `<p class="hint">${esc(s.where || "")}</p><p>${esc(T("La console calcule les empreintes du jeu, là où il est rangé : rien n'est copié. Le code QR apparaît ici à la fin ; vous pouvez fermer, le lien reste dans Téléchargements › Mes liens."))}</p><div id="bt-prep">${bar(s)}</div>`;
+  const p = ask(T("Partager « %s »", s.title || ""), html, T("Arrêter…"), T("Fermer"));
+  let match = s.match || "", done = false;
+  const tick = setInterval(async () => {
+    const box = document.getElementById("bt-prep");
+    if (!box) { clearInterval(tick); return; }
+    let r; try { r = await api("/links"); } catch (e) { return; }
+    const l = (r.links || []).find((x) => x.kind === "bt" && (x.id === s.id || (match && (x.file || x.title) === match && x.state !== "preparing")));
+    if (!l) return;
+    match = l.file || l.title;
+    if (l.state === "preparing") { box.innerHTML = bar(l); return; }
+    clearInterval(tick); done = true;
+    const m = box.closest(".modal"); if (m && m.cancel) m.cancel();
+    setTimeout(() => linkShow({ ...l, title: s.title || l.title }), 50);
+  }, 2000);
+  const stop = await p;
+  clearInterval(tick);
+  if (!stop || done) return;
+  if (!(await ask(T("Arrêter ce partage ?"), `<p>${esc(T("Le lien ne marchera plus. Rien n'est effacé : le jeu et ses fichiers restent où ils sont."))}</p>`, T("Arrêter ce partage")))) return;
+  try { await post("/shares/out/stop", { kind: "bt", id: s.id }); toast(T("Partage arrêté : le jeu reste sur la console")); } catch (e) { toast(e.message); }
+}
+
+// Téléchargements › Partager… (comme la télé) : quoi (jeux PS5, PS4, ROM par console, applis, sauvegardes, un fichier),
+// où (chaque disque, avec le nombre), puis la liste de A à Z ; un élément ouvre « Que partager ? ».
+async function shareHub(anchor) {
+  const imgs = await loadImages().catch(() => new Map());
+  const disk = (it) => { const g = imgs.get(it.key); return (g && g.disk && g.disk.label ? T(g.disk.label) : "") || placeLabel(it.place); };
+  const items = state.items || [];
+  const of = (k) => items.filter((it) => it.kind === k);
+  const saves = items.filter((it) => (it.components || []).some((c) => c.part === "save"));
+  const list = (l, what) => {
+    const sorted = [...l].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+    openMenu(anchor, sorted.map((it) => {
+      const b = (it.components || []).reduce((n, c) => n + (c.bytes || 0), 0);
+      return { label: `${it.title} · ${disk(it)}${b ? " · " + size(b) : ""}`, run: () => shareFromSheet(anchor, it) };
+    }));
+  };
+  const where = (l, what) => {
+    const by = new Map();
+    for (const it of l) { const d = disk(it); if (!by.has(d)) by.set(d, []); by.get(d).push(it); }
+    if (by.size <= 1) { list(l, what); return; }
+    openMenu(anchor, [{ label: `${T("Partout")} · ${l.length}`, run: () => list(l, what) },
+      ...[...by].map(([d, x]) => ({ label: `${d} · ${x.length}`, run: () => list(x, what) }))]);
+  };
+  const acts = [];
+  const add = (name, l) => { if (l.length) acts.push({ label: `${name} · ${l.length}`, run: () => where(l, name) }); };
+  add(T("Jeux PS5"), of("game_ps5"));
+  add(T("Jeux PS4"), of("game_ps4"));
+  const roms = of("rom");
+  if (roms.length) acts.push({ label: `${T("ROM (par console)")} · ${roms.length}`, run: () => {
+    const by = new Map();
+    for (const r of roms) { const p = r.platform || T("Autre"); if (!by.has(p)) by.set(p, []); by.get(p).push(r); }
+    openMenu(anchor, [...by].sort((a, b) => a[0].localeCompare(b[0])).map(([p, l]) => ({ label: `${p} · ${l.length}`, run: () => where(l, "ROM " + p) })));
+  } });
+  add(T("Applis"), of("app"));
+  add(T("Sauvegardes de partie"), saves);
+  acts.push({ label: T("Un fichier ou un dossier…"), run: () => createLink() });
+  acts.push({ label: T("Mes liens…"), run: () => myShares(anchor) });
+  openMenu(anchor, acts);
+}
+

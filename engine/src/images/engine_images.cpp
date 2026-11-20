@@ -79,8 +79,11 @@ Json Engine::images_json(bool measure) {
     for (const auto& i : images::discover(measure)) {
         Json j = i.to_json();
         j.set("disk", disk_of(i.path));
+        // Un paquet .pkg n'est pas « le » contenu du jeu (sa fiche garde son image ou son dossier) : il a sa propre
+        // carte, « Paquets .pkg » ; on donne seulement le titre et la clé du jeu connu (« game »).
         for (const auto& it : items)
             if (!i.title_id.empty() && it.title_id == i.title_id) {
+                if (i.kind == images::Kind::fpkg) { j.set("game", it.key); if (i.title.empty()) j.set("title", it.title); break; }
                 j.set("item", it.key);
                 if (i.title.empty()) j.set("title", it.title);
                 break;
@@ -227,7 +230,23 @@ Json assess(const Json& id, const Json& console, const std::string& source_ext) 
     }
     // Système déclaré non atteint : il faut un backport. S'il existe (fakelib du jeu ou backport ShadowMountPlus),
     // on le dit ; sinon le jeu risque de ne pas fonctionner (PS5 Center pourra aider, fonctions expérimentales).
-    if (below) state = (backport || libs) ? "backport_present" : "no_backport";
+    // Un backport ne descend pas plus bas que ce pour quoi il est fait : les exécutables du jeu (SDK lu dans eboot et
+    // sce_module) et les bibliothèques de son fakelib doivent tenir sur le système de la console visée. Sinon le
+    // backport existe mais ne suffit pas ici (ex. 007 First Light, backport en SDK 4.00, sur une PS5 en 3.21).
+    if (below) {
+        const int l = firmware_number(id["own_libs_sdk_max"].as_string());
+        const bool exe_fits = x == 0 || (f > 0 && x <= f), libs_fit = !libs || l == 0 || (f > 0 && l <= f);
+        if (!backport && !libs) state = "no_backport";
+        else if (exe_fits && (backport || libs_fit)) state = "backport_present";
+        else {
+            state = "backport_insufficient";
+            Json r = Json::object();
+            r.set("code", "needs_system");
+            r.set("sdk", !exe_fits ? sdk : id["own_libs_sdk_max"].as_string());
+            r.set("firmware", fw);
+            reason(r);
+        }
+    }
     // Format : échecs de montage observés sur la console visée.
     std::string recommended = "keep";
     const Json& m = console["mounts"][source_ext];

@@ -24,6 +24,7 @@ bool parse_url(const std::string& url, Url& out) {
     if (url.rfind("http://", 0) == 0) rest = url.substr(7);
     else if (url.rfind("https://", 0) == 0) { rest = url.substr(8); out.tls = true; out.port = 443; }
     else return false;
+    if (const auto hash = rest.find('#'); hash != std::string::npos) rest.resize(hash);  // le fragment ne part jamais au serveur (Dropbox redirige vers « …# »)
     const auto slash = rest.find('/');
     std::string hostport = rest.substr(0, slash);
     out.path = slash == std::string::npos ? "/" : rest.substr(slash);

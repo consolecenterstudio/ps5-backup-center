@@ -4,6 +4,17 @@
 
 [English](../../README.md) · [Français](README.fr.md) · [Français (Canada)](README.fr-CA.md) · [Español](README.es.md) · [Español (Latinoamérica)](README.es-419.md) · [Português (Brasil)](README.pt-BR.md) · [Português (Portugal)](README.pt-PT.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Nederlands](README.nl.md) · [Polski](README.pl.md) · [Türkçe](README.tr.md) · [Русский](README.ru.md) · [简体中文](README.zh-Hans.md) · [繁體中文](README.zh-Hant.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Tiếng Việt](README.vi.md) · [العربية](README.ar.md)
 
+## 3.2.0
+
+- Trong Tải xuống, “+ Thêm liên kết” nhận cả liên kết magnet hoặc tệp .torrent: bạn chọn ổ để lưu (ổ trong Cài đặt › Mạng được đưa lên đầu), rồi theo dõi tiến độ (nguồn, tốc độ, thời gian còn lại) và tạm dừng, tiếp tục hoặc gỡ bỏ (TV và web).
+- Tải xuống › Liên kết của tôi: mọi liên kết máy đã cấp (BitTorrent, .zip của máy, MEGA, OneDrive), kèm mã QR, địa chỉ và cách dừng. Liên kết MEGA và OneDrive được lưu ở đó.
+- Kế hoạch: bản lưu hoặc trò chơi đã có ở nơi đến (cùng nội dung, do PS5 nào sao chép cũng vậy) không còn bị sao chép lại; bản tổng kết ghi “đã cập nhật”. Không đọc lại gì để biết điều đó.
+- Tải xuống › “ORBIT VÀ BLACKBOX”: những gì Orbit và BlackBox đã tải về máy (trạng thái, ổ đĩa, dung lượng, không tìm thấy tệp) và tệp tạm của chúng (tệp nén giữ lại, đang tải, phần còn lại), đọc từ phía chúng mà không thay đổi gì.
+- “Cài đặt…” trong công cụ của trò chơi, Gói .pkg và Tải xuống › Orbit và BlackBox: gắn ngay tại chỗ (đưa vào thư mục trò chơi của ổ đó, không sao chép, ShadowMount gắn), hoặc cài sang ổ khác hay PS5 khác (bản sao đã kiểm tra, giữ hoặc xóa bản gốc).
+- “Cài đặt… › Gắn tại chỗ” cho .pkg Kraken: trò chơi được khai báo với máy và chạy thẳng từ gói, không giải nén gì — bằng Kraken Mount nếu đã cài, nếu không thì bằng bản tích hợp của chúng tôi (công việc của Kraken Mount trong engine của chúng tôi, với ampr-emu-ng, pgo_stub và dlc_emu do chúng tôi biên dịch; cần kstuff). Trò chơi đã do ShadowMount quản lý hoặc đã được máy cài sẽ không bị đụng tới. Bản đầu tiên, để thử.
+
+Đang chờ Dropbox phê duyệt môi trường chính thức. Đồng bộ tự động giữa các PS5 và cài đặt sang máy khác là tính năng phiên bản đầu, vẫn cần thử nghiệm trên máy.
+
 <p align="center">
   <img src="../assets/screenshots/en-oled-home.png" alt="PS5 Backup Center — Màn hình chính" width="88%">
 </p>
@@ -14,7 +25,7 @@
 
 **Tải xuống, cài đặt và chuyển trò chơi.** Nhận trò chơi từ một PS5 đã ghép đôi trên mạng nội bộ. Sao lưu, so sánh, đồng bộ và khôi phục dữ liệu lưu giữa PS5, ổ USB, NAS và dịch vụ đám mây từ TV hoặc trình duyệt. Quản lý ứng dụng, DLC PS5 và dữ liệu lưu của Switch và trình giả lập tương thích.
 
-[Tính năng mới 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+[Tính năng mới 3.2.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.2.0)
 
 **Bộ sưu tập của bạn. Tiến trình của bạn. Bản sao lưu của bạn.**
 

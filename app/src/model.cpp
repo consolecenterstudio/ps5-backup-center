@@ -174,6 +174,8 @@ bool Model::refresh(bool force) {
             Item it{x["key"].as_string(), x["kind"].as_string(), x["title"].as_string(), x["title_id"].as_string(), x["platform"].as_string(),
                     x["place"].as_string(), x["image_type"].as_string(), strings(x["apps"]), {}, x["has_cover"].as_bool(), x["cover"].as_string(), {}};
             it.ignored = x["ignored"].as_bool();
+            if (x["via"].is_object()) it.via = x["via"];
+            it.location = x["location"].as_string();  // calculé par le moteur (Parcourir)
             for (const auto& c : x["components"].items()) {
                 it.components.push_back({c["part"].as_string(), ui_util::engine_label(c["label"].as_string()), static_cast<std::uint64_t>(c["bytes"].as_int())});
                 if (it.location.empty() && c["sources"].size()) {
@@ -191,7 +193,7 @@ bool Model::refresh(bool force) {
         for (const auto& x : j.items())
             next->places.push_back({x["id"].as_string(), x["type"].as_string(), x["mount"].as_string(), ui_util::engine_label(x["label"].as_string()),
                                     static_cast<std::uint64_t>(x["free"].as_int()), static_cast<std::uint64_t>(x["total"].as_int()), x["marked"].as_bool(), x["protocol"].as_string(), x["same_as"].as_string(), x["use"].as_string(),
-                                    x["same_backups_as"].as_string(), x["service"].as_string()});
+                                    x["same_backups_as"].as_string(), x["service"].as_string(), x["readonly"].as_bool(), x["expires"].as_int()});
     }
     if (http(ep_, "GET", "/api/v2/tasks?brief=1", "", body) == 200 && Json::parse(body, j)) {
         next->tasks.clear();
@@ -225,8 +227,12 @@ bool Model::refresh(bool force) {
             next->emulators.push_back(std::move(e));
         }
     }
-    if (http(ep_, "GET", "/api/v2/settings", "", body) == 200 && Json::parse(body, j)) { next->default_place = j["default_place"].as_string(); next->update_auto_check = j["update_auto_check"].as_bool(true); next->update_auto_install = j["update_auto_install"].as_bool(false); next->update_channel = j["update_channel"].as_string() == "beta" ? "beta" : "stable"; next->tv_seen_version = j["tv_seen_version"].as_string(); next->theme = j["theme"].as_string();
+    if (http(ep_, "GET", "/api/v2/settings", "", body) == 200 && Json::parse(body, j)) { next->default_place = j["default_place"].as_string(); next->send_place = j["send_place"].as_string(); next->ask_where = j["ask_where"].as_bool(true); next->update_auto_check = j["update_auto_check"].as_bool(true); next->update_auto_install = j["update_auto_install"].as_bool(false); next->update_channel = j["update_channel"].as_string() == "beta" ? "beta" : "stable"; next->tv_seen_version = j["tv_seen_version"].as_string(); next->theme = j["theme"].as_string();
         next->sound_ui = j["sound_ui"].as_bool(true); next->music = j["music"].as_bool(false); next->volume = static_cast<int>(j["volume"].as_int(70)); if (!j["language"].as_string().empty()) next->language = j["language"].as_string(); next->system_language = j["system_language"].as_string(); next->settings_loaded = true;
+        next->net = pbc::Json::object();
+        for (const char* key : {"wan_enabled", "wan_port", "bt_proto", "bt_port_from", "bt_port_to", "bt_accept_in", "bt_upnp", "bt_dht", "bt_rate_max", "bt_rate_game", "bt_upload_max", "bt_active", "bt_connections", "dl_place", "bt_seed_ratio", "bt_seed_hours", "bt_prealloc", "bt_space_check", "bt_night", "bt_night_from", "bt_night_to", "bt_done_copy", "bt_done_move", "bt_watch", "bt_encrypt", "bt_blocklist"})
+            if (j.has(key)) next->net.set(key, j[key]);
+        next->home_ack_sync.clear(); for (const auto& k : j["home_ack"]["sync"].items()) next->home_ack_sync.push_back(k.as_string());
         for (const auto& t : j["ignored"].items()) next->ignored.push_back(t.as_string()); }
     if (http(ep_, "GET", "/api/v2/pair-code", "", body) == 200 && Json::parse(body, j)) next->pair_code = j["code"].as_string();
     std::lock_guard<std::mutex> l(mu_);

@@ -1,0 +1,1869 @@
+//! A Kraken-compressed inner image, and the layout descriptor that lets the console read it.
+//!
+//! The image is data-first: every file's bytes, then the zeros between the data and the
+//! metadata base, then the metadata region, each cut into blocks of up to 256 KiB that never
+//! cross a file boundary, each block compressed ([`crate::kraken`]) and stored back to back.
+//! The descriptor (`naps_pkg_layout.dat`) records every block: where its compressed bytes end,
+//! how long its even half is, and each half's mode. Its format was decoded from Sony's own
+//! packages and is written up in `docs/research/2026-09-23-ps5-kraken-package-blocks.md`.
+//!
+//! Compression runs across every core as a streaming pipeline, and every block is decoded
+//! again and compared with its source before it is kept, so a package never carries a block
+//! the console could not read back. The compressed image goes to a spool file first, because
+//! the outer image's geometry depends on its final length.
+
+use std::borrow::Cow;
+use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use crate::crypto::Hasher;
+use crate::kraken::{self, Half};
+use crate::plan::{self, Plan};
+use crate::{format_err, Result};
+
+const UBLOCK: u64 = 0x4_0000;
+const WINDOW: u64 = 0x4_0000;
+
+/// What a block holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Owner {
+    /// A content file, by afid.
+    File(usize),
+    /// Zeros between the data and the metadata base.
+    Gap,
+    /// The inner file system's metadata region.
+    Meta,
+}
+
+/// One stored block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredBlock {
+    pub logical: u64,
+    pub len: u32,
+    /// Where its compressed bytes start in the image.
+    pub stored_at: u64,
+    /// `(stored length, is LZ)` per half, even then odd.
+    pub halves: Vec<(u32, bool)>,
+    /// Per half: literals delta-coded (literal mode 0).
+    pub delta: [bool; 2],
+    pub owner: Owner,
+}
+
+impl StoredBlock {
+    pub fn stored_len(&self) -> u64 {
+        self.halves.iter().map(|h| u64::from(h.0)).sum()
+    }
+}
+
+/// The compressed image, spooled to disk, and everything the package needs about it.
+pub struct KrakenImage {
+    pub blocks: Vec<StoredBlock>,
+    /// The spooled image's length, padded to 64 KiB.
+    pub image_len: u64,
+    /// `SHA3-256` of each file's logical bytes, by afid.
+    pub file_digests: Vec<[u8; 32]>,
+    /// Where each file's first byte is stored, by afid.
+    pub file_stored_at: Vec<u64>,
+    pub mount_size: u64,
+    /// Each stored 64 KiB block's `(SHA3, CRC32C)`, taken as it was written, when [`compress`]
+    /// was asked for them: a plaintext image spooled in place needs nothing else of its bytes.
+    pub block_digests: Option<Vec<([u8; 32], u32)>>,
+    /// The logical end of the data.
+    pub data_end: u64,
+    pub meta_base: u64,
+}
+
+/// A block to build, before compression.
+struct Todo {
+    logical: u64,
+    len: usize,
+    /// How much of `len` is the file's own; the rest is gap.
+    real: usize,
+    owner: Owner,
+    /// For a file block: the path and the offset within the file.
+    source: Option<(String, u64)>,
+    generated_keystone: bool,
+}
+
+fn plan_blocks(plan: &Plan) -> (Vec<Todo>, u64) {
+    let mut todo = Vec::new();
+    let mut end = 0u64;
+    for (afid, &fi) in plan.afid_order.iter().enumerate() {
+        let f = &plan.files[fi];
+        // Blocks tile a file up to the next file's start: the descriptor gives no other length.
+        // That is the file itself, plus the zeros of a gap the planner spread it by.
+        let span = match plan.afid_order.get(afid + 1) {
+            Some(&next) => plan.files[next].logical_offset - f.logical_offset,
+            None => f.size,
+        };
+        let mut off = 0u64;
+        while off < span {
+            let len = (span - off).min(UBLOCK);
+            todo.push(Todo {
+                logical: f.logical_offset + off,
+                len: len as usize,
+                real: f.size.saturating_sub(off).min(len) as usize,
+                owner: Owner::File(afid),
+                source: Some((f.path.clone(), off)),
+                generated_keystone: f.generated && f.path == plan::KEYSTONE,
+            });
+            off += len;
+        }
+        end = end.max(f.logical_offset + f.size);
+    }
+    let mut at = end;
+    while at < plan.meta_base {
+        let len = (plan.meta_base - at).min(UBLOCK);
+        todo.push(Todo {
+            logical: at,
+            len: len as usize,
+            real: 0,
+            owner: Owner::Gap,
+            source: None,
+            generated_keystone: false,
+        });
+        at += len;
+    }
+    let mount = plan.ndblock * crate::BLOCK;
+    let mut at = plan.meta_base;
+    while at < mount {
+        let len = (mount - at).min(UBLOCK);
+        todo.push(Todo {
+            logical: at,
+            len: len as usize,
+            real: 0,
+            owner: Owner::Meta,
+            source: None,
+            generated_keystone: false,
+        });
+        at += len;
+    }
+    (todo, end)
+}
+
+/// Store every block uncompressed instead of compressing it: `PS5UPLOAD_FPKG_KRAKEN_STORE=1`.
+/// Compression is the default since the console's hardware decoder accepted our blocks (a
+/// compressed Minecraft played on a FW 5.10 console); storing stays available as a fallback.
+/// The build reads it only where its request lets the environment in, and then compresses at
+/// [`kraken::Level::Stored`], which is what [`compress`] tests.
+pub fn store_only() -> bool {
+    std::env::var("PS5UPLOAD_FPKG_KRAKEN_STORE").is_ok_and(|v| v == "1")
+}
+
+/// A source-file range reader.
+pub type SourceRead<'r> = &'r mut dyn FnMut(&str, u64, usize) -> Result<Vec<u8>>;
+
+/// Like [`crate::ffpfsc::pipeline`], but the calling thread both produces the work and consumes
+/// the results, so neither needs to be `Send` — a source tree and a progress callback usually are
+/// not. Only `work` runs on the pool. Results reach `sink` in production order.
+fn pipeline_local<T: Send, U: Send>(
+    threads: usize,
+    mut produce: impl FnMut() -> Result<Option<T>>,
+    work: impl Fn(T) -> Result<U> + Sync,
+    mut sink: impl FnMut(U) -> Result<()>,
+) -> Result<()> {
+    use std::sync::mpsc::sync_channel;
+    use std::sync::{Arc, Mutex};
+    let depth = threads * 2;
+    std::thread::scope(|s| {
+        let (tx_in, rx_in) = sync_channel::<(u64, T)>(depth);
+        let (tx_out, rx_out) = sync_channel::<(u64, Result<U>)>(depth);
+        let rx_in = Arc::new(Mutex::new(rx_in));
+        let work = &work;
+        for _ in 0..threads {
+            let rx_in = Arc::clone(&rx_in);
+            let tx_out = tx_out.clone();
+            s.spawn(move || loop {
+                let next = rx_in.lock().map(|rx| rx.recv());
+                match next {
+                    Ok(Ok((i, item))) => {
+                        if tx_out.send((i, work(item))).is_err() {
+                            return;
+                        }
+                    }
+                    _ => return,
+                }
+            });
+        }
+        drop(rx_in);
+        drop(tx_out);
+        let (mut sent, mut next, mut finished) = (0u64, 0u64, false);
+        let mut pending = std::collections::BTreeMap::new();
+        let result = (|| -> Result<()> {
+            loop {
+                // Keep the pool fed without letting more than `depth` items be in flight.
+                while !finished && sent - next < depth as u64 {
+                    match produce()? {
+                        Some(item) => {
+                            tx_in
+                                .send((sent, item))
+                                .map_err(|_| crate::Error::Format("the pool stopped".into()))?;
+                            sent += 1;
+                        }
+                        None => finished = true,
+                    }
+                }
+                if next == sent {
+                    return Ok(());
+                }
+                let (i, r) = rx_out
+                    .recv()
+                    .map_err(|_| crate::Error::Format("the pool stopped".into()))?;
+                pending.insert(i, r);
+                while let Some(r) = pending.remove(&next) {
+                    sink(r?)?;
+                    next += 1;
+                }
+            }
+        })();
+        drop(tx_in);
+        result
+    })
+}
+
+/// Blocks queued for [`hash_files`]: at most 32 × 256 KiB in memory.
+const HASH_DEPTH: usize = 32;
+
+/// Each file's SHA3 from its blocks, `(afid, block, bytes of it that are the file's)`, which
+/// arrive file by file in order (a file's blocks are consecutive).
+fn hash_files(
+    blocks: std::sync::mpsc::Receiver<(usize, Vec<u8>, usize)>,
+    files: usize,
+) -> Vec<[u8; 32]> {
+    let mut digests = vec![[0u8; 32]; files];
+    let mut open: Option<(usize, Hasher)> = None;
+    for (afid, bytes, real) in blocks {
+        if open.as_ref().is_none_or(|(a, _)| *a != afid) {
+            if let Some((a, h)) = open.take() {
+                digests[a] = h.finish();
+            }
+            open = Some((afid, Hasher::new()));
+        }
+        if let Some((_, h)) = open.as_mut() {
+            h.update(&bytes[..real]);
+        }
+    }
+    if let Some((a, h)) = open.take() {
+        digests[a] = h.finish();
+    }
+    digests
+}
+
+/// Blocks of the stored image queued for [`BlockDigests`]' threads: at most 16 × 64 KiB.
+const DIGEST_DEPTH: usize = 16;
+
+/// Each stored 64 KiB block's SHA3 and CRC32C, from the compressed bytes as they are written,
+/// on threads of their own (one per 8 compressing threads: the stored image is a fraction of
+/// the source, and SHA3 runs far faster than the encoder).
+struct BlockDigests {
+    block: Vec<u8>,
+    sent: u64,
+    tx: Option<std::sync::mpsc::SyncSender<(u64, Vec<u8>)>>,
+    workers: Vec<std::thread::JoinHandle<Digested>>,
+}
+
+/// One digest thread's blocks: `(index, SHA3, CRC32C)`.
+type Digested = Vec<(u64, [u8; 32], u32)>;
+
+impl BlockDigests {
+    fn start(threads: usize) -> Result<Self> {
+        use std::sync::{Arc, Mutex};
+        let (tx, rx) = std::sync::mpsc::sync_channel::<(u64, Vec<u8>)>(DIGEST_DEPTH);
+        let rx = Arc::new(Mutex::new(rx));
+        let mut workers = Vec::new();
+        for _ in 0..threads.div_ceil(8).max(1) {
+            let rx = Arc::clone(&rx);
+            workers.push(
+                std::thread::Builder::new()
+                    .name("block-sha3".into())
+                    .spawn(move || {
+                        let mut done = Vec::new();
+                        while let Ok(Ok((i, block))) = rx.lock().map(|rx| rx.recv()) {
+                            done.push((
+                                i,
+                                crate::crypto::sha3(&block),
+                                crate::crypto::crc32c(&block),
+                            ));
+                        }
+                        done
+                    })?,
+            );
+        }
+        Ok(Self {
+            block: Vec::with_capacity(crate::BLOCK as usize),
+            sent: 0,
+            tx: Some(tx),
+            workers,
+        })
+    }
+
+    /// The next bytes of the stored image.
+    fn feed(&mut self, mut bytes: &[u8]) -> Result<()> {
+        while !bytes.is_empty() {
+            let take = (crate::BLOCK as usize - self.block.len()).min(bytes.len());
+            self.block.extend_from_slice(&bytes[..take]);
+            bytes = &bytes[take..];
+            if self.block.len() == crate::BLOCK as usize {
+                let full =
+                    std::mem::replace(&mut self.block, Vec::with_capacity(crate::BLOCK as usize));
+                let tx = self.tx.as_ref().expect("fed after finish");
+                tx.send((self.sent, full))
+                    .map_err(|_| crate::Error::Format("the block hasher stopped".into()))?;
+                self.sent += 1;
+            }
+        }
+        Ok(())
+    }
+
+    /// Every block's digests, in image order; the image fed must end on a block boundary.
+    fn finish(mut self) -> Result<Vec<([u8; 32], u32)>> {
+        drop(self.tx.take());
+        let mut all = vec![([0u8; 32], 0u32); self.sent as usize];
+        let mut seen = 0u64;
+        for worker in self.workers.drain(..) {
+            let done = worker
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+            seen += done.len() as u64;
+            for (i, digest, crc) in done {
+                all[i as usize] = (digest, crc);
+            }
+        }
+        if !self.block.is_empty() || seen != self.sent {
+            return format_err("the stored image's block digests are incomplete");
+        }
+        Ok(all)
+    }
+}
+
+/// Compress the image described by `plan` into `spool` from byte `base` on. `read` fetches a byte range of a source
+/// file, `metadata` is the metadata region's logical bytes and `keystone` the generated one.
+/// With `digest_blocks`, each stored 64 KiB block is digested as it is written
+/// ([`KrakenImage::block_digests`]), so nothing reads the spool back for them.
+#[allow(clippy::too_many_arguments)]
+pub fn compress(
+    plan: &Plan,
+    metadata: &[u8],
+    keystone: &[u8],
+    read: SourceRead<'_>,
+    spool: impl Write + Seek,
+    base: u64,
+    digest_blocks: bool,
+    threads: usize,
+    level: kraken::Level,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<KrakenImage> {
+    let (todo, data_end) = plan_blocks(plan);
+    let mount = plan.ndblock * crate::BLOCK;
+    if metadata.len() as u64 != mount - plan.meta_base {
+        return format_err("the metadata region does not fill the mount above its base");
+    }
+    let total: u64 = todo.iter().map(|t| t.len as u64).sum();
+    let mut spool = spool;
+    spool.seek(SeekFrom::Start(base))?;
+    let mut out = BufWriter::with_capacity(8 << 20, spool);
+    let mut next = todo.into_iter();
+    let mut blocks: Vec<StoredBlock> = Vec::new();
+    let mut cursor = 0u64;
+    let files = plan.afid_order.len();
+    let mut file_stored_at = vec![0u64; files];
+    let mut last: Option<usize> = None;
+    let mut done = 0u64;
+    // Each file's SHA3 runs on a thread of its own, fed its blocks in order, so the thread that
+    // reads the source and keeps the pool fed does not also take it (~40% of its time). A panic
+    // drops the sender, which ends the hasher too.
+    let (to_hash, hashed) = std::sync::mpsc::sync_channel(HASH_DEPTH);
+    let hasher = std::thread::Builder::new()
+        .name("file-sha3".into())
+        .spawn(move || hash_files(hashed, files))?;
+    let mut block_digests = if digest_blocks {
+        Some(BlockDigests::start(threads)?)
+    } else {
+        None
+    };
+    let piped = pipeline_local(
+        threads.max(1),
+        || {
+            let Some(t) = next.next() else {
+                return Ok(None);
+            };
+            if cancel.load(Ordering::Relaxed) {
+                return Err(crate::Error::Cancelled);
+            }
+            let bytes = match (&t.owner, &t.source) {
+                (Owner::File(_), Some((path, off))) => {
+                    let mut b = if t.real == 0 {
+                        Vec::new()
+                    } else if t.generated_keystone {
+                        keystone
+                            .get(*off as usize..*off as usize + t.real)
+                            .ok_or_else(|| crate::Error::Format("keystone is short".into()))?
+                            .to_vec()
+                    } else {
+                        let b = read(path, *off, t.real)?;
+                        if b.len() != t.real {
+                            return format_err(format!(
+                                "{path} gave {} bytes at {off} where the plan fixed {}",
+                                b.len(),
+                                t.real
+                            ));
+                        }
+                        b
+                    };
+                    b.resize(t.len, 0);
+                    b
+                }
+                (Owner::Meta, _) => {
+                    let at = (t.logical - plan.meta_base) as usize;
+                    metadata[at..at + t.len].to_vec()
+                }
+                _ => vec![0u8; t.len],
+            };
+            Ok(Some((t, bytes)))
+        },
+        |(t, bytes)| {
+            // A stop asked for while the pool is full ends the blocks still queued, not only the
+            // reading: each one would otherwise be compressed and checked first.
+            if cancel.load(Ordering::Relaxed) {
+                return Err(crate::Error::Cancelled);
+            }
+            // Stored (`Level::Stored`, or `PS5UPLOAD_FPKG_KRAKEN_STORE=1` through the build, see
+            // `store_only`): every half raw, the same layout with nothing for the console's
+            // decoder to decompress.
+            let halves = if level == kraken::Level::Stored {
+                bytes
+                    .chunks(kraken::HALF)
+                    .map(|h| Half::Raw(h.to_vec()))
+                    .collect()
+            } else {
+                kraken::encode_block_at(&bytes, level)
+            };
+            // Proof before it is kept: the block decodes back to exactly its source.
+            if kraken::decode_block(&halves, bytes.len())? != bytes {
+                return format_err(format!("block at {:#x} does not round-trip", t.logical));
+            }
+            Ok((t, bytes, halves))
+        },
+        |(t, bytes, halves)| {
+            // Everything is stored back to back, so the stored position never jumps and the only
+            // anchors the descriptor needs are the ones that open each 16-record window.
+            if let Owner::File(afid) = t.owner {
+                if last != Some(afid) {
+                    last = Some(afid);
+                    file_stored_at[afid] = cursor;
+                }
+                to_hash
+                    .send((afid, bytes, t.real))
+                    .map_err(|_| crate::Error::Format("the file hasher stopped".into()))?;
+            }
+            let stored_at = cursor;
+            let mut parts = Vec::with_capacity(2);
+            let mut delta = [false; 2];
+            for (k, h) in halves.iter().enumerate() {
+                let b = h.bytes();
+                out.write_all(b)?;
+                if let Some(d) = block_digests.as_mut() {
+                    d.feed(b)?;
+                }
+                cursor += b.len() as u64;
+                parts.push((b.len() as u32, h.is_lz()));
+                delta[k] = h.is_delta();
+            }
+            blocks.push(StoredBlock {
+                logical: t.logical,
+                len: t.len as u32,
+                stored_at,
+                halves: parts,
+                delta,
+                owner: t.owner,
+            });
+            done += t.len as u64;
+            progress(done, total);
+            Ok(())
+        },
+    );
+    // Closing the channel ends the hasher, whatever the pipeline gave.
+    drop(to_hash);
+    let mut file_digests = hasher
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+    piped?;
+    // Files with no bytes still have a digest: that of nothing.
+    for (afid, &fi) in plan.afid_order.iter().enumerate() {
+        if plan.files[fi].size == 0 {
+            file_digests[afid] = Hasher::new().finish();
+            file_stored_at[afid] = blocks
+                .iter()
+                .find(|b| b.logical >= plan.files[fi].logical_offset)
+                .map_or(cursor, |b| b.stored_at);
+        }
+    }
+    let image_len = cursor.next_multiple_of(crate::BLOCK).max(crate::BLOCK);
+    let pad = vec![0u8; (image_len - cursor) as usize];
+    out.write_all(&pad)?;
+    out.flush()?;
+    let block_digests = match block_digests {
+        Some(mut d) => {
+            d.feed(&pad)?;
+            Some(d.finish()?)
+        }
+        None => None,
+    };
+    Ok(KrakenImage {
+        blocks,
+        image_len,
+        file_digests,
+        file_stored_at,
+        mount_size: mount,
+        block_digests,
+        data_end,
+        meta_base: plan.meta_base,
+    })
+}
+
+/// Read the spooled image back one 64 KiB block at a time; it starts at byte `base`.
+pub fn spool_block(
+    spool: &mut (impl Read + Seek + ?Sized),
+    base: u64,
+    index: u64,
+    buf: &mut [u8],
+) -> Result<()> {
+    spool.seek(SeekFrom::Start(base + index * crate::BLOCK))?;
+    spool.read_exact(buf)?;
+    Ok(())
+}
+
+// ─────────────────────────────── the layout descriptor ───────────────────────────────
+
+fn block_record(b: &StoredBlock) -> u128 {
+    let mut v = u128::from(((b.logical % WINDOW) >> 4) as u32 & 0x3FFF);
+    v |= u128::from(b.halves[0].0 - 1) << 14;
+    v |= 1u128 << 31;
+    let mut flags = 0u32;
+    if b.halves[0].1 {
+        flags |= 1 << 1; // even half is LZ
+        if b.delta[0] {
+            flags |= 1; // ... with delta literals (literal mode 0)
+        }
+    }
+    match b.halves.get(1) {
+        Some(&(_, true)) => {
+            flags |= 1 << 4; // odd half is LZ
+            if b.delta[1] {
+                flags |= 1 << 3; // ... with delta literals
+            }
+        }
+        // An odd half stored raw restarts the decoder (the console's `odd_reset`, bit 34). Sony
+        // sets it on every such block (over 150,000 in Spider-Man 2); without it the console's
+        // layout check rejects the record (status 0x80010017, measured on a FW 5.10 Phat).
+        Some(&(_, false)) => flags |= 1 << 2,
+        None => {}
+    }
+    v |= u128::from(flags) << 32;
+    v |= u128::from(((b.stored_at + b.stored_len()) % WINDOW) as u32) << 48;
+    v
+}
+
+/// An anchor carries its stored position three ways: in 1 MiB units (bits 0–25), in 256 KiB
+/// windows (bits 26–47) and within the window (bits 48–65) — measured on Sony's packages, whose
+/// anchors past 8 MiB have exactly these values.
+fn anchor_record(position: u64) -> u128 {
+    u128::from(position >> 20) & ((1 << 26) - 1)
+        | (u128::from(position / WINDOW) << 26)
+        | (u128::from((position % WINDOW) as u32) << 48)
+}
+
+/// The descriptor for `image`, with `fidx` its boundary table: each file's logical start in
+/// afid order, then the data end, the metadata base and the mount size.
+pub fn layout(image: &KrakenImage, file_starts: &[u64]) -> Result<Vec<u8>> {
+    let blob = assemble(image, file_starts)?;
+    // Read it back the way the console will, and require exactly the blocks we stored.
+    let walked = describe(&blob)?;
+    if walked.len() != image.blocks.len() {
+        return format_err("the descriptor does not walk back to its blocks");
+    }
+    for (w, b) in walked.iter().zip(&image.blocks) {
+        if w.logical != b.logical
+            || w.len != u64::from(b.len)
+            || w.stored_at != b.stored_at
+            || w.stored_len != b.stored_len()
+            || w.even_len != u64::from(b.halves[0].0)
+        {
+            return format_err(format!(
+                "the descriptor misdescribes the block at {:#x}",
+                b.logical
+            ));
+        }
+    }
+    Ok(blob)
+}
+
+/// The descriptor bytes [`layout`] checks before returning them.
+fn assemble(image: &KrakenImage, file_starts: &[u64]) -> Result<Vec<u8>> {
+    // Bit 66 of a record says the next record is an anchor. It is how a reader tells the two
+    // apart — nothing in an anchor itself does — so it is set before every anchor, and two
+    // anchors never follow each other.
+    const RUN_END: u128 = 1 << 66;
+    const TERMINATOR: u128 = 2 << 66;
+    let mut recs: Vec<u128> = vec![0]; // index 0: the start anchor, at stored position 0
+                                       // Each record's key, which the record BEFORE it carries the low four bits of (bits 68–71):
+                                       // a block's exact logical start, an anchor's stored position in 64 KiB units. The record
+                                       // itself holds the start only to 16 bytes, so this nibble is what makes it exact. Verified on
+                                       // every record of Spider-Man 2 (1,140,474) and the Web Browser; the one exception is the
+                                       // record before the terminator, which carries none. We wrote zeros here, so the console read
+                                       // most blocks as starting up to 15 bytes early and decoded the wrong bytes.
+    let mut keys: Vec<Option<u64>> = vec![Some(0)];
+    let mut block_index: Vec<(u64, usize)> = Vec::with_capacity(image.blocks.len());
+    let mut cursor = 0u64;
+    let mut last_block: Option<usize> = None;
+    let push_anchor =
+        |recs: &mut Vec<u128>, keys: &mut Vec<Option<u64>>, last: Option<usize>, at: u64| {
+            if let Some(i) = last {
+                recs[i] |= RUN_END;
+            }
+            recs.push(anchor_record(at));
+            keys.push(Some(at >> 16));
+        };
+    for b in &image.blocks {
+        // An anchor where the stored position jumps (Sony's layouts do, at file boundaries; ours
+        // are contiguous), and one opening every 16-record window. A block always separates two
+        // anchors, which is what lets bit 66 announce them.
+        let mut anchored = false;
+        if b.stored_at != cursor {
+            push_anchor(&mut recs, &mut keys, last_block, b.stored_at);
+            anchored = true;
+        }
+        if recs.len().is_multiple_of(16) && !anchored {
+            push_anchor(&mut recs, &mut keys, last_block, b.stored_at);
+        }
+        block_index.push((b.logical, recs.len()));
+        last_block = Some(recs.len());
+        recs.push(block_record(b));
+        keys.push(Some(b.logical));
+        cursor = b.stored_at + b.stored_len();
+    }
+    if let Some(i) = last_block {
+        recs[i] |= RUN_END;
+    }
+    // The terminator's anchor carries no tweak index (bits 0–25 zero), as LibProsperoPkg writes
+    // it. Ours carried the cursor's, and the console logged the record after it as
+    // `print_compression_entry ... invalid element` on every mount (FW 5.10 Phat).
+    recs.push(anchor_record(cursor) & !((1u128 << 26) - 1) | TERMINATOR);
+    keys.push(None);
+    let sentinel = recs.len();
+    recs.push(u128::from(
+        ((image.mount_size % WINDOW) >> 4) as u32 & 0x3FFF,
+    ));
+    keys.push(None);
+    for i in 0..recs.len() - 1 {
+        if let Some(key) = keys[i + 1] {
+            recs[i] |= u128::from((key & 0xF) as u8) << 68;
+        }
+    }
+
+    let ublocks = image.mount_size.div_ceil(UBLOCK);
+    let files = file_starts.len() + 3;
+    let outer_blocks = image.image_len.div_ceil(crate::BLOCK);
+    let records = recs.len();
+    if records < 2 || records - 2 > 0xFF_FFFF || ublocks > 0xFF_FFFF {
+        return format_err("the image is past what the layout descriptor can describe");
+    }
+
+    // u2c: per ublock, the first block record starting at or after it.
+    let first: Vec<usize> = (0..=ublocks)
+        .map(|n| {
+            let target = n * UBLOCK;
+            let p = block_index.partition_point(|(logical, _)| *logical < target);
+            block_index.get(p).map_or(sentinel, |(_, idx)| *idx)
+        })
+        .collect();
+    let groups = (ublocks / 8 + 1) as usize;
+
+    let mut blob =
+        Vec::with_capacity(64 + outer_blocks as usize * 8 + files * 6 + groups * 10 + records * 9);
+    let word0 = (files as u64 - 1) & 0xFF_FFFF | 2 << 24 | (ublocks & 0xFF_FFFF) << 32;
+    let word1 = outer_blocks & 0xFF_FFFF | ((records as u64 - 2) & 0xFF_FFFF) << 24;
+    blob.extend_from_slice(&word0.to_le_bytes());
+    blob.extend_from_slice(&word1.to_le_bytes());
+    blob.resize(blob.len() + outer_blocks as usize * 8, 0);
+    let mut fidx: Vec<(u64, u8)> = file_starts.iter().map(|&s| (s, 0)).collect();
+    fidx.push((image.data_end, 0));
+    fidx.push((image.meta_base, 0));
+    fidx.push((image.mount_size, 0x40));
+    for (offset, kind) in fidx {
+        blob.extend_from_slice(&offset.to_le_bytes()[..5]);
+        blob.push(kind);
+    }
+    for g in 0..groups {
+        let at = |n: usize| *first.get(n).unwrap_or(&sentinel);
+        let base = at(g * 8);
+        blob.extend_from_slice(&(base as u32).to_le_bytes()[..3]);
+        for j in 1..8 {
+            // A clamped delta would send the console to the wrong record, so a group this dense
+            // is refused; `plan::build_with` spreads small files to keep them under a byte.
+            let Ok(delta) = u8::try_from(at(g * 8 + j) - base) else {
+                return format_err(format!(
+                    "ublocks {}..{} hold too many blocks for the layout descriptor",
+                    g * 8,
+                    g * 8 + 8
+                ));
+            };
+            blob.push(delta);
+        }
+    }
+    blob.resize(blob.len().next_multiple_of(8), 0);
+    // What every plain build measured carries here, at 128 KiB blocks too (see `describe`).
+    blob.extend_from_slice(&[0x00, 0x00, 0x04]);
+    for r in &recs {
+        blob.extend_from_slice(&r.to_le_bytes()[..9]);
+    }
+    blob.resize(blob.len().next_multiple_of(8), 0);
+    Ok(blob)
+}
+
+/// A block as a descriptor records it. `stored_len == 0` (with `stored_at`, `even_len` 0 and
+/// no flags): a sparse block, all zeros, that nothing stores.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DescribedBlock {
+    pub logical: u64,
+    pub len: u64,
+    pub stored_at: u64,
+    pub even_len: u64,
+    pub stored_len: u64,
+    pub even_lz: bool,
+    pub odd_lz: bool,
+    /// The record's mode bits 32..=36, as stored: 32 and 35 mark delta literals (literal mode 0)
+    /// in the even and odd halves, 33 and 36 mark LZ halves, 34 is `odd_reset` (the odd half restarts the decoder;
+    /// set on every raw odd half and on bare entropy-array odd halves; it says nothing about
+    /// the even half, and a bare entropy-array even half before an LZ odd one has it clear).
+    pub mode_bits: u8,
+    /// The block's byte shuffle, an index into [`SHUFFLES`] (0: none).
+    pub shuffle: u8,
+}
+
+/// The PFSv3 byte shuffles (LibProsperoPkg's 13 concrete `PfsShufflePattern`s, `None` first),
+/// as the field sizes of one 8- or 16-byte vector. A shuffled block is stored as a
+/// structure-of-arrays de-interleave of each 64 KiB unit: every vector's first field, then every
+/// vector's second, ...; a trailing partial vector stays as it is. A descriptor's shuffle table
+/// lists a pattern as these sizes, zero-padded to 8 bytes.
+pub const SHUFFLES: [&[u8]; 13] = [
+    &[],
+    &[4, 4],
+    &[2, 2, 4],
+    &[1, 1, 6],
+    &[1, 1, 1, 1, 1, 1, 1, 1],
+    &[8, 2, 2, 4],
+    &[1, 1, 6, 2, 2, 4],
+    &[1, 1, 6, 1, 1, 6],
+    &[4, 4, 4, 4],
+    &[8, 8],
+    &[8, 4, 4],
+    &[2, 6],
+    &[2, 6, 2, 6],
+];
+const SHUFFLE_UNIT: usize = 0x1_0000;
+
+/// Undo shuffle `SHUFFLES[pattern]` in `data`, a decoded block, one 64 KiB unit at a time.
+fn deshuffle(data: &mut [u8], pattern: u8) -> Result<()> {
+    let Some(&fields) = SHUFFLES.get(pattern as usize) else {
+        return format_err(format!(
+            "shuffle pattern {pattern} is not one of the 13 known"
+        ));
+    };
+    let stride: usize = fields.iter().map(|&f| f as usize).sum();
+    if stride == 0 {
+        return Ok(());
+    }
+    let mut unit = Vec::with_capacity(SHUFFLE_UNIT.min(data.len()));
+    for chunk in data.chunks_mut(SHUFFLE_UNIT) {
+        unit.clear();
+        unit.extend_from_slice(chunk);
+        let vectors = chunk.len() / stride;
+        let (mut off, mut at) = (0, 0);
+        for &f in fields {
+            let f = f as usize;
+            for v in 0..vectors {
+                chunk[v * stride + off..][..f].copy_from_slice(&unit[at..at + f]);
+                at += f;
+            }
+            off += f;
+        }
+    }
+    Ok(())
+}
+
+/// Walk a descriptor the way the console does: records in order, anchors moving the stored
+/// cursor, blocks tiling the mount from each file boundary. A boundary of kind 0x40 before the
+/// mount's end opens a sparse extent, returned as zero blocks with nothing stored (see
+/// [`DescribedBlock`]). Used to check what [`layout`] writes, and able to read Sony's own
+/// packages and third-party ones.
+///
+/// The descriptor is untrusted input (a package being read back, or someone else's): every
+/// count and offset is checked against the blob before it sizes or slices anything, so a
+/// truncated or corrupt one is a [`crate::Error::Format`], never a panic. Each block it returns
+/// is at most 256 KiB long.
+pub fn describe(blob: &[u8]) -> Result<Vec<DescribedBlock>> {
+    let word = |at: usize| u64::from_le_bytes(blob[at..at + 8].try_into().unwrap());
+    if blob.len() < 16 {
+        return format_err("descriptor too short");
+    }
+    let (w0, w1) = (word(0), word(8));
+    let files = (w0 & 0xFF_FFFF) as usize + 1;
+    let ublocks = (w0 >> 32) & 0xFF_FFFF;
+    let outer = (w1 & 0xFF_FFFF) as usize;
+    let shuffle = ((w0 >> 28) & 0xF) as usize;
+    let records = ((w1 >> 24) & 0xFF_FFFF) as usize + 2;
+    // The outer-block digests, then the shuffle-pattern table (8 B each), then `fidx`.
+    let fidx_at = 16 + (outer + shuffle) * 8;
+    // Every count is a 24-bit field, so these sums cannot overflow; the tables they place must
+    // all lie inside the blob before the boundary table is sliced or a record read.
+    let u2c_end = fidx_at + files * 6 + (ublocks / 8 + 1) as usize * 10;
+    let rec_at = u2c_end.next_multiple_of(8) + 3;
+    if blob.len() < rec_at + records * 9 {
+        return format_err("descriptor shorter than its records");
+    }
+    // Each listed pattern as an index into `SHUFFLES`; all zeros is the identity.
+    let table = (0..shuffle)
+        .map(|p| {
+            let e = &blob[16 + (outer + p) * 8..][..8];
+            let used = e.iter().position(|&x| x == 0).unwrap_or(8);
+            SHUFFLES
+                .iter()
+                .position(|s| e[used..].iter().all(|&x| x == 0) && **s == e[..used])
+                .map(|id| id as u8)
+                .ok_or_else(|| {
+                    crate::Error::Format(format!(
+                        "shuffle pattern {p}: unknown descriptor {e:02x?}"
+                    ))
+                })
+        })
+        .collect::<Result<Vec<u8>>>()?;
+    let entries: Vec<(u64, u8)> = (0..files)
+        .map(|i| {
+            let r = &blob[fidx_at + i * 6..fidx_at + i * 6 + 6];
+            (
+                u64::from_le_bytes([r[0], r[1], r[2], r[3], r[4], 0, 0, 0]),
+                r[5],
+            )
+        })
+        .collect();
+    let mount = entries.last().map_or(0, |e| e.0);
+    // The mount's end must be what the ublock count says, and no boundary may lie past it:
+    // sparse extents are filled from these, so a forged size could otherwise ask for
+    // millions of zero blocks from a tiny descriptor.
+    if mount.div_ceil(UBLOCK) != ublocks || entries.iter().any(|e| e.0 > mount) {
+        return format_err("the boundary table disagrees with the mount's size");
+    }
+    let mut bounds: Vec<u64> = entries.iter().map(|e| e.0).collect();
+    bounds.sort_unstable();
+    bounds.dedup();
+    // Both tables are sorted and looked up by binary search, so a descriptor of millions of
+    // boundaries walks in O(n log n).
+    let next_bound = |x: u64| {
+        bounds
+            .get(bounds.partition_point(|&b| b <= x))
+            .copied()
+            .unwrap_or(mount)
+    };
+    // A boundary of kind 0x40 before the mount's end opens a sparse extent: up to the next
+    // boundary nothing is stored and no record describes it; it reads as zeros. (The mount's
+    // end carries the same kind.) Seen in a third-party package's 256 KiB hole between files.
+    let mut sparse: Vec<(u64, u64)> = entries
+        .iter()
+        .filter(|e| e.1 == 0x40 && e.0 < mount)
+        .map(|e| (e.0, next_bound(e.0)))
+        .collect();
+    sparse.sort_unstable();
+    sparse.dedup_by_key(|s| s.0);
+    let fill = |logical: &mut u64, out: &mut Vec<DescribedBlock>| {
+        while let Ok(i) = sparse.binary_search_by_key(logical, |s| s.0) {
+            let end = sparse[i].1;
+            while *logical < end {
+                let len = (end - *logical).min(UBLOCK);
+                out.push(DescribedBlock {
+                    logical: *logical,
+                    len,
+                    stored_at: 0,
+                    even_len: 0,
+                    stored_len: 0,
+                    even_lz: false,
+                    odd_lz: false,
+                    mode_bits: 0,
+                    shuffle: 0,
+                });
+                *logical += len;
+            }
+        }
+    };
+    // The three bytes before the records read `00 00 04` in every plain build measured (Sony's,
+    // LibProsperoPkg's at 128 and 256 KiB blocks, ours). Other builders carry other values
+    // there (`00 00 06` in a LIH patch, PPSA23566 01.006; `00 00 55` in PSVIETHOA's updates and
+    // remasters), and their records' carried nibbles don't follow the rule below; their blocks
+    // are placed exactly as a plain build's are, so only those two checks are left out.
+    let strict = blob[rec_at - 3..rec_at] == [0x00, 0x00, 0x04];
+    let rec = |i: usize| {
+        let mut x = [0u8; 16];
+        x[..9].copy_from_slice(&blob[rec_at + i * 9..rec_at + i * 9 + 9]);
+        u128::from_le_bytes(x)
+    };
+    let mut out = Vec::new();
+    let (mut cursor, mut logical) = (0u64, 0u64);
+    let mut next_is_anchor = true; // index 0 is the start anchor
+                                   // The previous record's bits 68–71: the low nibble of this record's key (see `layout`).
+    let mut carried_nibble = 0u64;
+    for i in 0..records.saturating_sub(1) {
+        let v = rec(i);
+        let f = |lo: u32, w: u32| ((v >> lo) & ((1u128 << w) - 1)) as u64;
+        let nibble = std::mem::replace(&mut carried_nibble, f(68, 4));
+        let anchor = next_is_anchor;
+        next_is_anchor = f(66, 1) == 1 && !anchor;
+        if anchor {
+            cursor = (f(26, 22) << 18) | f(48, 18);
+            // The terminator (the second-last record) is the one key nobody carries.
+            let terminator = i + 2 == records;
+            if strict && i > 0 && !terminator && nibble != (cursor >> 16) & 0xF {
+                return format_err(format!(
+                    "record {i}: the anchor's position nibble disagrees"
+                ));
+            }
+            continue;
+        }
+        fill(&mut logical, &mut out);
+        if strict && i > 0 && nibble != logical & 0xF {
+            return format_err(format!(
+                "record {i}: the exact start's low nibble disagrees (the console would read the \
+                 block at the wrong offset)"
+            ));
+        }
+        if logical >= mount {
+            return format_err(format!(
+                "record {i}: a block starts at {logical:#x}, at or past the mount's end {mount:#x}"
+            ));
+        }
+        if (logical % WINDOW) >> 4 != f(0, 14) {
+            return format_err(format!("record {i}: logical offset disagrees"));
+        }
+        // A block runs to the next boundary, the mount's end or 256 KiB, whichever comes
+        // first, unless the next block record starts before that: a build at a smaller block
+        // size (128 KiB measured, LibProsperoPkg's `--block-size 128`) says so only by where
+        // that record starts within its window (bits 0..13, to 16 bytes; the nibble the record
+        // before it carries makes it exact). Its padding region still uses 256 KiB blocks.
+        // ponytail: a block before a sparse extent whose next record lies more than a window
+        // past it could be cut short; no such layout has been seen.
+        let cap = logical + (next_bound(logical).min(mount) - logical).min(UBLOCK);
+        // The record after an anchor is never one, and the sentinel (the last) is no block.
+        let next = if f(66, 1) == 1 { i + 2 } else { i + 1 };
+        let len = if next + 1 < records {
+            let at16 = (logical & !(WINDOW - 1)) | ((rec(next) as u64 & 0x3FFF) << 4);
+            let at16 = if at16 <= logical & !0xF {
+                at16 + WINDOW
+            } else {
+                at16
+            };
+            // The low nibble: a plain build's carried one; elsewhere it isn't trusted, and a
+            // block that ends before a boundary is a whole multiple of 64 KiB, so the next one
+            // starts on this one's nibble.
+            let low = if strict {
+                (rec(next - 1) >> 68) as u64 & 0xF
+            } else {
+                logical & 0xF
+            };
+            let exact = at16 | low;
+            // A next block under 16 bytes long (a 136 KiB build's file tail) starts within the
+            // cap's own 16 bytes; only a plain build's carried nibble is trusted to say so.
+            if at16 + 16 <= cap || (strict && exact < cap) {
+                exact - logical
+            } else {
+                cap - logical
+            }
+        } else {
+            cap - logical
+        };
+        // A block ends where its record says, within the window. The one case that cannot say
+        // so is a block stored whole and raw — exactly 256 KiB, ending where it began modulo the
+        // window — so a block whose halves are both raw takes the full window.
+        let mut end = (cursor & !(WINDOW - 1)) | f(48, 18);
+        if end < cursor {
+            end += WINDOW;
+        }
+        let even_raw = f(33, 1) == 0 && f(14, 17) + 1 == len.min(kraken::HALF as u64);
+        // Both halves raw is a whole raw block, whatever bit 34 (`odd_reset`) says: Sony sets it
+        // on every raw odd half.
+        let odd_raw = f(36, 1) == 0;
+        if end == cursor && even_raw && odd_raw && len > kraken::HALF as u64 {
+            end += WINDOW;
+        }
+        // An empty stored span is what marks a sparse block; no record may claim one.
+        if end == cursor {
+            return format_err(format!("record {i}: a block stored in no bytes"));
+        }
+        // Bits 44..47: 0 for none, else the table's pattern k - 1 (measured on LibProsperoPkg's
+        // `--pfs v3` builds, every pattern and the predictive ones).
+        let shuffle = match f(44, 4) as usize {
+            0 => 0,
+            k => *table.get(k - 1).ok_or_else(|| {
+                crate::Error::Format(format!(
+                    "record {i}: shuffle index {k} is past the table's {} pattern(s)",
+                    table.len()
+                ))
+            })?,
+        };
+        out.push(DescribedBlock {
+            logical,
+            len,
+            stored_at: cursor,
+            even_len: f(14, 17) + 1,
+            stored_len: end - cursor,
+            even_lz: f(33, 1) == 1,
+            odd_lz: f(36, 1) == 1,
+            mode_bits: f(32, 5) as u8,
+            shuffle,
+        });
+        cursor = end;
+        logical += len;
+    }
+    fill(&mut logical, &mut out);
+    if logical != mount {
+        return format_err(format!(
+            "blocks tile to {logical:#x}, the mount is {mount:#x}"
+        ));
+    }
+    Ok(out)
+}
+
+/// Decode block `b` of a stored image. `b` comes from [`describe`]; one built by hand is
+/// checked the same way: a block longer than 256 KiB, or one running past the image, is an
+/// error rather than an allocation or a panic.
+pub fn decode_described<'a>(image: &'a [u8], b: &DescribedBlock) -> Result<Vec<u8>> {
+    if b.len == 0 || b.len > UBLOCK {
+        return format_err(format!(
+            "a block of {:#x} bytes is not a Kraken block",
+            b.len
+        ));
+    }
+    // A sparse block (see [`DescribedBlock`]) is zeros; only the whole sentinel counts.
+    if b.stored_len == 0 {
+        let sparse = b.stored_at == 0
+            && b.even_len == 0
+            && !b.even_lz
+            && !b.odd_lz
+            && b.mode_bits == 0
+            && b.shuffle == 0;
+        if !sparse {
+            return format_err("a block stored in no bytes is not a sparse block");
+        }
+        return Ok(vec![0; b.len as usize]);
+    }
+    // `describe` never gives a stored span over two windows; a longer one would be copied
+    // before the decoder could refuse it.
+    if b.stored_len > 2 * WINDOW || b.even_len > b.stored_len {
+        return format_err(format!(
+            "a block stored in {:#x} bytes ({:#x} even) is not a Kraken block",
+            b.stored_len, b.even_len
+        ));
+    }
+    let src = b
+        .stored_at
+        .checked_add(b.stored_len)
+        .and_then(|end| Some(usize::try_from(b.stored_at).ok()?..usize::try_from(end).ok()?))
+        .and_then(|range| image.get(range))
+        .ok_or_else(|| crate::Error::Format("a block runs past the image".into()))?;
+    let even_logical = b.len.min(kraken::HALF as u64);
+    let (e, o) = src.split_at((b.even_len as usize).min(src.len()));
+    // An LZ flag selects the chunk decoder. A non-LZ half is either an exact-size raw
+    // copy or a bare entropy array; its literal-mode bit does not apply to that array.
+    let half = |bytes: &'a [u8], len: u64, is_lz: bool, delta: bool| -> Result<_> {
+        Ok(if is_lz || bytes.len() as u64 == len {
+            (Cow::Borrowed(bytes), is_lz, delta)
+        } else {
+            let array = kraken::decode_entropy_half(bytes, len as usize)?;
+            (Cow::Owned(array), false, false)
+        })
+    };
+    let mut halves = vec![half(e, even_logical, b.even_lz, b.mode_bits & 1 != 0)?];
+    if b.len > kraken::HALF as u64 {
+        halves.push(half(
+            o,
+            b.len - kraken::HALF as u64,
+            b.odd_lz,
+            b.mode_bits & 0b1000 != 0,
+        )?);
+    } else if !o.is_empty() {
+        return format_err("kraken: unexpected odd half");
+    }
+    let parts: Vec<_> = halves.iter().map(|(h, lz, d)| (&h[..], *lz, *d)).collect();
+    let mut data = kraken::decode_parts(&parts, b.len as usize)?;
+    deshuffle(&mut data, b.shuffle)?;
+    Ok(data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn image_of(
+        blocks: Vec<StoredBlock>,
+        mount: u64,
+        data_end: u64,
+        meta_base: u64,
+    ) -> KrakenImage {
+        let end = blocks.last().map_or(0, |b| b.stored_at + b.stored_len());
+        KrakenImage {
+            blocks,
+            image_len: end.next_multiple_of(crate::BLOCK).max(crate::BLOCK),
+            file_digests: Vec::new(),
+            file_stored_at: Vec::new(),
+            mount_size: mount,
+            block_digests: None,
+            data_end,
+            meta_base,
+        }
+    }
+
+    fn b(logical: u64, len: u32, at: u64, halves: &[(u32, bool)], owner: Owner) -> StoredBlock {
+        StoredBlock {
+            logical,
+            len,
+            stored_at: at,
+            halves: halves.to_vec(),
+            delta: [false; 2],
+            owner,
+        }
+    }
+
+    /// The Web Browser's own descriptor bytes, regenerated from its block list — every bit,
+    /// including the next record's key nibble in bits 68–71 (0x14, 0x25, 0xa2 below are Sony's).
+    #[test]
+    fn records_and_tables_follow_the_decoded_format() {
+        let blocks = vec![
+            b(0, 0x60, 0, &[(0x60, false)], Owner::File(0)),
+            b(0x60, 0x31d0, 0x10000, &[(0x31d0, false)], Owner::File(1)),
+            b(0x3230, 0xa, 0x20000, &[(0xa, false)], Owner::File(2)),
+            b(0x323a, 0x3a5e, 0x2000a, &[(0x6cc, true)], Owner::File(3)),
+        ];
+        // The Web Browser's first four files, as a mount of their own.
+        let img = image_of(blocks, 0x6c98, 0x6c98, 0x6c98);
+        let blob = layout(&img, &[0, 0x60, 0x3230, 0x323a]).unwrap();
+        assert_eq!(describe(&blob).unwrap().len(), 4);
+        // Records: start anchor, keystone, run end → anchor 0x10000, ...
+        let files = 7;
+        let rec_at = (16usize + 3 * 8 + files * 6 + 10).next_multiple_of(8) + 3;
+        let rec = |i: usize| {
+            let mut x = [0u8; 16];
+            x[..9].copy_from_slice(&blob[rec_at + i * 9..rec_at + i * 9 + 9]);
+            u128::from_le_bytes(x)
+        };
+        assert_eq!(rec(0), 0);
+        let hex = |v: u128| v.to_le_bytes()[..9].to_vec();
+        assert_eq!(
+            hex(rec(1)),
+            [0x00, 0xc0, 0x17, 0x80, 0x00, 0x00, 0x60, 0x00, 0x14]
+        );
+        assert_eq!(hex(rec(2)), [0, 0, 0, 0, 0, 0, 0, 0, 0x01]);
+        assert_eq!(
+            hex(rec(3)),
+            [0x06, 0xc0, 0x73, 0x8c, 0x00, 0x00, 0xd0, 0x31, 0x25]
+        );
+        assert_eq!(hex(rec(4)), [0, 0, 0, 0, 0, 0, 0, 0, 0x02]);
+        assert_eq!(
+            hex(rec(5)),
+            [0x23, 0x43, 0x02, 0x80, 0x00, 0x00, 0x0a, 0x00, 0xa2]
+        );
+        // The LZ block: flags 0x02 (even half LZ, literal mode 1), end 0x206d6.
+        assert_eq!(
+            hex(rec(6))[..8],
+            [0x23, 0xc3, 0xb2, 0x81, 0x02, 0x00, 0xd6, 0x06]
+        );
+    }
+
+    /// A descriptor to corrupt: two files and a metadata region.
+    fn sample_descriptor() -> Vec<u8> {
+        let blocks = vec![
+            b(
+                0,
+                0x40000,
+                0,
+                &[(0x100, true), (0x80, true)],
+                Owner::File(0),
+            ),
+            b(0x40000, 0x1234, 0x180, &[(0x1234, false)], Owner::File(0)),
+            b(0x41234, 0x1000, 0x13b4, &[(0x40, true)], Owner::File(1)),
+            b(
+                0x42234,
+                0x3ddcc,
+                0x13f4,
+                &[(0x30, true), (0x30, true)],
+                Owner::Gap,
+            ),
+            b(
+                0x80000,
+                0x40000,
+                0x10000,
+                &[(0x200, true), (0x200, true)],
+                Owner::Meta,
+            ),
+        ];
+        layout(&image_of(blocks, 0xc0000, 0x42234, 0x80000), &[0, 0x41234]).unwrap()
+    }
+
+    /// Every truncation of a good descriptor is an error, never a panic.
+    #[test]
+    fn a_truncated_descriptor_is_an_error() {
+        let blob = sample_descriptor();
+        assert!(describe(&blob).is_ok());
+        let records = describe(&blob).unwrap().len();
+        for cut in 0..blob.len() {
+            // The tail past the last record is padding; cutting only that still describes.
+            if let Ok(blocks) = describe(&blob[..cut]) {
+                assert_eq!(blocks.len(), records, "cut at {cut}");
+            }
+        }
+        assert!(describe(&blob[..blob.len() / 2]).is_err());
+    }
+
+    /// Counts that place the tables past the blob, and boundaries past the mount.
+    #[test]
+    fn corrupt_counts_and_bounds_are_errors() {
+        let blob = sample_descriptor();
+        let set = |at: usize, value: u64| {
+            let mut b = blob.clone();
+            b[at..at + 8].copy_from_slice(&value.to_le_bytes());
+            b
+        };
+        let (w0, w1) = (
+            u64::from_le_bytes(blob[0..8].try_into().unwrap()),
+            u64::from_le_bytes(blob[8..16].try_into().unwrap()),
+        );
+        // The most files, ublocks, outer blocks and records the fields can say.
+        for bad in [
+            set(0, w0 | 0xFF_FFFF),
+            set(0, w0 | 0xFF_FFFF << 32),
+            set(8, w1 | 0xFF_FFFF),
+            set(8, w1 | 0xFF_FFFF << 24),
+        ] {
+            assert!(describe(&bad).is_err());
+        }
+        // A file boundary (the second file's start) moved past the mount.
+        let outer = (w1 & 0xFF_FFFF) as usize;
+        let at = 16 + outer * 8 + 6;
+        let mut bad = blob.clone();
+        bad[at..at + 5].copy_from_slice(&[0, 0, 0, 0, 0x10]);
+        assert!(describe(&bad).is_err());
+    }
+
+    /// Random damage anywhere in a descriptor, and the blocks it then describes decoded
+    /// against an image too short for them: errors, never a panic or a huge allocation.
+    #[test]
+    fn damaged_descriptors_never_panic() {
+        let blob = sample_descriptor();
+        let image = vec![0x5Au8; 0x2000];
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for _ in 0..4000 {
+            let mut bad = blob.clone();
+            for _ in 0..1 + next() % 4 {
+                let at = (next() % bad.len() as u64) as usize;
+                bad[at] = next() as u8;
+            }
+            if let Ok(blocks) = describe(&bad) {
+                for block in blocks.iter().take(8) {
+                    assert!(block.len <= UBLOCK);
+                    let _ = decode_described(&image, block);
+                }
+            }
+        }
+    }
+
+    /// A block built by hand is held to what `describe` guarantees.
+    #[test]
+    fn a_hand_built_block_is_checked() {
+        let image = vec![0u8; 0x1000];
+        let block = |len: u64, stored_at: u64, stored_len: u64| DescribedBlock {
+            logical: 0,
+            len,
+            stored_at,
+            even_len: stored_len,
+            stored_len,
+            even_lz: false,
+            odd_lz: false,
+            mode_bits: 0,
+            shuffle: 0,
+        };
+        assert!(decode_described(&image, &block(1 << 40, 0, 0x100)).is_err());
+        assert!(decode_described(&image, &block(0, 0, 0x100)).is_err());
+        assert!(decode_described(&image, &block(0x100, u64::MAX, 2)).is_err());
+        assert!(decode_described(&image, &block(0x100, 0xF00, 0x200)).is_err());
+        assert!(decode_described(&vec![0u8; 0x100000], &block(0x100, 0, 0x90000)).is_err());
+        // An LZ even half shorter than its eight-byte seed.
+        let mut tiny = block(1, 0, 8);
+        tiny.even_lz = true;
+        assert!(decode_described(&image, &tiny).is_err());
+        assert_eq!(
+            decode_described(&image, &block(0x100, 0, 0x100)).unwrap(),
+            vec![0u8; 0x100]
+        );
+    }
+
+    /// A descriptor whose boundary `idx` is turned into a sparse extent (kind 0x40).
+    fn with_kind(mut blob: Vec<u8>, idx: usize, kind: u8) -> Vec<u8> {
+        let w1 = u64::from_le_bytes(blob[8..16].try_into().unwrap());
+        let outer = (w1 & 0xFF_FFFF) as usize;
+        blob[16 + outer * 8 + idx * 6 + 5] = kind;
+        blob
+    }
+
+    #[test]
+    fn a_sparse_extent_reads_as_zero_blocks() {
+        // Files at 0 and 0x100 + 0x50000 (a 0x50000-byte hole between: one full and one partial
+        // 256 KiB zero block), each one raw block of 0x100 bytes stored back to back.
+        let hole = 0x5_0000u64;
+        let b0 = b(0, 0x100, 0, &[(0x100, false)], Owner::File(0));
+        let b2 = b(
+            0x100 + hole,
+            0x100,
+            0x100,
+            &[(0x100, false)],
+            Owner::File(2),
+        );
+        let mount = 0x200 + hole;
+        let image = image_of(vec![b0, b2], mount, mount, mount);
+        let starts = [0, 0x100, 0x100 + hole];
+        // Unmarked, the hole is refused.
+        assert!(describe(&assemble(&image, &starts).unwrap()).is_err());
+        // Marked 0x40, it is two zero blocks (0x40000 + 0x10000) between the real ones.
+        let walked = describe(&with_kind(assemble(&image, &starts).unwrap(), 1, 0x40)).unwrap();
+        let spans: Vec<_> = walked
+            .iter()
+            .map(|b| (b.logical, b.len, b.stored_len))
+            .collect();
+        assert_eq!(
+            spans,
+            [
+                (0, 0x100, 0x100),
+                (0x100, 0x4_0000, 0),
+                (0x4_0100, 0x1_0000, 0),
+                (0x100 + hole, 0x100, 0x100)
+            ]
+        );
+        assert_eq!(
+            decode_described(&[], &walked[1]).unwrap(),
+            vec![0; 0x4_0000]
+        );
+    }
+
+    /// A descriptor of many small sparse extents walks in O(n log n): one boundary looked up
+    /// per extent and per record, not a scan of the table each (which took ~1.5 h to open a
+    /// forged descriptor of ~5.6 M boundaries).
+    #[test]
+    fn many_sparse_boundaries_walk_quickly() {
+        const N: u64 = 100_000;
+        let b0 = b(0, 0x100, 0, &[(0x100, false)], Owner::File(0));
+        let mount = 0x100 + N * 0x10;
+        let image = image_of(vec![b0], mount, mount, mount);
+        let starts: Vec<u64> = (0..=N)
+            .map(|i| if i == 0 { 0 } else { 0xF0 + i * 0x10 })
+            .collect();
+        let mut blob = assemble(&image, &starts).unwrap();
+        for idx in 1..=N as usize {
+            blob = with_kind(blob, idx, 0x40);
+        }
+        let started = std::time::Instant::now();
+        let walked = describe(&blob).unwrap();
+        let took = started.elapsed();
+        assert_eq!(walked.len(), N as usize + 1);
+        assert!(took < std::time::Duration::from_millis(500), "{took:?}");
+    }
+
+    /// Only the whole sentinel (nothing stored, no flags) is a sparse block.
+    #[test]
+    fn a_block_stored_in_no_bytes_is_sparse_only_without_flags() {
+        let sparse = DescribedBlock {
+            logical: 0,
+            len: 0x100,
+            stored_at: 0,
+            even_len: 0,
+            stored_len: 0,
+            even_lz: false,
+            odd_lz: false,
+            mode_bits: 0,
+            shuffle: 0,
+        };
+        assert_eq!(decode_described(&[], &sparse).unwrap(), vec![0; 0x100]);
+        for bad in [
+            DescribedBlock {
+                even_len: 8,
+                ..sparse.clone()
+            },
+            DescribedBlock {
+                even_lz: true,
+                ..sparse.clone()
+            },
+            DescribedBlock {
+                stored_at: 0x10,
+                ..sparse.clone()
+            },
+        ] {
+            assert!(decode_described(&[0; 0x100], &bad).is_err(), "{bad:?}");
+        }
+    }
+
+    /// A mount's end forged far past the ublock count would ask a sparse tail for millions of
+    /// zero blocks; the boundary table is refused instead.
+    #[test]
+    fn a_forged_mount_end_is_refused() {
+        let b0 = b(0, 0x100, 0, &[(0x100, false)], Owner::File(0));
+        let image = image_of(vec![b0], 0x100, 0x100, 0x100);
+        let mut blob = assemble(&image, &[0]).unwrap();
+        let w0 = u64::from_le_bytes(blob[0..8].try_into().unwrap());
+        let w1 = u64::from_le_bytes(blob[8..16].try_into().unwrap());
+        let (files, outer) = ((w0 & 0xFF_FFFF) as usize + 1, (w1 & 0xFF_FFFF) as usize);
+        let at = 16 + outer * 8 + (files - 1) * 6;
+        blob[at..at + 6].copy_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x40]);
+        let e = describe(&blob).unwrap_err();
+        assert!(
+            matches!(&e, crate::Error::Format(m) if m.contains("boundary table disagrees")),
+            "{e:?}"
+        );
+    }
+
+    /// The real encoder's eight-byte zero half: five-byte array header followed by
+    /// an old sparse, single-symbol Huffman table, with no LZ seed or framing.
+    #[test]
+    fn bare_entropy_halves_are_decoded_without_lz_or_delta() {
+        let zero = [0x27, 0xff, 0xfc, 0, 3, 0, 0x40, 0];
+        let mut image = zero.repeat(2);
+        let block = DescribedBlock {
+            logical: 0,
+            len: kraken::BLOCK as u64,
+            stored_at: 0,
+            even_len: 8,
+            stored_len: 16,
+            even_lz: false,
+            odd_lz: false,
+            // Literal-mode bits are immaterial for non-LZ halves.
+            mode_bits: 0b01101,
+            shuffle: 0,
+        };
+        assert_eq!(
+            decode_described(&image, &block).unwrap(),
+            vec![0; kraken::BLOCK]
+        );
+        // Symbol 0xab instead of zero, still an 18-bit sparse table.
+        image[6] = 0x6a;
+        image[7] = 0xc0;
+        let out = decode_described(&image, &block).unwrap();
+        assert!(out[..kraken::HALF].iter().all(|&b| b == 0xab));
+        assert!(out[kraken::HALF..].iter().all(|&b| b == 0));
+        let mut malformed = block.clone();
+        malformed.len -= 1;
+        assert!(decode_described(&image, &malformed).is_err());
+        malformed = block.clone();
+        malformed.even_len = 7;
+        assert!(decode_described(&image, &malformed).is_err());
+        image.push(0);
+        malformed = block;
+        malformed.stored_len += 1;
+        assert!(decode_described(&image, &malformed).is_err());
+    }
+
+    /// A real block from a third-party package: an LZ even half and a bare zero odd half.
+    #[test]
+    fn a_real_lz_even_and_bare_zero_odd_block_decodes() {
+        let image = [
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x87, 0x00, 0x00, 0x0a, 0x04, 0x74,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x7c, 0x05, 0xfd,
+            0x00, 0x00, 0x01, 0x8f, 0x00, 0x00, 0x02, 0xff, 0xff, 0xee, 0x70, 0x00, 0x3d, 0x95,
+            0xa0, 0xc0, 0x33, 0x02, 0x27, 0xff, 0xfc, 0x00, 0x03, 0x00, 0x40, 0x00,
+        ];
+        let block = DescribedBlock {
+            logical: 0,
+            len: kraken::BLOCK as u64,
+            stored_at: 0,
+            even_len: 0x2e,
+            stored_len: 0x36,
+            even_lz: true,
+            odd_lz: false,
+            mode_bits: 0b00110,
+            shuffle: 0,
+        };
+        let out = decode_described(&image, &block).unwrap();
+        assert_eq!(out.len(), kraken::BLOCK);
+        assert!(out[kraken::HALF..].iter().all(|&b| b == 0));
+    }
+
+    /// The file digests the hasher thread takes are each file's SHA3, as the serial loop took
+    /// them: several files, one over many blocks, an empty one, the generated keystone.
+    #[test]
+    fn the_file_digests_are_each_files_sha3() {
+        let sizes = [
+            ("eboot.bin", 4000u64),
+            ("data/big.bin", 1_300_000),
+            ("data/empty.bin", 0),
+            ("data/small.bin", 5000),
+            ("sce_sys/param.json", 197),
+        ];
+        let files: Vec<crate::source::SourceFile> = sizes
+            .iter()
+            .map(|(p, s)| crate::source::SourceFile {
+                path: (*p).to_string(),
+                size: *s,
+            })
+            .collect();
+        let plan = plan::build(&files).unwrap();
+        let data = |path: &str, size: u64| -> Vec<u8> {
+            // Scrambled, so the stored image spans many blocks.
+            let salt = path.len() as u64;
+            (0..size)
+                .map(|i| {
+                    let x = (i ^ salt << 40).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+                    ((x ^ x >> 29).wrapping_mul(0xBF58_476D_1CE4_E5B9) >> 56) as u8
+                })
+                .collect()
+        };
+        let keystone: Vec<u8> = (0..plan::KEYSTONE_LEN).map(|i| i as u8).collect();
+        let metadata = vec![0u8; (plan.ndblock * crate::BLOCK - plan.meta_base) as usize];
+        let mut spool = std::io::Cursor::new(Vec::new());
+        let mut read = |p: &str, off: u64, len: usize| -> Result<Vec<u8>> {
+            let size = sizes.iter().find(|(q, _)| *q == p).unwrap().1;
+            Ok(data(p, size)[off as usize..off as usize + len].to_vec())
+        };
+        let cancel = AtomicBool::new(false);
+        let image = compress(
+            &plan,
+            &metadata,
+            &keystone,
+            &mut read,
+            &mut spool,
+            crate::BLOCK,
+            true,
+            3,
+            kraken::Level::Fast,
+            &cancel,
+            &mut |_, _| {},
+        );
+        let image = image.unwrap();
+        // The stored blocks' digests, taken as they were written, are those of the spool's
+        // blocks from `base` on.
+        let spooled = spool.into_inner();
+        assert_eq!(spooled.len() as u64, crate::BLOCK + image.image_len);
+        let expected: Vec<([u8; 32], u32)> = spooled[crate::BLOCK as usize..]
+            .chunks(crate::BLOCK as usize)
+            .map(|b| (crate::crypto::sha3(b), crate::crypto::crc32c(b)))
+            .collect();
+        assert!(expected.len() > 1);
+        assert!(image.block_digests.as_ref() == Some(&expected));
+        for (afid, &fi) in plan.afid_order.iter().enumerate() {
+            let f = &plan.files[fi];
+            let bytes = if f.generated {
+                keystone.clone()
+            } else {
+                data(&f.path, f.size)
+            };
+            assert_eq!(
+                image.file_digests[afid],
+                crate::crypto::sha3(&bytes),
+                "{}",
+                f.path
+            );
+        }
+    }
+
+    /// Where `blob`'s three-byte field before the records starts.
+    fn field_at(blob: &[u8]) -> usize {
+        let w0 = u64::from_le_bytes(blob[0..8].try_into().unwrap());
+        let w1 = u64::from_le_bytes(blob[8..16].try_into().unwrap());
+        let (files, ublocks) = (
+            (w0 & 0xFF_FFFF) as usize + 1,
+            ((w0 >> 32) & 0xFF_FFFF) as usize,
+        );
+        let tables = ((w1 & 0xFF_FFFF) + ((w0 >> 28) & 0xF)) as usize * 8;
+        (16 + tables + files * 6 + (ublocks / 8 + 1) * 10).next_multiple_of(8)
+    }
+
+    /// Only `00 00 04` before the records holds the records to their carried nibbles; any
+    /// other value (a LIH patch's `00 00 06`, PSVIETHOA's `00 00 55`) walks the same blocks.
+    #[test]
+    fn only_the_plain_field_checks_the_carried_nibbles() {
+        let good = sample_descriptor();
+        let at = field_at(&good);
+        assert_eq!(good[at..at + 3], [0, 0, 4]);
+        let blocks = describe(&good).unwrap();
+        // Record 1 (the first block) carries record 2's nibble in its last byte's top half.
+        let mut off = good.clone();
+        off[at + 3 + 9 + 8] ^= 0x30;
+        assert!(describe(&off).is_err());
+        for field in [[0, 0, 6], [0, 0, 0x55], [0x12, 0x34, 0x56], [0, 0, 0]] {
+            let mut other = off.clone();
+            other[at..at + 3].copy_from_slice(&field);
+            assert_eq!(describe(&other).unwrap(), blocks, "{field:02x?}");
+        }
+    }
+
+    /// The shuffle-pattern table (header bits 28..31, 8 B a pattern) sits between the outer
+    /// digests and `fidx`.
+    #[test]
+    fn a_shuffle_table_moves_the_boundary_table() {
+        let blob = sample_descriptor();
+        let blocks = describe(&blob).unwrap();
+        let w0 = u64::from_le_bytes(blob[0..8].try_into().unwrap());
+        for patterns in [1usize, 3, 15] {
+            let table: Vec<_> = (0..patterns).map(|p| entry(SHUFFLES[1 + p % 12])).collect();
+            let shuffled = with_table(&blob, &table);
+            assert_eq!(describe(&shuffled).unwrap(), blocks, "{patterns} patterns");
+            // Read as if there were none, the table is taken for boundaries.
+            let mut unmarked = shuffled.clone();
+            unmarked[..8].copy_from_slice(&w0.to_le_bytes());
+            assert!(describe(&unmarked).is_err());
+        }
+    }
+
+    /// A shuffle table entry: the pattern's field sizes, zero-padded to 8 bytes.
+    fn entry(fields: &[u8]) -> [u8; 8] {
+        let mut e = [0u8; 8];
+        e[..fields.len()].copy_from_slice(fields);
+        e
+    }
+
+    /// `blob` (with no shuffle table) listing `table`'s patterns.
+    fn with_table(blob: &[u8], table: &[[u8; 8]]) -> Vec<u8> {
+        let w0 = u64::from_le_bytes(blob[0..8].try_into().unwrap());
+        let w1 = u64::from_le_bytes(blob[8..16].try_into().unwrap());
+        let tables_end = 16 + (w1 & 0xFF_FFFF) as usize * 8;
+        let mut out = blob[..tables_end].to_vec();
+        out[..8].copy_from_slice(&(w0 | (table.len() as u64) << 28).to_le_bytes());
+        out.extend(table.iter().flatten());
+        out.extend_from_slice(&blob[tables_end..]);
+        out
+    }
+
+    /// The forward shuffle, as LibProsperoPkg's engine documents it: per 64 KiB unit, every
+    /// whole vector's first field, then every vector's second, ...; a partial vector stays.
+    fn shuffle_forward(data: &[u8], fields: &[u8]) -> Vec<u8> {
+        let stride: usize = fields.iter().map(|&f| f as usize).sum();
+        let mut out = Vec::with_capacity(data.len());
+        for unit in data.chunks(SHUFFLE_UNIT) {
+            let vectors = unit.len() / stride;
+            let mut off = 0;
+            for &f in fields {
+                for v in 0..vectors {
+                    out.extend_from_slice(&unit[v * stride + off..][..f as usize]);
+                }
+                off += f as usize;
+            }
+            out.extend_from_slice(&unit[vectors * stride..]);
+        }
+        out
+    }
+
+    /// Every pattern's inverse, over two whole 64 KiB units and a short last one that ends in
+    /// a partial vector (1,005 bytes: 13 past the last 16-byte vector, 5 past an 8-byte one).
+    #[test]
+    fn every_shuffle_is_undone() {
+        let len = 2 * SHUFFLE_UNIT + 1005;
+        let plain: Vec<u8> = (0..len as u32).map(|i| (i * 7 + i / 251) as u8).collect();
+        for (id, fields) in SHUFFLES.iter().enumerate().skip(1) {
+            let mut data = shuffle_forward(&plain, fields);
+            assert_ne!(data, plain, "{fields:?}");
+            assert_eq!(
+                data[len - 5..],
+                plain[len - 5..],
+                "{fields:?}: the partial vector"
+            );
+            deshuffle(&mut data, id as u8).unwrap();
+            assert_eq!(data, plain, "{fields:?}");
+        }
+        // Shuffle44 by hand: two vectors, then three bytes left as they are.
+        let mut data: Vec<u8> = [0, 1, 2, 3, 8, 9, 10, 11, 4, 5, 6, 7, 12, 13, 14, 15]
+            .into_iter()
+            .chain([16, 17, 18])
+            .collect();
+        deshuffle(&mut data, 1).unwrap();
+        assert_eq!(data, (0..19).collect::<Vec<u8>>());
+        // Identity leaves anything as it is; an id past the table is refused.
+        deshuffle(&mut data, 0).unwrap();
+        assert_eq!(data, (0..19).collect::<Vec<u8>>());
+        assert!(deshuffle(&mut data, 13).is_err());
+    }
+
+    /// A 128 KiB build (LibProsperoPkg's `--block-size 128`): within a file each block ends
+    /// where the next record starts in its window (0x00060 / 0x20060 alternating, the low
+    /// nibble carried), not at 256 KiB; its padding run still uses 256 KiB blocks. `layout`
+    /// walks it back exactly.
+    #[test]
+    fn blocks_of_128_kib_walk_to_their_lengths() {
+        let spans = [
+            (0, 0x60, Owner::File(0)),
+            (0x60, 0x2_0000, Owner::File(1)),
+            (0x2_0060, 0x2_0000, Owner::File(1)),
+            (0x4_0060, 0x1_0000, Owner::File(1)),
+            (0x5_0060, 0x4_0000, Owner::Gap),
+            (0x9_0060, 0x3_ffa0, Owner::Gap),
+            (0xd_0000, 0x2_0000, Owner::Meta),
+            (0xf_0000, 0x2_0000, Owner::Meta),
+        ];
+        let mut at = 0u64;
+        let blocks: Vec<StoredBlock> = spans
+            .iter()
+            .enumerate()
+            .map(|(i, &(logical, len, owner))| {
+                // Every other one stored raw: a raw block of 128 KiB is its even half alone.
+                let half = kraken::HALF as u32;
+                let halves = match (i % 2 == 0, len > half) {
+                    (true, true) => vec![(half, false), (len - half, false)],
+                    (true, false) => vec![(len, false)],
+                    (false, true) => vec![(0x100, true), (0x80, true)],
+                    (false, false) => vec![(0x100, true)],
+                };
+                let block = b(logical, len, at, &halves, owner);
+                at += block.stored_len();
+                block
+            })
+            .collect();
+        let image = image_of(blocks, 0x11_0000, 0x5_0060, 0xd_0000);
+        let blob = layout(&image, &[0, 0x60]).unwrap();
+        let walked: Vec<_> = describe(&blob)
+            .unwrap()
+            .iter()
+            .map(|b| (b.logical, b.len))
+            .collect();
+        let expected: Vec<_> = spans.iter().map(|&(l, n, _)| (l, u64::from(n))).collect();
+        assert_eq!(walked, expected);
+    }
+
+    /// Outside a plain build the carried nibbles say nothing: 128 KiB blocks of a file starting
+    /// off a 16-byte boundary still walk to their lengths with every nibble scrambled.
+    #[test]
+    fn short_blocks_keep_their_nibble_outside_a_plain_build() {
+        let spans = [
+            (0, 0x61, Owner::File(0)),
+            (0x61, 0x2_0000, Owner::File(1)),
+            (0x2_0061, 0x2_0000, Owner::File(1)),
+            (0x4_0061, 0x1_ff9f, Owner::Gap),
+            (0x6_0000, 0x2_0000, Owner::Meta),
+        ];
+        let mut at = 0u64;
+        let blocks: Vec<StoredBlock> = spans
+            .iter()
+            .map(|&(logical, len, owner)| {
+                let block = b(logical, len, at, &[(len.min(0x100), len > 0x100)], owner);
+                at += block.stored_len();
+                block
+            })
+            .collect();
+        let image = image_of(blocks, 0x8_0000, 0x4_0061, 0x6_0000);
+        let mut blob = layout(&image, &[0, 0x61]).unwrap();
+        let expected: Vec<_> = spans.iter().map(|&(l, n, _)| (l, u64::from(n))).collect();
+        let walk = |blob: &[u8]| -> Vec<(u64, u64)> {
+            describe(blob)
+                .unwrap()
+                .iter()
+                .map(|b| (b.logical, b.len))
+                .collect()
+        };
+        assert_eq!(walk(&blob), expected);
+        let field = field_at(&blob);
+        blob[field..field + 3].copy_from_slice(&[0, 0, 0x55]);
+        let records =
+            (u64::from_le_bytes(blob[8..16].try_into().unwrap()) >> 24 & 0xFF_FFFF) as usize + 2;
+        for r in 0..records {
+            blob[field + 3 + r * 9 + 8] ^= 0xF0;
+        }
+        assert_eq!(walk(&blob), expected);
+    }
+
+    /// A 136 KiB build (`--block-size 136`): a file's 8-byte tail block starts within the
+    /// 16 bytes before the next file's boundary, so only the carried nibble places it.
+    #[test]
+    fn a_tail_under_16_bytes_ends_the_block_before_it() {
+        let spans = [
+            (0, 0x2_2000, Owner::File(0)),
+            (0x2_2000, 8, Owner::File(0)),
+            (0x2_2008, 5, Owner::File(1)),
+            (0x2_200d, 0x1_dff3, Owner::Gap),
+            (0x4_0000, 0x2_0000, Owner::Meta),
+        ];
+        let mut at = 0u64;
+        let blocks: Vec<StoredBlock> = spans
+            .iter()
+            .map(|&(logical, len, owner)| {
+                let halves = if len > kraken::HALF as u32 {
+                    vec![(0x100, true), (0x80, true)]
+                } else {
+                    vec![(len.min(0x100), len > 0x100)]
+                };
+                let block = b(logical, len, at, &halves, owner);
+                at += block.stored_len();
+                block
+            })
+            .collect();
+        let image = image_of(blocks, 0x6_0000, 0x2_200d, 0x4_0000);
+        let blob = layout(&image, &[0, 0x2_2008]).unwrap();
+        let walked: Vec<_> = describe(&blob)
+            .unwrap()
+            .iter()
+            .map(|b| (b.logical, b.len))
+            .collect();
+        let expected: Vec<_> = spans.iter().map(|&(l, n, _)| (l, u64::from(n))).collect();
+        assert_eq!(walked, expected);
+    }
+
+    /// A block record's bits 44..47 name its pattern: 0 none, k the table's pattern k - 1 (an
+    /// all-zero entry is none too). An index past the table and an unknown entry are refused.
+    #[test]
+    fn shuffle_indices_resolve_through_the_table() {
+        let table = [entry(&[4, 4]), entry(&[]), entry(&[2, 6])];
+        let blob = with_table(&sample_descriptor(), &table);
+        // Record 1 is the first block; byte 5's top nibble holds bits 44..47.
+        let at = field_at(&blob) + 3 + 9 + 5;
+        let with_index = |k: u8| {
+            let mut b = blob.clone();
+            b[at] = b[at] & 0x0F | k << 4;
+            b
+        };
+        for (k, id) in [(0u8, 0u8), (1, 1), (2, 0), (3, 11)] {
+            let blocks = describe(&with_index(k)).unwrap();
+            assert_eq!(blocks[0].shuffle, id, "index {k}");
+            assert!(blocks[1..].iter().all(|b| b.shuffle == 0));
+        }
+        for k in [4, 15] {
+            let e = describe(&with_index(k)).unwrap_err().to_string();
+            assert!(e.contains(&format!("shuffle index {k} is past")), "{e}");
+        }
+        for bad in [entry(&[3, 5]), entry(&[4, 4, 0, 4]), [0xFF; 8]] {
+            let e = describe(&with_table(&sample_descriptor(), &[bad]))
+                .unwrap_err()
+                .to_string();
+            assert!(e.contains("unknown descriptor"), "{e}");
+        }
+    }
+
+    /// `decode_described` undoes a block's shuffle after decoding it (here a raw block).
+    #[test]
+    fn a_shuffled_block_decodes_to_its_bytes() {
+        let plain: Vec<u8> = (0..0x1_8007u32).map(|i| (i ^ i >> 9) as u8).collect();
+        let stored = shuffle_forward(&plain, SHUFFLES[6]);
+        let block = DescribedBlock {
+            logical: 0,
+            len: plain.len() as u64,
+            stored_at: 0,
+            even_len: plain.len() as u64,
+            stored_len: plain.len() as u64,
+            even_lz: false,
+            odd_lz: false,
+            mode_bits: 0,
+            shuffle: 6,
+        };
+        assert_eq!(decode_described(&stored, &block).unwrap(), plain);
+        let unknown = DescribedBlock {
+            shuffle: 13,
+            ..block
+        };
+        assert!(decode_described(&stored, &unknown).is_err());
+    }
+}

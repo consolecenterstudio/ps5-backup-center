@@ -1,3 +1,4 @@
+#include <thread>
 #include "tasks/tasks.hpp"
 #include "files/files.hpp"
 
@@ -73,6 +74,7 @@ Json Task::to_json(bool with_request) const {
     if (request["origin"].is_string()) j.set("origin", request["origin"]);
     if ((type == Type::restore_save || type == Type::restore) && !request["remote"].as_string().empty()) j.set("from_place", request["remote"]);
     else if ((type == Type::restore_save || type == Type::restore) && !request["place"].as_string().empty()) j.set("from_place", request["place"]);
+    if (type == Type::files && request["op"].as_string() != "delete") { j.set("from_place", request["src_place"]); j.set("place", request["dst_place"]); }
     // Sauvegarde : où est la version produite (appareil + nom du dossier), pour la retrouver depuis la tâche.
     if (type == Type::backup) {
         const std::string place = !request["remote"].as_string().empty() ? request["remote"].as_string() : request["disk_id"].as_string();
@@ -164,6 +166,7 @@ std::string Queue::add_backup(const backup::Request& req) {
     if (req.flat) r.set("flat", true);
     if (!req.bundle_name.empty()) r.set("bundle_name", req.bundle_name);  // fixé à l'avance (rangement par plateforme)
     if (!req.origin.empty()) r.set("origin", req.origin);
+    if (!req.console_id.empty()) { r.set("console_id", req.console_id); r.set("console_name", req.console_name); }  // faite par quelle PS5
     t.request = r;
     {
         std::lock_guard<std::mutex> l(mu_);
@@ -400,6 +403,14 @@ void Queue::worker() {
                     ::unlink((tmp + ".vhash").c_str()); ::unlink((tmp + ".hashes").c_str()); ::unlink((tmp + ".verified").c_str()); ::unlink((tmp + ".resume").c_str());
                 }
                 if (t->state == State::cancelled && t->type == Type::image && t->report["resume_ckpt"].is_string()) ::unlink(t->report["resume_ckpt"].as_string().c_str());
+                // Copie de fichiers annulée : le fichier commencé (gardé pour une reprise) est retiré.
+                if (t->state == State::cancelled && t->type == Type::files && t->report["resume_part"].is_string() && open_place) {
+                    std::string err;
+                    if (auto dst = open_place(t->request["dst_place"].as_string(), err)) {
+                        if (t->report["resume_path"].is_string()) dst->drop_partial(t->report["resume_path"].as_string());  // .part ou session d'envoi (nuage)
+                        else dst->remove(t->report["resume_part"].as_string());
+                    }
+                }
             }
         }
     }
@@ -411,8 +422,27 @@ void Queue::run_one(Task& t) {
     const auto t0 = clock::now();
     std::uint64_t base = 0;
     bool first = true;
+    // Limite de débit des téléchargements : on mesure sur une fenêtre de 2 s et on attend ce qu'il faut pour rester sous la
+    // limite (la copie est faite par ce fil : attendre ici la ralentit, sans rien couper).
+    const bool is_download = t.request["origin"].as_string() == "download";
+    auto win_t = clock::now();
+    std::uint64_t win_bytes = 0;
+    bool win_first = true;
+    int limit = 0;
+    auto limit_at = clock::now() - std::chrono::seconds(5);
     auto progress = [&](const backup::Progress& p) {
         if (first) { base = p.bytes_done; first = false; }
+        if (is_download && download_limit_kbps) {
+            if (win_first) { win_bytes = p.bytes_done; win_t = clock::now(); win_first = false; }
+            if (clock::now() - limit_at > std::chrono::seconds(1)) { limit = download_limit_kbps(); limit_at = clock::now(); }  // relu chaque seconde
+            const int kbps = limit;
+            if (kbps > 0 && p.bytes_done > win_bytes) {
+                const double want = static_cast<double>(p.bytes_done - win_bytes) / (kbps * 1024.0);
+                const double got = std::chrono::duration<double>(clock::now() - win_t).count();
+                if (want > got) std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>((want - got) * 1000)));
+                if (std::chrono::duration<double>(clock::now() - win_t).count() > 2.0) { win_bytes = p.bytes_done; win_t = clock::now(); }
+            }
+        }
         const auto now = clock::now();
         const double secs = std::chrono::duration<double>(now - t0).count();
         std::lock_guard<std::mutex> l(mu_);
@@ -433,6 +463,8 @@ void Queue::run_one(Task& t) {
         req.disk_id = t.request["disk_id"].as_string();
         req.bundle_name = t.request["bundle_name"].as_string();
         req.flat = t.request["flat"].as_bool();
+        req.console_id = t.request["console_id"].as_string();
+        req.console_name = t.request["console_name"].as_string();
         if (req.bundle_name.empty()) {
             req.bundle_name = backup::make_bundle_name(req);
             t.request.set("bundle_name", req.bundle_name);

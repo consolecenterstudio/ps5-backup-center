@@ -860,6 +860,17 @@ Json known_by_raw(const std::string& state_dir, const std::string& raw, const st
     return v;
 }
 
+Json console_cached(const std::string& state_dir, const std::string& title_id, const std::string& user_id) {
+    if (user_id.empty() || title_id.empty()) return Json();
+    const std::string sig = console_signature(user_id, title_id);
+    if (sig.empty()) return Json();
+    std::shared_ptr<const Json> held;
+    { std::lock_guard<std::mutex> l(cache_mu); held = shared_cache(state_dir); }
+    const Json& hit = (*held)["versions"]["console|" + user_id + "|" + title_id];
+    if (!hit.is_object() || reader_outdated(hit) || hit["signature"].as_string() != sig) return Json();
+    return hit;
+}
+
 Json cached_inspections(const std::string& state_dir, const std::string& title_id, const std::string& user_id) {
     std::shared_ptr<const Json> held;
     { std::lock_guard<std::mutex> l(cache_mu); held = shared_cache(state_dir); }

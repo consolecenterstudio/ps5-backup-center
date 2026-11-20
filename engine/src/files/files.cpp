@@ -67,7 +67,7 @@ std::string sha_of(store::Store& st, const std::string& path, std::atomic<bool>&
 // pendant que celui-ci les écrit et calcule l'empreinte. Avant : 256 Ko lus, puis écrits, puis le suivant — chaque
 // aller-retour réseau attendait le précédent (NAS en SMB : ~7 Mo/s sur un réseau gigabit).
 struct Copied { bool read_ok = true, write_ok = true, stopped = false; std::uint64_t bytes = 0; std::string sha; };
-Copied pump(store::Reader& r, store::Writer& w, const std::function<void(std::uint64_t)>& on_bytes, std::atomic<bool>& interrupt) {
+Copied pump(store::Reader& r, store::Writer& w, const std::function<void(std::uint64_t)>& on_bytes, std::atomic<bool>& interrupt, Sha256* seed = nullptr) {
     constexpr std::size_t block = 4u << 20;
     std::mutex m;
     std::condition_variable cv;
@@ -96,7 +96,8 @@ Copied pump(store::Reader& r, store::Writer& w, const std::function<void(std::ui
         }
     });
     Copied c;
-    Sha256 h;
+    Sha256 own;
+    Sha256& h = seed ? *seed : own;  // copie reprise : l'empreinte continue celle du début déjà là
     for (;;) {
         std::vector<char> b;
         {
@@ -243,7 +244,11 @@ Result run(const Request& req, const backup::ProgressFn& progress, std::atomic<b
         }
         // Déjà là ? Identique (taille + empreinte) : sauté. Différent : on garde les deux.
         std::string src_sha;
-        if (req.dst->stat(dst_path, de) && !de.dir) {
+        // OneDrive montre un fichier vide pendant un envoi en cours : s'il est à nous (session gardée pour ce fichier),
+        // ce n'est pas un fichier à préserver, c'est la place de la reprise.
+        store::Kept pending;
+        const bool ours = req.dst->stat(dst_path, de) && !de.dir && de.size == 0 && f.size > 0 && req.dst->kept(dst_path, pending);
+        if (!ours && req.dst->stat(dst_path, de) && !de.dir) {
             if (de.size == f.size) {
                 p.phase = "compare"; p.phase_done = 0; p.phase_total = 2 * f.size;
                 const auto adv = [&](std::uint64_t n) { p.phase_done += n; if (progress) progress(p); };
@@ -269,10 +274,65 @@ Result run(const Request& req, const backup::ProgressFn& progress, std::atomic<b
             x.set("to", dst_path.substr(dst_path.rfind('/') + 1));
             renamed.push(x);
         }
-        // Copie : .part puis validation, empreinte au passage.
+        // Copie : .part puis validation, empreinte au passage. Un fichier commencé avant un arrêt (pause, coupure) reprend
+        // là où il s'était arrêté : le début gardé est relu ici pour l'empreinte, la source est lue à partir de la suite.
         std::string err;
-        auto r = req.src->open(src_path, err);
-        auto w = r ? req.dst->create(dst_path, err) : nullptr;
+        std::uint64_t have = 0;
+        std::unique_ptr<store::Writer> w;
+        std::unique_ptr<store::Reader> r;
+        Sha256 seed;
+        bool resumed = false;
+        // Ordre : relire d'abord le début gardé (FTP : une seule transmission à la fois), puis rouvrir l'envoi à la suite.
+        std::string tail;
+        if (auto pr = req.dst->open_partial(dst_path, err)) {
+            std::vector<char> buf(1u << 20);
+            for (long got; (got = pr->read(buf.data(), buf.size())) > 0;) {
+                seed.add(buf.data(), static_cast<std::size_t>(got));
+                have += static_cast<std::uint64_t>(got);
+                tail.append(buf.data(), static_cast<std::size_t>(got));
+                if (tail.size() > 65536) tail.erase(0, tail.size() - 65536);
+            }
+        }
+        // Nuage : rien à relire, la session d'envoi est gardée sur la console avec l'empreinte du début et de sa fin.
+        store::Kept kept;
+        const bool cloud = have == 0 && req.dst->kept(dst_path, kept) && kept.have > 0 && kept.have < f.size;
+        if (cloud) {
+            stage("reprise", f.rel);
+            const std::uint64_t k = std::min<std::uint64_t>(kept.have, 65536);
+            r = req.src->open_at(src_path, kept.have - k, err);
+            if (r) {
+                std::string again(static_cast<std::size_t>(k), '\0');
+                std::size_t got = 0;
+                while (got < again.size()) { const long n = r->read(&again[got], again.size() - got); if (n <= 0) break; got += static_cast<std::size_t>(n); }
+                if (got != again.size() || sha256_hex(again) != kept.tail_sha || !seed.restore(kept.sha_state)) r.reset();
+            }
+            std::uint64_t still = 0;
+            auto rw = r ? req.dst->resume(dst_path, still, err) : nullptr;
+            if (rw && still == kept.have) { w = std::move(rw); resumed = true; have = kept.have; p.bytes_done += have; if (progress) progress(p); }
+            else { if (rw) rw->abort(); r.reset(); }
+        }
+        if (!cloud && have > 0 && have < f.size) {
+            stage("reprise", f.rel);
+            const std::uint64_t k = std::min<std::uint64_t>(have, 65536);
+            // La source relue un peu avant : si ces octets diffèrent, ce n'est plus le même fichier → on repart de zéro.
+            if (tail.size() == k) r = req.src->open_at(src_path, have - k, err);
+            if (r) {
+                std::string again(static_cast<std::size_t>(k), '\0');
+                std::size_t got = 0;
+                while (got < again.size()) { const long n = r->read(&again[got], again.size() - got); if (n <= 0) break; got += static_cast<std::size_t>(n); }
+                if (got != again.size() || again != tail) r.reset();
+            }
+            std::uint64_t still = 0;
+            auto rw = r ? req.dst->resume(dst_path, still, err) : nullptr;
+            if (rw && still == have) { w = std::move(rw); resumed = true; p.bytes_done += have; if (progress) progress(p); }
+            else { if (rw) rw->abort(); r.reset(); }
+        }
+        if (!resumed) { seed = Sha256(); have = 0; }
+        err.clear();
+        if (!resumed) {
+            r = req.src->open(src_path, err);
+            w = r ? req.dst->create(dst_path, err) : nullptr;
+        }
         if (w) w->size_hint(f.size);
         if (!r || !w) {
             Json x = Json::object(); x.set("file", f.rel); x.set("error", err.empty() ? "ouverture impossible" : err); errors.push(x);
@@ -280,14 +340,20 @@ Result run(const Request& req, const backup::ProgressFn& progress, std::atomic<b
             continue;
         }
         stage("copie", f.rel);
-        const Copied c = pump(*r, *w, [&](std::uint64_t n) { p.bytes_done += n; if (progress) progress(p); }, interrupt);
+        const Copied c = pump(*r, *w, [&](std::uint64_t n) { p.bytes_done += n; if (progress) progress(p); }, interrupt, resumed ? &seed : nullptr);
         stage(c.stopped ? "arrêt (après lecture)" : "validation", f.rel);
-        if (c.stopped || interrupt) { stage("arrêt"); w->abort(); res.error = "arrêt demandé"; stage("arrêté"); return res; }
+        if (c.stopped || interrupt) {  // gardé : la reprise continue d'ici ; une annulation le retire (tâches)
+            stage("arrêt");
+            if (w->keep()) { res.report = Json::object(); res.report.set("resume_part", dst_path + ".part"); res.report.set("resume_path", dst_path); }
+            res.error = "arrêt demandé";
+            stage("arrêté");
+            return res;
+        }
         const bool ok = c.read_ok && c.write_ok;
-        const std::uint64_t got = c.bytes;
+        const std::uint64_t got = have + c.bytes;
         const std::string sha = c.sha;
         if (!ok || got != f.size || !w->commit(err)) {
-            w->abort();
+            if (!c.read_ok && c.write_ok) w->keep(); else w->abort();  // lecture coupée (réseau) : gardé, la reprise continuera
             Json x = Json::object(); x.set("file", f.rel); x.set("error", !ok ? "écriture impossible" : got != f.size ? "lecture incomplète" : err); errors.push(x);
             p.bytes_done += f.size > got ? f.size - got : 0; ++p.files_done;
             continue;

@@ -1,0 +1,138 @@
+# Host tests, release + debug .sprx builds, draft releases on v* tags and
+# the beta pre-release on every push to main.
+name: build
+
+on:
+  # Every push (any branch or tag) runs tests and builds; only v* tags release.
+  push:
+    branches: ['**']
+    tags: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: tests
+    runs-on: ubuntu-latest
+    env:
+      # Same toolchain as ps5/Dockerfile and crates/ampr-zstd rust-version.
+      RUSTUP_TOOLCHAIN: 1.99.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: host-${{ runner.os }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: host-${{ runner.os }}-${{ env.RUSTUP_TOOLCHAIN }}-
+      - name: cargo test --workspace
+        run: cargo test --workspace --locked
+
+  sprx:
+    name: build sprx
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            out/cargo-home/registry
+            out/cargo-home/git
+          key: sprx-cargo-${{ hashFiles('Cargo.lock', 'ps5/Dockerfile') }}
+          restore-keys: sprx-cargo-
+      # Main builds are betas: the launch notice reads v<version>-beta.<sha>.
+      - name: make dist (Docker)
+        run: ./ps5/build-docker.sh dist ${{ github.ref == 'refs/heads/main' && 'AMPR_BETA=1' || '' }}
+      - name: sha256
+        run: sha256sum libSceAmpr.sprx libSceAmpr-debug.sprx | tee SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sprx
+          path: |
+            libSceAmpr.sprx
+            libSceAmpr-debug.sprx
+            SHA256SUMS
+          if-no-files-found: error
+
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, sprx]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sprx
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          sha256sum -c SHA256SUMS
+          # Notes start at the last stable release, not at the beta tag,
+          # which already points at this commit.
+          prev=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts \
+            --exclude-pre-releases --limit 1 --json tagName -q '.[0].tagName')
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --draft \
+            --generate-notes \
+            ${prev:+--notes-start-tag "$prev"} \
+            libSceAmpr.sprx libSceAmpr-debug.sprx SHA256SUMS
+
+  # One pre-release, tag `beta`, updated in place on every push to main: a
+  # fixed download URL, the "Latest" badge stays on the last v* release, and
+  # release watchers are not notified per push. Runs on main are serialized
+  # by the workflow concurrency group, so an older build never lands last.
+  # The tag moves through GITHUB_TOKEN, which starts no new workflow run.
+  beta:
+    name: beta
+    if: github.ref == 'refs/heads/main'
+    needs: [test, sprx]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sprx
+      - name: Update beta pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          sha256sum -c SHA256SUMS
+          gh api -X PATCH "repos/$REPO/git/refs/tags/beta" -f sha="$SHA" -F force=true >/dev/null \
+            || gh api "repos/$REPO/git/refs" -f ref=refs/tags/beta -f sha="$SHA" >/dev/null
+          prev=$(gh release list --repo "$REPO" --exclude-drafts \
+            --exclude-pre-releases --limit 1 --json tagName -q '.[0].tagName')
+          {
+            echo "⚠️ That's an automatic beta version intended for testing purposes."
+            echo "Built automatically on each push to main branch."
+            echo
+            echo "It may be untested on a console, can break games and not intended to be used as a general way - just testing."
+            echo
+            echo "Changes since $prev: https://github.com/$REPO/compare/$prev...$SHA"
+          } > notes.md
+          gh release view beta --repo "$REPO" >/dev/null 2>&1 \
+            || gh release create beta --repo "$REPO" --verify-tag --prerelease \
+                 --latest=false --title beta --notes-file notes.md
+          gh release upload beta --repo "$REPO" --clobber \
+            libSceAmpr.sprx libSceAmpr-debug.sprx SHA256SUMS
+          gh release edit beta --repo "$REPO" --prerelease --latest=false \
+            --title "beta ${SHA::7}" --notes-file notes.md

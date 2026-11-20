@@ -1,0 +1,602 @@
+//! Virtual read AIO state machine, pipeline windows and chunk decode. A
+//! chunk already in the decoded cache is copied by the worker's chunk path,
+//! never by the submit call (aio.rs `publish_virtual_jobs`).
+
+use super::*;
+use crate::rt::index::IndexIo;
+use core::ptr::copy_nonoverlapping;
+
+/// A copy of decoded bytes into the caller's buffer, timed in debug builds.
+#[inline(always)]
+unsafe fn timed_copy(src: *const u8, dst: *mut u8, len: usize) {
+    let start = stats::now();
+    unsafe { copy_nonoverlapping(src, dst, len) };
+    stats::add(stats::Stat::CopyNs, stats::since(start));
+    stats::add(stats::Stat::CopyBytes, len as u64);
+}
+
+/// The `file` argument of `ampr_pack_core_task_count` and
+/// `ampr_pack_core_make_task`: an AMPRPAK4 record copied out of the
+/// manifest (it is not resident), or the zstd extent taken from the view.
+/// `ptr` is valid while this value lives.
+pub(crate) enum TaskFile {
+    Lz4(AmprPackFileRecord),
+    Zstd(zstd::ZstdExtent),
+}
+
+impl TaskFile {
+    pub(crate) fn ptr(&self) -> *const u8 {
+        match self {
+            TaskFile::Lz4(f) => f as *const AmprPackFileRecord as *const u8,
+            TaskFile::Zstd(e) => e as *const zstd::ZstdExtent as *const u8,
+        }
+    }
+}
+
+/// Packed one-based `file_id`: its task file, logical size and cache flags
+/// (none in zstd). None when the mount is not ready, the id is out of
+/// range, the file is loose, or the index could not be read.
+pub(crate) unsafe fn packed_read_file(
+    state: *const PackState,
+    file_id: u32,
+) -> Option<(TaskFile, u64, u32)> {
+    unsafe { try_packed_read_file(state, file_id) }
+        .ok()
+        .flatten()
+}
+
+/// `packed_read_file` that reports a read error of the index file as
+/// `Err(IndexIo)`: the read fails with EIO, not ENOENT.
+pub(crate) unsafe fn try_packed_read_file(
+    state: *const PackState,
+    file_id: u32,
+) -> Result<Option<(TaskFile, u64, u32)>, IndexIo> {
+    let io = |e| match e {
+        ampr_format::Error::Io => Err(IndexIo),
+        _ => Ok(None),
+    };
+    if zstd_mode() {
+        // Memory only, from the view (aio.rs calls this under PACK_M).
+        let Some(extent) = zstd::zstd_extent(file_id) else {
+            return Ok(None);
+        };
+        return Ok(Some((TaskFile::Zstd(extent), extent.logical_size, 0)));
+    }
+    if (*state).header.is_null() || file_id == 0 {
+        return Ok(None);
+    }
+    let Some(manifest) = (*state).core_view.manifest else {
+        return Ok(None);
+    };
+    let raw = match manifest.file_record_raw(file_id - 1) {
+        Ok(raw) => raw,
+        Err(e) => return io(e),
+    };
+    let file: AmprPackFileRecord = unsafe { core::ptr::read_unaligned(raw.as_ptr().cast()) };
+    if file.flags & AMPR_PACK_FILE_PACKED == 0 {
+        return Ok(None);
+    }
+    let (size, flags) = (file.logical_size, file.flags);
+    Ok(Some((TaskFile::Lz4(file), size, flags)))
+}
+
+pub(crate) unsafe fn cleanup_pipeline_continuation(
+    pipeline: &mut ReadPipelineContext,
+    error: c_int,
+) {
+    unsafe {
+        if pipeline.decoded_lease.entry != INVALID_INDEX {
+            // A failed read-ahead drops its entry (transient error), so a later
+            // game read of the chunk loads it again instead of seeing Failed.
+            // Read through the raw state pointer: `pipeline` lives inside PackState.
+            let owner = pipeline.owner;
+            let prefetch = owner != INVALID_INDEX
+                && (*pack_state_create()).virtual_aio[owner as usize].prefetch_chunks != 0;
+            cache_publish(
+                &mut pipeline.decoded_lease,
+                if prefetch {
+                    SCE_KERNEL_ERROR_EAGAIN
+                } else {
+                    error
+                },
+            );
+            cache_release(&mut pipeline.decoded_lease);
+        }
+        if pipeline.pack_fd >= 0 && !pipeline.native_accepted {
+            release_pack_fd(pipeline.io_range.pack_id);
+            pipeline.pack_fd = -1;
+        }
+        pipeline.io_range = PipelineIoRange::EMPTY;
+        pipeline.io_window_valid = false;
+        pipeline.io_window_data = null();
+        pipeline.native_request = SceKernelAioRWRequest::EMPTY;
+        pipeline.native_result = SceKernelAioResult::EMPTY;
+        pipeline.native_io_error = 0;
+        pipeline.native_completion_ready = false;
+        AtomicBool::from_ptr(&mut pipeline.native_submitted).store(false, Ordering::Release);
+    }
+}
+
+/// The one compressed codec id of `decode_pipeline_chunk`: LZ4 (AMPRPAK4)
+/// or zstd, by mode. Raw is 0 in both formats.
+const PIPELINE_COMPRESSED_CODEC: u8 = AMPR_PACK_CHUNK_LZ4;
+// zstd codec ids share the AMPRPAK4 values (raw 0, compressed 1), so the
+// raw-bypass tests in this file read `codec` the same way in both modes.
+const _: () = assert!(
+    ampr_codec::ZSTD_CODEC_RAW == AMPR_PACK_CHUNK_RAW
+        && ampr_codec::ZSTD_CODEC_ZSTD == AMPR_PACK_CHUNK_LZ4
+);
+
+pub(crate) unsafe fn decode_pipeline_chunk(
+    worker: &WorkerContext,
+    chunk: &AmprPackChunkView,
+    destination: *mut u8,
+    pipeline: &mut ReadPipelineContext,
+    raw_offset: usize,
+    raw_length: usize,
+) -> c_int {
+    unsafe {
+        let relative = (chunk.offset - pipeline.io_window_offset) as usize;
+        let stored = pipeline.io_window_data.add(relative);
+        let mut rc = 0;
+        if chunk.codec == AMPR_PACK_CHUNK_RAW {
+            // Bypassed partial reads need no full-chunk decoded scratch copy.
+        } else if chunk.codec == PIPELINE_COMPRESSED_CODEC {
+            let raw_size = chunk.raw_size as usize;
+            let input = core::slice::from_raw_parts(stored, chunk.stored_size as usize);
+            let output = core::slice::from_raw_parts_mut(destination, raw_size);
+            // zstd: one zstd frame per chunk (content size checked).
+            let decoded = if zstd_mode() {
+                match worker.decoder.as_mut() {
+                    Some(decoder) => {
+                        decoder.decode(ampr_codec::ZSTD_CODEC_ZSTD, raw_size, input, output)
+                    }
+                    None => Err(ampr_codec::Error::InvalidArgument),
+                }
+            } else {
+                ampr_lz4::decode_chunk(AMPR_PACK_CHUNK_LZ4, 0, raw_size, input, output)
+            };
+            if decoded.is_err() {
+                rc = SCE_KERNEL_ERROR_EIO;
+            }
+        } else if chunk.codec == AMPR_PACK_CHUNK_KRAKEN && pkg_mode() {
+            rc = decode_kraken_chunk(worker, chunk, stored, destination);
+        } else {
+            rc = SCE_KERNEL_ERROR_EINVAL;
+        }
+        if rc == 0 && chunk.codec == AMPR_PACK_CHUNK_RAW {
+            copy_nonoverlapping(stored.add(raw_offset), destination, raw_length);
+        }
+        rc
+    }
+}
+
+/// Fails the read: cleans up the continuation and reports `error`.
+unsafe fn fail_virtual_read(
+    pipeline: &mut ReadPipelineContext,
+    error: c_int,
+    error_out: *mut c_int,
+) -> PipelineStep {
+    unsafe {
+        cleanup_pipeline_continuation(pipeline, error);
+        if !error_out.is_null() {
+            *error_out = error;
+        }
+    }
+    PipelineStep::Failed
+}
+
+pub(crate) unsafe fn advance_virtual_read_aio(
+    job: &mut VirtualAioSlot,
+    worker: &mut WorkerContext,
+    pipeline: &mut ReadPipelineContext,
+    return_value: *mut i64,
+    error_out: *mut c_int,
+) -> PipelineStep {
+    unsafe {
+        if !return_value.is_null() {
+            *return_value = 0;
+        }
+        if !error_out.is_null() {
+            *error_out = 0;
+        }
+        let set_error = |error: c_int| {
+            if !error_out.is_null() {
+                *error_out = error;
+            }
+            PipelineStep::Failed
+        };
+        let state = pack_state();
+        // A read-ahead job (readahead.rs) has no result or destination: it only loads
+        // missing chunks into the decoded cache and skips every other chunk.
+        let prefetch = job.prefetch_chunks != 0;
+        if (job.request.result.is_null() && !prefetch) || job.request.offset < 0 {
+            return set_error(SCE_KERNEL_ERROR_EINVAL);
+        }
+        let (task_file, logical_size, file_flags) = match try_packed_read_file(state, job.file_id) {
+            Ok(Some(file)) => file,
+            Ok(None) => return set_error(SCE_KERNEL_ERROR_ENOENT),
+            Err(IndexIo) => return set_error(SCE_KERNEL_ERROR_EIO),
+        };
+        let file_ptr = task_file.ptr();
+        let offset = job.request.offset as u64;
+        if job.request.nbyte == 0 || offset >= logical_size {
+            return PipelineStep::Complete;
+        }
+        if job.request.buf.is_null() && !prefetch {
+            return set_error(SCE_KERNEL_ERROR_EFAULT);
+        }
+        // Task destination offsets are u32: a read of 4 GiB or more is cut
+        // to a short read at that limit instead of failing part-way with EIO.
+        let length = (job.request.nbyte as u64)
+            .min(logical_size - offset)
+            .min(u32::MAX as u64);
+        if pipeline.task_count == 0 {
+            pipeline.task_count = ampr_pack_core_task_count(file_ptr, offset, length);
+            if pipeline.task_count == 0 {
+                return set_error(SCE_KERNEL_ERROR_EIO);
+            }
+        }
+        if pipeline.native_completion_ready {
+            if let Some(step) = finish_virtual_read_native_io(pipeline, error_out) {
+                return step;
+            }
+        }
+        let output = job.request.buf as *mut u8;
+        while pipeline.task_index < pipeline.task_count {
+            if job.cancel_requested.load(Ordering::Acquire) {
+                return fail_virtual_read(pipeline, SCE_KERNEL_ERROR_ECANCELED, error_out);
+            }
+            let mut task = AmprPackBlockReadTask::default();
+            let task_rc = ampr_pack_core_make_task(
+                &(*state).core_view,
+                file_ptr,
+                offset,
+                length,
+                pipeline.task_index,
+                &mut task,
+            );
+            if task_rc != AMPR_PACK_CORE_OK
+                || task.chunk_index as u64 >= pack_chunk_count(state)
+                || task.destination_offset as u64 + task.copy_length as u64 > length
+            {
+                return fail_virtual_read(pipeline, SCE_KERNEL_ERROR_EIO, error_out);
+            }
+            let chunk = task.chunk;
+            if pipeline.decoded_lease.entry == INVALID_INDEX {
+                match acquire_task_decoded_chunk(
+                    pipeline, &chunk, &task, file_flags, prefetch, output, error_out,
+                ) {
+                    Ok(true) => {
+                        pipeline.task_index += 1;
+                        continue;
+                    }
+                    Ok(false) => {}
+                    Err(step) => return step,
+                }
+            }
+
+            if !pipeline_window_contains(pipeline, &chunk) {
+                if let Some(step) = prepare_exact_task_window(
+                    state, pipeline, file_ptr, offset, length, &chunk, prefetch, error_out,
+                ) {
+                    return step;
+                }
+            }
+
+            let decode_rc =
+                decode_task_chunk(state, worker, pipeline, &chunk, &task, prefetch, output);
+            if decode_rc != 0 {
+                note_decode_error(job.file_id, task.chunk_index, &chunk, decode_rc);
+                return fail_virtual_read(pipeline, decode_rc, error_out);
+            }
+            pipeline.task_index += 1;
+        }
+        pipeline.io_window_valid = false;
+        pipeline.io_window_data = null();
+        if !return_value.is_null() {
+            *return_value = length as i64;
+        }
+        PipelineStep::Complete
+    }
+}
+
+/// Debug: a chunk that failed to decode (with `zstd_verify`, also a frame
+/// checksum mismatch) as op b'Z', lookup b'-', path "decode fid=<file id>
+/// chunk=<file chunk> pack=<volume> off=<volume offset> size=<stored>" (hex).
+fn note_decode_error(file_id: u32, chunk_index: u32, chunk: &AmprPackChunkView, rc: c_int) {
+    if !cfg!(feature = "mem_report") {
+        return;
+    }
+    let mut buf = [0u8; 128];
+    let mut n = 0;
+    let mut text = |s: &[u8]| {
+        buf[n..n + s.len()].copy_from_slice(s);
+        n += s.len();
+    };
+    let fields: [(&[u8], u64); 5] = [
+        (b"decode fid=", file_id as u64),
+        (b" chunk=", chunk_index as u64),
+        (b" pack=", chunk.pack_id as u64),
+        (b" off=", chunk.offset),
+        (b" size=", chunk.stored_size as u64),
+    ];
+    for (label, v) in fields {
+        text(label);
+        let digits = (64 - (v | 1).leading_zeros()).div_ceil(4);
+        for i in (0..digits).rev() {
+            text(&[b"0123456789abcdef"[((v >> (i * 4)) & 0xf) as usize]]);
+        }
+    }
+    // buf[n] is still 0: the path is NUL-terminated.
+    stats::fs_event(b'Z', b'-', rc as i64, buf.as_ptr().cast());
+}
+
+/// Finishes the completed native read of the window. Some(step)
+/// when the read must return: a refused submit to retry or a failure.
+unsafe fn finish_virtual_read_native_io(
+    pipeline: &mut ReadPipelineContext,
+    error_out: *mut c_int,
+) -> Option<PipelineStep> {
+    // Only a refused reactor submit (every external slot still
+    // published) leaves EAGAIN here; SubmitFailed never carries it.
+    let submit_eagain = pipeline.native_io_error == SCE_KERNEL_ERROR_EAGAIN;
+    pipeline.fd_reopen_retry = false;
+    let finish_rc = finish_pipeline_window_aio(pipeline);
+    // A stale pack fd (leases.rs PackFdReopen) also retries: the next
+    // acquire_pack_fd reopens the volume.
+    let reopen_retry = core::mem::replace(&mut pipeline.fd_reopen_retry, false);
+    if (submit_eagain || reopen_retry) && finish_rc == SCE_KERNEL_ERROR_EAGAIN {
+        // Retry the submit. The reactor frees its slot right after the callback, and
+        // reset_native_wait cleared the fd wait epochs, so worker.rs requeues
+        // this job at once instead of parking it.
+        return Some(PipelineStep::YieldFd);
+    }
+    if finish_rc != 0 {
+        return Some(fail_virtual_read(pipeline, finish_rc, error_out));
+    }
+    None
+}
+
+/// Looks the task's chunk up in the decoded cache: a hit is copied out, a
+/// miss takes the loader lease. Ok(true) when the task is finished (copied,
+/// or nothing to prefetch), Ok(false) when the chunk must be decoded,
+/// Err(step) to return.
+#[allow(clippy::too_many_arguments)]
+unsafe fn acquire_task_decoded_chunk(
+    pipeline: &mut ReadPipelineContext,
+    chunk: &AmprPackChunkView,
+    task: &AmprPackBlockReadTask,
+    file_flags: u32,
+    prefetch: bool,
+    output: *mut u8,
+    error_out: *mut c_int,
+) -> Result<bool, PipelineStep> {
+    let key_hash = chunk_key_hash(chunk);
+    // Only a reader that parked on this chunk's load takes a Failed entry's
+    // error; any other reader loads the chunk again.
+    let waiter = key_hash != 0 && pipeline.decoded_wait_key == key_hash;
+    pipeline.decoded_wait_key = 0;
+    prepare_cache_wait(pipeline, key_hash);
+    let mut cache = cache_acquire(chunk, file_flags, false, prefetch, waiter);
+    if prefetch && cache.kind != CacheAcquireKind::Load {
+        // Cached, being loaded, failed or no room: nothing to prefetch.
+        cache_release(&mut cache.lease);
+        return Ok(true);
+    }
+    // Pending retries the lookup after the loader publishes; count the final kind only.
+    match cache.kind {
+        CacheAcquireKind::Load | CacheAcquireKind::Bypass => {
+            let repeat =
+                cfg!(feature = "mem_report") && stats::chunk_seen_before(chunk_key_hash(chunk));
+            if !prefetch {
+                stats::add(stats::Stat::CacheMisses, 1);
+                stats::add(
+                    if repeat {
+                        stats::Stat::CacheMissRepeat
+                    } else {
+                        stats::Stat::CacheMissFirst
+                    },
+                    1,
+                );
+            }
+        }
+        _ if prefetch => {}
+        CacheAcquireKind::Ready => stats::add(stats::Stat::CacheHits, 1),
+        CacheAcquireKind::Pending | CacheAcquireKind::Failed => {}
+    }
+    match cache.kind {
+        CacheAcquireKind::Pending => {
+            pipeline.decoded_wait_key = key_hash;
+            return Err(PipelineStep::YieldCache);
+        }
+        CacheAcquireKind::Failed => {
+            let error = if cache.lease.error != 0 {
+                cache.lease.error
+            } else {
+                SCE_KERNEL_ERROR_EIO
+            };
+            return Err(fail_virtual_read(pipeline, error, error_out));
+        }
+        CacheAcquireKind::Ready => {
+            timed_copy(
+                cache.lease.data.add(task.source_offset as usize),
+                output.add(task.destination_offset as usize),
+                task.copy_length as usize,
+            );
+            cache_release(&mut cache.lease);
+            return Ok(true);
+        }
+        CacheAcquireKind::Load => pipeline.decoded_lease = cache.lease,
+        CacheAcquireKind::Bypass => {}
+    }
+    Ok(false)
+}
+
+// ---- exact-size chunk reads ----
+//
+// A chunk's stored bytes sit at an arbitrary pack offset. A read fetches
+// only the stored bytes of the chunks it needs (window_aio.rs
+// `prepare_exact_window_aio`), not whole io pages: less latency per read
+// when the game keeps few reads in flight.
+
+/// The most bytes between two chunks of one read that an exact read reads
+/// through (discarded) to stay one request. AMPRPAK4 chunks are 64-byte
+/// aligned (gaps < 64 B); zstd frames sit back to back.
+const EXACT_READ_GAP_MAX_BYTES: u64 = 4096;
+
+/// The exact-size window of a chunk outside every window: one read of
+/// [chunk.offset, chunk end), extended over the next tasks' chunks while
+/// each follows on disk (gap <= EXACT_READ_GAP_MAX_BYTES), is not in the
+/// decoded cache, and the run fits the io scratch
+/// (`ampr_format::run::exact_run_end`). One read per game read of adjacent
+/// chunks.
+/// Some(step) when the read must return (I/O, fd wait, failure).
+#[allow(clippy::too_many_arguments)]
+unsafe fn prepare_exact_task_window(
+    state: *mut PackState,
+    pipeline: &mut ReadPipelineContext,
+    file: *const u8,
+    logical_offset: u64,
+    logical_length: u64,
+    chunk: &AmprPackChunkView,
+    prefetch: bool,
+    error_out: *mut c_int,
+) -> Option<PipelineStep> {
+    unsafe {
+        if chunk.pack_id as u32 >= pack_volume_count(state) {
+            return Some(fail_virtual_read(pipeline, SCE_KERNEL_ERROR_EIO, error_out));
+        }
+        let begin = chunk.offset;
+        // Lazy: a task is made only while the run can still grow, and the
+        // run ends at the first task in another pack or already in the
+        // decoded cache. A later task that fails the main loop's checks
+        // ends the run too; the main loop fails it in its turn, not this
+        // chunk.
+        let chunk_count = pack_chunk_count(state);
+        let next = (pipeline.task_index + 1..pipeline.task_count)
+            .map_while(|task_index| {
+                let mut task = AmprPackBlockReadTask::default();
+                (ampr_pack_core_make_task(
+                    &(*state).core_view,
+                    file,
+                    logical_offset,
+                    logical_length,
+                    task_index,
+                    &mut task,
+                ) == AMPR_PACK_CORE_OK
+                    && (task.chunk_index as u64) < chunk_count)
+                    .then_some(task.chunk)
+            })
+            .take_while(|next| next.pack_id == chunk.pack_id && !cache_holds_chunk(next))
+            .map(|next| (next.offset, next.stored_size as u64));
+        let Some((end, _)) = ampr_format::run::exact_run_end(
+            begin,
+            chunk.stored_size as u64,
+            PACK_PIPELINE_IO_BYTES as u64,
+            EXACT_READ_GAP_MAX_BYTES,
+            next,
+        ) else {
+            return Some(fail_virtual_read(pipeline, SCE_KERNEL_ERROR_EIO, error_out));
+        };
+        let range = PipelineIoRange {
+            offset: begin,
+            length: (end - begin) as u32,
+            pack_id: chunk.pack_id,
+        };
+        let mut prepare_error = 0;
+        let prepared = prepare_exact_window_aio(&range, pipeline, prefetch, &mut prepare_error);
+        if matches!(
+            prepared,
+            PipelineStep::YieldIo | PipelineStep::YieldCache | PipelineStep::YieldFd
+        ) {
+            return Some(prepared);
+        }
+        if prepared == PipelineStep::Failed {
+            return Some(fail_virtual_read(pipeline, prepare_error, error_out));
+        }
+        None
+    }
+}
+
+/// Decodes the task's chunk from the bound window into the loader lease, the
+/// destination or the worker scratch, publishes a loader lease and copies
+/// the task's bytes out. Returns the decode result.
+#[allow(clippy::too_many_arguments)]
+unsafe fn decode_task_chunk(
+    state: *mut PackState,
+    worker: &mut WorkerContext,
+    pipeline: &mut ReadPipelineContext,
+    chunk: &AmprPackChunkView,
+    task: &AmprPackBlockReadTask,
+    prefetch: bool,
+    output: *mut u8,
+) -> c_int {
+    let cache_loader = pipeline.decoded_lease.entry != INVALID_INDEX;
+    let decoded = if cache_loader {
+        pipeline.decoded_lease.data
+    } else if chunk.codec == AMPR_PACK_CHUNK_RAW
+        || (task.source_offset == 0 && task.copy_length == chunk.raw_size)
+    {
+        output.add(task.destination_offset as usize)
+    } else {
+        worker.decoded_scratch
+    };
+    let raw_bypass = !cache_loader && chunk.codec == AMPR_PACK_CHUNK_RAW;
+    let raw_length = if raw_bypass {
+        task.copy_length as usize
+    } else {
+        chunk.raw_size as usize
+    };
+    let decode_start = stats::now();
+    let decode_rc = decode_pipeline_chunk(
+        worker,
+        chunk,
+        decoded,
+        pipeline,
+        if raw_bypass {
+            task.source_offset as usize
+        } else {
+            0
+        },
+        raw_length,
+    );
+    stats::add(stats::Stat::Decodes, 1);
+    stats::add(stats::Stat::DecodeNs, stats::since(decode_start));
+    if decode_rc == 0 {
+        stats::add(stats::Stat::DecodedBytes, raw_length as u64);
+    } else {
+        stats::add(stats::Stat::DecodeErrors, 1);
+    }
+    if cache_loader {
+        let publish_rc = if prefetch && decode_rc != 0 {
+            SCE_KERNEL_ERROR_EAGAIN
+        } else {
+            decode_rc
+        };
+        let waited = cache_publish(&mut pipeline.decoded_lease, publish_rc);
+        if waited || prefetch {
+            // Requeue game reads parked on this chunk now, not after the whole run.
+            let g = PACK_M.lock();
+            if wake_cache_waiters_locked(state) {
+                drop(g);
+                QUEUE_CV.notify_all();
+            }
+        }
+        if decode_rc == 0 && !prefetch {
+            timed_copy(
+                pipeline.decoded_lease.data.add(task.source_offset as usize),
+                output.add(task.destination_offset as usize),
+                task.copy_length as usize,
+            );
+        }
+        cache_release(&mut pipeline.decoded_lease);
+    } else if decode_rc == 0 && decoded == worker.decoded_scratch {
+        timed_copy(
+            decoded.add(task.source_offset as usize),
+            output.add(task.destination_offset as usize),
+            task.copy_length as usize,
+        );
+    }
+    decode_rc
+}

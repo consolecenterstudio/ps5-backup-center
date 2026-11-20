@@ -1,6 +1,992 @@
 {
  "versions": [
   {
+   "version": "3.2.0",
+   "date": "2026-11-19",
+   "title": "Lancer un jeu depuis son .pkg (première version)",
+   "new": [
+    "« Installer… › Le monter là où il est » d'un paquet .pkg Kraken : le jeu est déclaré à la console et se lance depuis son paquet, sans rien décompresser — par Kraken Mount s'il est installé, sinon par notre version intégrée (le travail de Kraken Mount dans notre moteur, avec ampr-emu-ng, pgo_stub et dlc_emu compilés par nous ; il faut kstuff). Un jeu déjà pris par ShadowMount ou installé par la console n'est pas touché. Première version, à essayer.",
+    "Paramètres › Montage des jeux : ShadowMountPlus et Kraken Mount détectés ; par défaut, on se sert des outils installés, et notre version intégrée prend le relais pour les .pkg quand Kraken Mount n'est pas là (ou au choix).",
+    "Notre ShadowMount intégré (ShadowMountPlus 1.7, compilé par nous) : quand le ShadowMountPlus installé ne tourne pas, nos images et dossiers de jeux sont montés et inscrits quand même — sans crochet dans le système ni port ; le sien reste prioritaire dès qu'il tourne (Paramètres › Montage des jeux), et ses réglages ne sont jamais modifiés.",
+    "« Installer… » d'un jeu qui est ailleurs (NAS, nuage, autre PS5), depuis Fichiers : on choisit la PS5 cible et son disque ; copie vérifiée, puis montage ou installation par la console. Le NAS et le nuage sont des sources, jamais des cibles.",
+    "Web : « Installer depuis ce PC… » (Fichiers) — un fichier de jeu du PC (.pkg ou image) envoyé vers la PS5 et le disque choisis, par morceaux, avec reprise après une coupure, puis monté ou installé par la console.",
+    "Paramètres › Outils de la console : les payloads de Payload Manager et ceux qui tournent — les démarrer ou les arrêter d'ici (kstuff et notre moteur protégés, ShadowMountPlus arrêté proprement), et ouvrir Payload Manager ; plus besoin de redémarrer la console pour relancer un outil.",
+    "Fiche d'un jeu : la sauvegarde à gauche (les cases, puis « Sauvegarder » juste en dessous), ce qu'on fait du jeu à droite, avec « Installer… » ajouté ; ← → passe d'une colonne à l'autre.",
+    "Bibliothèques de jeux : un dossier du NAS, d'un nuage, d'un disque USB ou de l'autre PS5 déclaré depuis Fichiers ; ses jeux non installés apparaissent dans l'Accueil et la Bibliothèque (« À installer »), prêts à installer sur la PS5 et le disque choisis. Lu en fond, rien n'y est modifié. Chaque .pkg est reconnu par son en-tête : jeu, mise à jour ou DLC (jamais pris pour le jeu : rangés sous lui, installables par la console une fois le jeu installé), PS4 ou PS5, fake PKG ou paquet officiel ; Kraken n'est proposé que pour un jeu PS5 en fake PKG, sinon la raison est dite.",
+    "« Installer… » d'ailleurs : choisir le format (l'image, le .pkg du jeu lancé par Kraken ou installé par la console, ou l'image convertie en .pkg puis installée), avec le temps estimé ; puis une seule tâche à étapes numérotées (copie, vérification, conversion, installation), chacune avec sa barre, sa vitesse et le temps restant. On peut l'arrêter à n'importe quelle étape.",
+    "Désinstaller un jeu lancé depuis son .pkg (Kraken) : la console le retire elle-même, puis son paquet est supprimé si demandé ; ShadowMountPlus n'a plus à le connaître. Une installation en cours reprend là où elle en était après un redémarrage du moteur."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : même choix, carte « Montage des jeux », « Installer… » dans Fichiers ; moteur : pbc-kraken (cache, index, inscription, lancements), GET /api/v2/kraken, GET /api/v2/mounting, réglage pkg_mount, POST /api/v2/install/from, PUT /api/v2/upload/chunk, GET /api/v2/upload/status, POST /api/v2/upload/done, réglage img_mount, carte « Outils de la console » (GET /api/v2/tools, POST /api/v2/tools/start|stop|open), bibliothèques de jeux (rangées « À installer », carte des Paramètres, bouton dans Fichiers ; GET /api/v2/gamelibs, GET /api/v2/gamelibs/games, POST /api/v2/gamelibs/add|remove|rescan), installer par étapes (choix du format, tâche à étapes ; POST /api/v2/install/options, POST /api/v2/installs/cancel, réglage « as » de POST /api/v2/install/from)"
+  },
+  {
+   "version": "3.1.76",
+   "date": "2026-11-19",
+   "title": "Préparer le lancement depuis un .pkg",
+   "new": [],
+   "improved": [
+    "Diagnostic en lecture seule de la table des montages, pour préparer le lancement d'un jeu depuis son .pkg."
+   ],
+   "fixed": [],
+   "web": "sans changement à l'écran ; moteur : GET /api/v2/diag/mounts"
+  },
+  {
+   "version": "3.1.75",
+   "date": "2026-11-19",
+   "title": "Envoyer un .pkg et l'installer sur l'autre PS5",
+   "new": [
+    "« Installer… » d'un paquet .pkg : « L'envoyer sur <PS5> et l'y installer » — copie vérifiée, puis l'autre console l'installe elle-même ; une notification le dit."
+   ],
+   "improved": [
+    "Installer par la console : essayé en vrai (Breeze sur la PS5-01, installé sur l'interne)."
+   ],
+   "fixed": [],
+   "web": "oui : même choix ; moteur : envoi suivi de l'installation là-bas"
+  },
+  {
+   "version": "3.1.74",
+   "date": "2026-11-19",
+   "title": "Installer un paquet .pkg par la console",
+   "new": [
+    "« Installer… › Installer par la console » pour un paquet .pkg : la console l'installe elle-même, comme un jeu du Store, sans serveur ni port ; jamais pendant une partie ; le paquet reste où il est."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : même choix dans « Installer… » ; moteur : /api/v2/packages/install (installeur de la console)"
+  },
+  {
+   "version": "3.1.73",
+   "date": "2026-11-19",
+   "title": "Installer un jeu, là où il est ou ailleurs",
+   "new": [
+    "« Installer… » dans les outils d'un jeu, Paquets .pkg et Téléchargements › Orbit et BlackBox : le monter là où il est (rangé dans le dossier de jeux de son disque, sans copie, monté par ShadowMount), ou l'installer sur un autre disque ou une autre PS5 (copie vérifiée, original gardé ou retiré)."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : même menu « Installer… », mêmes endroits ; moteur : /api/v2/install/here, envoi d'un jeu vers une autre PS5"
+  },
+  {
+   "version": "3.1.72",
+   "date": "2026-11-19",
+   "title": "Synchro automatique des parties",
+   "new": [
+    "Synchro › Parties actives : réglage « Automatique » par PS5 ou NAS — à la fermeture d'un jeu suivi, la partie qu'on vient de jouer part 1 min après ; ou aussi chaque nuit à 4 h, dans les deux sens. La partie remplacée est toujours sauvegardée avant ; jamais pendant une partie ; un conflit attend votre choix.",
+    "Accueil : la bulle Synchro dit « Mis à niveau automatiquement : … · il y a 5 min »."
+   ],
+   "improved": [
+    "Orbit et BlackBox : la bulle de l'Accueil annonce les nouveaux jeux arrivés (sauvegardés ou non) avec, à égalité, Sauvegarder, Déplacer, Compresser en .pkg, Voir et « Vu ». Plus de plan de nuit pour ces jeux."
+   ],
+   "fixed": [],
+   "web": "oui : réglage Automatique, ligne de la bulle Synchro, bulle Orbit, comme la télé ; moteur : synchro automatique (fermeture, nuit)"
+  },
+  {
+   "version": "3.1.71",
+   "date": "2026-11-19",
+   "title": "Orbit et BlackBox : sauvegarder ce qu'ils amènent",
+   "new": [
+    "Bibliothèque : un jeu arrivé par Orbit ou BlackBox porte leur pastille ; sa fiche dit « Arrivé par Orbit » et s'il n'est pas encore sauvegardé.",
+    "Accueil › À faire : une carte « Arrivés par Orbit » tant qu'un jeu amené n'est pas sauvegardé — Sauvegarder maintenant (un .pkg pas installé part tel quel au NAS, au nuage ou à l'autre PS5), les sauvegarder chaque nuit, compresser en .pkg, voir, ou Pas maintenant.",
+    "Plans : nouvelle règle « Jeux arrivés par Orbit et BlackBox » et un modèle « Nouveaux jeux d'Orbit, chaque nuit à 3 h »."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : pastille, fiche, carte À faire et règle de plan, comme la télé ; moteur : /api/v2/arrivals"
+  },
+  {
+   "version": "3.1.70",
+   "date": "2026-11-19",
+   "title": "Jeux sur disque : bien reconnus et sauvegardés",
+   "new": [],
+   "improved": [
+    "Paquets .pkg : « Envoyer vers un NAS, le nuage ou une autre PS5 » (copie vérifiée ; sur l'autre PS5, dans son dossier de jeux)."
+   ],
+   "fixed": [
+    "Un jeu qui n'a que ses sauvegardes sur la console (jeu PS4 sur disque, jeu désinstallé) n'est plus pris pour une application, et « Sauvegarder » depuis Parties ou l'Accueil ne dit plus « élément introuvable ».",
+    "Transferts (télé) : en descendant de « Que faire ? » vers la ligne du dessous, le curseur garde sa colonne."
+   ],
+   "web": "oui : « Envoyer » dans les outils d'un paquet, comme la télé ; moteur : classement des jeux, clé tid: des Parties"
+  },
+  {
+   "version": "3.1.69",
+   "date": "2026-11-18",
+   "title": "Les paquets .pkg partout",
+   "new": [
+    "Transferts › « Paquets .pkg » : tous les .pkg des disques (créés ici, Orbit…), avec Vérifier, Copier ou déplacer, Supprimer ; jamais inscrits dans ShadowMount."
+   ],
+   "improved": [
+    "Transferts › Compresser et « Compresser avant l'envoi » : choisir le format, image .ffpfsc ou paquet .pkg (et sa compression) ; Orbit et BlackBox : « Compresser en .pkg » ou « en .ffpfsc » pour une image .exfat."
+   ],
+   "fixed": [],
+   "web": "oui : carte « Paquets .pkg », format dans Compresser / Copier, compression d'une image d'Orbit, comme la télé"
+  },
+  {
+   "version": "3.1.68",
+   "date": "2026-11-18",
+   "title": "Un journal qui reste après un redémarrage",
+   "new": [],
+   "improved": [
+    "Le moteur garde aussi son journal dans /data/pbc-backup-center/logs/engine.log (4 Mo, plus le précédent) : après un blocage de la console, on peut voir ce qu'il faisait."
+   ],
+   "fixed": [],
+   "web": "non : moteur seulement (journal sur fichier)"
+  },
+  {
+   "version": "3.1.67",
+   "date": "2026-11-18",
+   "title": "Paquet .pkg : choisir la compression",
+   "new": [],
+   "improved": [
+    "« Créer un paquet .pkg (Kraken) » demande la compression : Rapide (conseillé), Sans compression (le plus sûr, lu par toutes les consoles) ou Plus petit (plus lent)."
+   ],
+   "fixed": [],
+   "web": "oui : choix de la compression du .pkg, comme la télé"
+  },
+  {
+   "version": "3.1.66",
+   "date": "2026-11-18",
+   "title": "Créer un paquet .pkg (Kraken)",
+   "new": [
+    "Outils d'un jeu (en dossier, .exfat, .ffpkg ou .ffpfsc) : « Créer un paquet .pkg (Kraken) » — un seul fichier compressé, relu et vérifié avant d'être gardé ; l'original reste. Code de Dump Forge et PS5Upload intégré au moteur (aucune appli ni port en plus)."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : « Créer un paquet .pkg (Kraken) » dans les outils d'un jeu, comme la télé"
+  },
+  {
+   "version": "3.1.65",
+   "date": "2026-11-18",
+   "title": "Orbit et BlackBox : ranger leurs jeux",
+   "new": [
+    "Téléchargements › Orbit et BlackBox : « Déplacer vers… » un jeu terminé (interne ↔ USB, copie vérifiée, toujours montré à sa nouvelle place) et « Libérer la place… » d'une archive gardée ou d'un reste, avec confirmation ; jamais un jeu ouvert, une image montée ni pendant qu'ils téléchargent."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : Déplacer vers… et Libérer la place… dans le détail, comme la télé"
+  },
+  {
+   "version": "3.1.64",
+   "date": "2026-11-18",
+   "title": "Orbit et BlackBox : leurs téléchargements dans Téléchargements",
+   "new": [
+    "Téléchargements › « ORBIT ET BLACKBOX » : ce qu'Orbit et BlackBox ont téléchargé sur la console (état, disque, taille, fichier introuvable) et leurs fichiers de passage (archive gardée, téléchargement en cours, reste), lus chez eux sans rien changer."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : bandeau « ORBIT ET BLACKBOX » de Téléchargements, liste et détail comme la télé"
+  },
+  {
+   "version": "3.1.63",
+   "date": "2026-11-18",
+   "title": "Les PS5 se préviennent avant un plan",
+   "new": [],
+   "improved": [
+    "Plans de sauvegarde vers le même NAS ou le même nuage, à deux PS5 ou plus : chaque console prévient les autres quand elle commence et quand elle a fini ; les autres attendent, puis voient tout de suite ses nouvelles copies."
+   ],
+   "fixed": [],
+   "web": "non : moteur seulement (messages entre PS5)"
+  },
+  {
+   "version": "3.1.62",
+   "date": "2026-11-18",
+   "title": "Chaque copie sait quelle PS5 l'a faite",
+   "new": [],
+   "improved": [
+    "Chaque nouvelle copie note la PS5 qui l'a faite ; « garder N » ne retire jamais la dernière copie d'une autre PS5 rangée au même endroit."
+   ],
+   "fixed": [],
+   "web": "non : moteur seulement (manifeste et rétention)"
+  },
+  {
+   "version": "3.1.61",
+   "date": "2026-11-18",
+   "title": "Web : le même détail que la télé sur les cartes",
+   "new": [],
+   "improved": [
+    "Web : les dates comme à la télé (« 17/11/2026 14:36 »), « Partout » sur deux lignes, la carte de l'autre PS5 avec son état et son adresse, et dans Synchro le résumé d'une famille d'appareils (« Switch · 2 cibles »)."
+   ],
+   "fixed": [],
+   "web": "oui : détail des cartes (dates, Partout, autre PS5, résumé de famille de la Synchro) ; garde-fou des dates dans parity.py"
+  },
+  {
+   "version": "3.1.60",
+   "date": "2026-11-18",
+   "title": "Liens Dropbox, et reconnecter un compte de nuage sans rien perdre",
+   "new": [
+    "Partager : « Lien Dropbox · du service », comme pour OneDrive (droit accordé par Dropbox)."
+   ],
+   "improved": [
+    "Appareils › un compte Google Drive, OneDrive ou Dropbox › Régler : « Reconnecter le compte » (Croix sur « Compte » à la télé) garde l'appareil et ses réglages ; seul l'accès est renouvelé."
+   ],
+   "fixed": [
+    "Synchro avec l'autre PS5 : plus de « rien à synchroniser » à tort pendant quelques minutes après son retour (le plan est refait dès que sa liste de copies change)."
+   ],
+   "web": "oui : lien Dropbox dans Partager, bouton « Reconnecter le compte » dans le réglage d'un compte de nuage"
+  },
+  {
+   "version": "3.1.59",
+   "date": "2026-11-18",
+   "title": "Plans automatiques sans doublon, même à plusieurs PS5",
+   "new": [
+    "Plans : une partie ou un jeu déjà à la destination (même contenu, copie faite par n'importe quelle PS5) n'est plus recopié ; le bilan dit « déjà à jour ». Rien n'est relu pour le savoir.",
+    "Plans : quand une autre PS5 fait déjà un plan vers la même destination, celui-ci attend 10 minutes puis ne refait que ce qui manque."
+   ],
+   "improved": [
+    "« Garder N copies » vaut aussi pour le NAS et le nuage ; les copies en trop vont à la corbeille (30 jours), et une sauvegarde des parties ne touche plus jamais la copie du jeu entier."
+   ],
+   "fixed": [],
+   "web": "non : moteur seulement (plans) ; le bilan « déjà à jour » s'affiche à l'identique dans Tâches › Plans, télé et web"
+  },
+  {
+   "version": "3.1.58",
+   "date": "2026-11-18",
+   "title": "Web comme la télé : les 14 derniers écarts de mise en page",
+   "new": [],
+   "improved": [
+    "Web : Sauvegardes regroupées par famille (Cette PS5, NAS, Nuage), fenêtre « Où ranger ? » en cartes, fiche d'un jeu en deux colonnes, actions des appareils dans « ≡ Actions », Réseau › OPTIONS, retour à l'onglet d'avant en fermant les Paramètres.",
+    "Web : « Demander où ranger : Non » est respecté partout ; les compteurs des Sauvegardes et les phrases des Paramètres disent la même chose que la télé."
+   ],
+   "fixed": [],
+   "web": "oui : 14 écarts de docs/AUDIT-PARITE-2026-11-18.md (8 à 26), maquettes docs/maquettes/captures-ecarts-14"
+  },
+  {
+   "version": "3.1.57",
+   "date": "2026-11-18",
+   "title": "« Copie plus récente » : plus de fausse alerte quand la copie est la même partie",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "« Copie plus récente » : une copie qui contient la même partie que la console (même contenu lu, où qu'elle soit rangée) n'est plus annoncée « plus récente ». L'heure retenue est celle écrite dans la partie, plus celle du fichier, qui change quand une copie complète est remontée."
+   ],
+   "web": "oui : même calcul du moteur (carte « Copie plus récente » de l'Accueil, télé et web)"
+  },
+  {
+   "version": "3.1.56",
+   "date": "2026-11-18",
+   "title": "Lien Internet : l'adresse publique seulement",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Lien BitTorrent : le lien Internet ne porte plus que l'adresse publique de la console (plus son adresse de la maison, inutile et indiscrète chez quelqu'un de loin) ; le code QR est plus simple à scanner."
+   ],
+   "web": "oui : même lien Internet (adresse publique seule) et même phrase sous le code QR"
+  },
+  {
+   "version": "3.1.55",
+   "date": "2026-11-18",
+   "title": "Lien public : le lien BitTorrent marche aussi depuis Internet",
+   "new": [
+    "Lien BitTorrent : comme le lien .zip, il a son lien de la maison et son lien Internet (avec l'adresse publique de la console, trouvée comme pour la PS5 à distance). Un bouton passe de l'un à l'autre ; le code QR et l'adresse suivent."
+   ],
+   "improved": [
+    "Web : la fenêtre d'un lien n'a plus qu'un code QR, avec le bouton « Lien de la maison / Lien Internet », comme la touche Carré de la télé."
+   ],
+   "fixed": [],
+   "web": "oui : fenêtre d'un lien avec un seul code QR et le bouton Lien de la maison / Lien Internet (BitTorrent et .zip)"
+  },
+  {
+   "version": "3.1.54",
+   "date": "2026-11-18",
+   "title": "Mes liens dit quand un lien ne partage plus rien ; les menus du web ont leur titre",
+   "new": [],
+   "improved": [
+    "Mes liens : un lien BitTorrent dont les fichiers ont été déplacés ou retirés est marqué « fichiers introuvables » au lieu de « partagé », avec ce qu'il faut faire.",
+    "Web : les menus « Envoyer à… » et « Format de… » ont leur titre en haut, comme à la télé ; une PS5 éteinte ne propose plus « Voir ses disques »."
+   ],
+   "fixed": [],
+   "web": "oui : Mes liens (état « fichiers introuvables »), titre des menus Envoyer à / Format de, carte d'une PS5 hors ligne"
+  },
+  {
+   "version": "3.1.53",
+   "date": "2026-11-18",
+   "title": "Mes liens : tous vos liens au même endroit ; le web rattrape la télé (audit complet)",
+   "new": [
+    "Téléchargements › Mes liens : tous les liens donnés depuis la console (BitTorrent, .zip de la console, MEGA, OneDrive), avec leur code QR, leur adresse et de quoi les arrêter. Les liens MEGA et OneDrive y sont gardés."
+   ],
+   "improved": [
+    "Créer un lien pour un jeu ouvre tout de suite sa fenêtre : la préparation avance sous vos yeux, puis le code QR s'affiche. Le lien porte le nom du jeu.",
+    "Arrêter un partage BitTorrent ne touche à rien : le jeu et ses fichiers restent où ils sont.",
+    "Web : 52 manques comblés après un audit complet de la télé (Tâches, Où ranger, Accueil « Dans le nuage », Appareils et Synchro par familles, Comparer, fichiers .torrent par dossiers, messages d'erreur clairs…).",
+    "Web : la phrase sous les menus, comme à la télé ; « onglet Parties » pour remettre des saves sur un compte, des deux côtés."
+   ],
+   "fixed": [
+    "Garde-fou : une version n'est plus figée si un texte de la télé manque au web sans raison écrite ; la liste des exceptions a été revue ligne par ligne."
+   ],
+   "web": "oui : Mes liens (Téléchargements), 52 manques de l'audit des textes (docs/AUDIT-PARITE-CHAINES.md), phrase sous les menus"
+  },
+  {
+   "version": "3.1.52",
+   "date": "2026-11-18",
+   "title": "Web comme la télé ; « Parcourir » et le partage d'un jeu en image réparés",
+   "new": [],
+   "improved": [
+    "Web › Paramètres › Où ranger et Paramètres › Appareils : comme à la télé ; l'onglet Appareils ne garde plus ces réglages.",
+    "Web : la devise sous le nom, et sur chaque page le titre et sa phrase sur la même ligne, avec les phrases de la télé.",
+    "Web : « Détails » dans les menus, « Fermer sans enregistrer » dans les formulaires, « Actions » pour le menu ≡ (télé et web)."
+   ],
+   "fixed": [
+    "« Parcourir » sur un jeu en image (par exemple sur USB) : l'emplacement vient du moteur, à la télé comme sur le web ; il disait « Emplacement inconnu ».",
+    "Partager ma copie › Le jeu : un jeu en image se partage (l'image elle-même) ; il disait « pas rangé en un seul dossier ».",
+    "Mes liens de partage : les liens BitTorrent créés ici apparaissent aussi, avec leur code QR.",
+    "BitTorrent : les gros fichiers (l'image d'un jeu, des dizaines de Go) se partagent et se téléchargent ; la console refusait la mémoire (« Cannot allocate memory »)."
+   ],
+   "web": "oui : Paramètres › Où ranger et › Appareils, en-tête et titres de page, « Détails », formulaires, Mes liens de partage, Parcourir"
+  },
+  {
+   "version": "3.1.51",
+   "date": "2026-11-18",
+   "title": "Web : Transferts, Tâches et Paramètres comme la télé",
+   "new": [],
+   "improved": [
+    "Web › Transferts : le titre et l'ordre de la télé (Cette PS5 d'abord), le nombre de chaque famille et les noms des services du nuage.",
+    "Web › Tâches : un message pour chaque filtre quand la liste est vide.",
+    "Web › Paramètres : « Appareils » et « Où ranger » dans le menu, comme à la télé."
+   ],
+   "fixed": [],
+   "web": "oui : c'est le web qui s'aligne sur la télé (Transferts, Tâches, Paramètres)"
+  },
+  {
+   "version": "3.1.50",
+   "date": "2026-11-18",
+   "title": "Web : les mêmes cartes et bulles que la télé",
+   "new": [],
+   "improved": [
+    "Web › Sauvegardes : les mêmes cartes que la télé (Partout avec le nombre de copies, Comparer · trier avec ce qui reste, Corbeille) et les trois bulles colorées (doublons sûrs, pas encore comparés, à vérifier).",
+    "Web › Appareils : les familles de la télé (Cette PS5, chaque NAS, Nuage, autres PS5) ; un clic ouvre les appareils de la famille et leurs actions.",
+    "Web › Synchro : les services du nuage regroupés dans une carte « Nuage », avec leur logo."
+   ],
+   "fixed": [],
+   "web": "oui : c'est le web qui s'aligne sur la télé (Sauvegardes, Appareils, Synchro)"
+  },
+  {
+   "version": "3.1.49",
+   "date": "2026-11-18",
+   "title": "Bêta : partager, télécharger, reprendre après une coupure",
+   "new": [
+    "Partager ma copie : un lien et un code QR pour un jeu, une ROM, une appli ou une sauvegarde, où qu'ils soient rangés (console, USB, NAS, nuage) ; lien de la maison ou par Internet, BitTorrent, MEGA ou OneDrive.",
+    "Téléchargements : liens magnet et fichiers .torrent ; liens de partage MEGA, Google Drive, Dropbox et OneDrive ouverts comme un disque ; ce qui arrive d'une PS5 à distance.",
+    "BitTorrent complet : fiche d'un torrent, file d'attente, limites, chiffrement, arrêt du partage, copie ou déplacement à la fin vers n'importe quel endroit, dossier surveillé.",
+    "Reprise après une coupure, sans repartir de zéro : sauvegardes, restaurations, NAS (FTP, SMB, WebDAV) et nuage (MEGA compris).",
+    "MEGA arrive dans Appareils › Nuage.",
+    "Paramètres › Réseau : les ports de l'appli, « Tester les ports », l'adresse publique.",
+    "« Où ranger » : un seul choix d'endroit, proposé à chaque action.",
+    "Télé : la même aide en bas de chaque écran, des fenêtres et des bulles au même dessin, L3 pour tous les menus, R3 pour les Paramètres."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "sans objet : résumé des versions 3.1.1 à 3.1.48 pour la bêta, même code que la 3.1.48"
+  },
+  {
+   "version": "3.1.48",
+   "date": "2026-11-18",
+   "title": "Liens MEGA : la clé dans le coffre du compte",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Lien MEGA d'un dossier : la clé du partage est inscrite dans le coffre de clés du compte (sauvegardé sur la console avant), donc le lien montré par le site et l'appli MEGA marche aussi ; un dossier déjà partagé garde sa clé."
+   ],
+   "web": "sans objet : dans le moteur, même effet pour la télé et le web"
+  },
+  {
+   "version": "3.1.47",
+   "date": "2026-11-18",
+   "title": "Partager… : trier avant de choisir",
+   "new": [
+    "Téléchargements › Partager… : d'abord quoi (jeux PS5, jeux PS4, ROM par console, applis, sauvegardes de partie, un fichier ou un dossier), puis où (chaque disque, avec le nombre), puis la liste de A à Z.",
+    "« Le jeu » se partage aussi pour une ROM ou une appli (lien BitTorrent, sans copie), où qu'elle soit (interne, USB…)."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : Téléchargements › Partager… avec les mêmes étapes (quoi, où, liste de A à Z) ; « Le jeu » pour les ROM et les applis"
+  },
+  {
+   "version": "3.1.46",
+   "date": "2026-11-18",
+   "title": "Partager ma copie : « Que partager ? »",
+   "new": [
+    "Partager ma copie : un premier choix « Que partager ? » — le jeu (avec l'endroit où il est : interne, USB…, et sa taille), une sauvegarde de partie, ou une copie du jeu avec sa partie."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : le même premier choix « Que partager ? » dans la fiche (Partager ma copie…)"
+  },
+  {
+   "version": "3.1.45",
+   "date": "2026-11-18",
+   "title": "Partager ma copie : plus clair, et le jeu aussi",
+   "new": [
+    "Partager ma copie : le jeu installé est proposé en premier (lien BitTorrent, sans copie)."
+   ],
+   "improved": [
+    "Chaque copie dit ce qu'elle est : « Sauvegarde de partie · compte » ou « Copie du jeu », puis l'endroit, la date et la taille.",
+    "Sortes de liens renommées : lien de la console (.zip, maison ou Internet), lien BitTorrent, lien du service (MEGA, OneDrive).",
+    "Adresse publique : Paramètres › Réseau la montre avec « Actualiser » ; Triangle la redemande dans la fenêtre d'un lien."
+   ],
+   "fixed": [],
+   "web": "oui : mêmes lignes (le jeu installé, copies nommées, sortes de liens), « Adresse publique » avec « Actualiser » dans Réseau, « Actualiser l'adresse » dans la fenêtre d'un lien"
+  },
+  {
+   "version": "3.1.44",
+   "date": "2026-11-17",
+   "title": "Partager par Internet et OneDrive ; options BitTorrent",
+   "new": [
+    "Options BitTorrent : dossier surveillé (un .torrent déposé dans « Torrents à ajouter » est ajouté seul).",
+    "Menu d'un torrent : premiers et derniers morceaux d'abord, super-seed, renommer."
+   ],
+   "improved": [
+    "Partager ma copie : en plus du lien de la maison, un lien Internet avec l'adresse publique de la console (celle de « PS5 à distance », sinon celle apprise par BitTorrent) ; à la télé, Carré pour l'afficher.",
+    "Le port 52370 de la console est ouvert sur la box par UPnP si l'option est activée (Paramètres › Réseau) ; sinon, il faut le rediriger sur la box.",
+    "L'adresse publique est redemandée à chaque ouverture de l'appli (aussi quand on la ferme et la rouvre).",
+    "Lien OneDrive pour une copie sur OneDrive (en lecture, pour toute personne qui a le lien ; on peut le retirer) ; une copie sur Google Drive ou Dropbox passe par le lien temporaire de la console.",
+    "Si elle n'est pas connue, l'adresse publique est demandée à un service en ligne (api.ipify.org), comme le font les passerelles de jeu à distance."
+   ],
+   "fixed": [
+    "Web : les fenêtres où l'on tape (lien magnet, fichier .torrent, pair, tracker, nom d'un identifiant) gardent ce qui a été tapé."
+   ],
+   "web": "oui : bloc « Lien Internet » avec son code QR et « Copier le lien » ; « Lien OneDrive » dans le menu d'une copie sur OneDrive ; Options BitTorrent › Dossier surveillé ; menu d'un torrent : premiers et derniers morceaux, super-seed, renommer"
+  },
+  {
+   "version": "3.1.43",
+   "date": "2026-11-17",
+   "title": "Partager ma copie : un lien et un code QR",
+   "new": [
+    "Partager ma copie : depuis la fiche d'un jeu (« Partager ma copie… ») ou le menu d'une copie (« Partager cette copie… »), un lien vers une copie, où qu'elle soit rangée (console, USB, NAS, nuage), avec son code QR.",
+    "Lien temporaire de la console : la copie se télécharge en .zip sur le réseau de la maison, lue directement là où elle est rangée ; il s'arrête seul (1 heure, 24 heures ou 7 jours) ou à la main dans « Mes liens de partage ».",
+    "Lien BitTorrent pour une copie sur un disque de la console, lien MEGA pour une copie sur MEGA."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : mêmes entrées dans la fiche (« Partager ma copie… ») et dans le menu d'une copie, fenêtre du lien avec code QR, « Copier le lien » et « Arrêter le lien… »"
+  },
+  {
+   "version": "3.1.42",
+   "date": "2026-11-17",
+   "title": "Où ranger : la photo de la PS5 pour les autres PS5",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "« Où ranger ? » et Paramètres › Où ranger : les autres PS5 ont la photo de la PS5, comme cette PS5 (et non plus l'image de groupe).",
+    "« Où ranger ? » : « Haut / bas pour voir la suite » dès qu'il y a d'autres choix plus bas, et plus de titre de famille seul en bas de la fenêtre.",
+    "Accueil : un jeu sur clé USB affiche « USB 0 » et non un identifiant de disque."
+   ],
+   "web": "sans objet : sur le web, « Où ranger » est une liste déroulante sans images ; l'Accueil web n'affiche pas d'identifiant de disque"
+  },
+  {
+   "version": "3.1.41",
+   "date": "2026-11-17",
+   "title": "Reprise après coupure : WebDAV et MEGA",
+   "new": [],
+   "improved": [
+    "Copie vers un NAS en WebDAV : un gros fichier part par morceaux de 16 Mo ; après un arrêt, la copie reprend où elle en était (si le serveur le permet, comme le Synology).",
+    "Copie vers MEGA : après un arrêt, l'envoi reprend au premier morceau manquant au lieu de repartir de zéro."
+   ],
+   "fixed": [],
+   "web": "sans objet : moteur seulement, rien ne change à l'écran"
+  },
+  {
+   "version": "3.1.40",
+   "date": "2026-11-17",
+   "title": "Petits correctifs : connexions entrantes, ratio, textes",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Paramètres › Réseau › « Accepter les connexions entrantes » s'applique vraiment (Oui par défaut ; Non : sortant seulement, et les liens créés ici ne portent plus l'adresse de la console).",
+    "Le ratio s'écrit avec le séparateur de la langue (1,5 en français).",
+    "Web : l'aide de « Où ranger les téléchargements » dit bien « un disque de cette console »."
+   ],
+   "web": "oui : Paramètres › Réseau (connexions entrantes, ratio), aide de « Où ranger les téléchargements »"
+  },
+  {
+   "version": "3.1.39",
+   "date": "2026-11-17",
+   "title": "BitTorrent : chiffrement, pair à la main, adresses bloquées",
+   "new": [
+    "Options BitTorrent › Chiffrement du protocole : préféré, obligatoire ou désactivé (le chiffrement cache aux fournisseurs d'accès qu'il s'agit de BitTorrent).",
+    "Fiche d'un torrent › Actions › Ajouter un pair à la main (ip:port) : se brancher directement sur une autre PS5, un PC ou un ami.",
+    "Options BitTorrent › Adresses bloquées : des adresses ou des plages (1.2.3.0/24, 1.2.3.4-1.2.3.9) avec lesquelles rien n'est échangé."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : Paramètres › Réseau › Options BitTorrent (chiffrement, adresses bloquées), Actions d'un torrent › Ajouter un pair à la main"
+  },
+  {
+   "version": "3.1.38",
+   "date": "2026-11-17",
+   "title": "Correctif : la copie à la fin d'un téléchargement",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "À la fin, copier vers : la copie ne partait pas (destination « introuvable » à chaque fois)."
+   ],
+   "web": "sans objet : correctif du moteur, rien ne change à l'écran"
+  },
+  {
+   "version": "3.1.37",
+   "date": "2026-11-17",
+   "title": "BitTorrent : à la fin, copier ou déplacer ; liens joignables depuis Internet",
+   "new": [
+    "Options BitTorrent › À la fin, copier vers : une copie vérifiée de chaque téléchargement terminé part seule vers n'importe quel appareil — disque, NAS, nuage, Switch ou autre PS5 (dans son dossier « Téléchargements »).",
+    "Options BitTorrent › À la fin, déplacer vers : les fichiers vont sur un autre disque de cette console (par exemple l'USB) et restent partagés depuis là.",
+    "Les liens magnet donnent aussi l'adresse publique de la console : quelqu'un de loin s'y branche directement, si le port BitTorrent est ouvert sur la box (ou par UPnP).",
+    "Fiche d'un torrent › Actions › Télécharger le .torrent sur le téléphone : un code QR ouvre la page web de la console, qui propose d'enregistrer le fichier."
+   ],
+   "improved": [],
+   "fixed": [
+    "À la fin, copier vers un NAS ou le nuage : le dossier « Téléchargements » est créé dans le dossier réglé pour l'appareil (en 3.1.36, à la racine du serveur : refusé)."
+   ],
+   "web": "oui : Paramètres › Réseau › Options BitTorrent (à la fin, copier vers tout appareil ; déplacer), adresse publique dans le lien et dans la fiche, page « #torrent= » qui propose d'enregistrer le .torrent"
+  },
+  {
+   "version": "3.1.36",
+   "date": "2026-11-17",
+   "title": "BitTorrent : à la fin, copier ou déplacer",
+   "new": [
+    "Options BitTorrent › À la fin, copier vers : une copie vérifiée de chaque téléchargement terminé part seule vers le NAS, le nuage ou un disque (dans son dossier « Téléchargements »).",
+    "Options BitTorrent › À la fin, déplacer vers : les fichiers vont sur un autre disque de cette console (par exemple l'USB) et restent partagés depuis là."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : Paramètres › Réseau › Options BitTorrent, « À la fin, copier vers » et « À la fin, déplacer vers »"
+  },
+  {
+   "version": "3.1.35",
+   "date": "2026-11-17",
+   "title": "Options BitTorrent : arrêter de partager, place sur le disque, plein débit la nuit",
+   "new": [
+    "Paramètres › Réseau › Options BitTorrent : arrêter de partager un torrent terminé après un ratio (1,0 à 5,0) ou une durée (1 h à 7 jours) ; il passe à « terminé · partage arrêté ». Les liens créés ici ne s'arrêtent jamais seuls.",
+    "Réserver tout l'espace au départ, et refuser (mise en pause avec un message) un torrent plus gros que la place libre du disque.",
+    "Plein débit la nuit : pendant les heures choisies, les téléchargements vont sans limite (le débit pendant une partie reste appliqué)."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : Paramètres › Réseau › Options BitTorrent (les mêmes réglages), état « terminé · partage arrêté » et « Partager à nouveau »"
+  },
+  {
+   "version": "3.1.34",
+   "date": "2026-11-17",
+   "title": "Créer un lien : partager un fichier ou un dossier par BitTorrent",
+   "new": [
+    "Téléchargements › BitTorrent › Créer un lien : choisissez un fichier ou un dossier de la console ; elle calcule le .torrent puis le partage depuis là où il est (rien n'est copié). Le code QR du lien magnet est dans sa fiche.",
+    "Fiche d'un torrent : enregistrer le fichier .torrent à côté des fichiers (et, sur le web, le télécharger)."
+   ],
+   "improved": [
+    "Le lien magnet donne aussi l'adresse de la console sur le réseau local : une autre PS5 ou un PC de la maison s'y branche tout de suite.",
+    "Un lien créé ici ne propose jamais d'effacer vos fichiers : seulement « Arrêter de partager »."
+   ],
+   "fixed": [],
+   "web": "oui : Téléchargements › Créer un lien (chemin sur la console), avancement et annulation dans « En cours », télécharger ou enregistrer le .torrent, « Arrêter de partager »"
+  },
+  {
+   "version": "3.1.33",
+   "date": "2026-11-17",
+   "title": "« Où ranger » : un seul choix d'endroit pour tout",
+   "new": [
+    "Paramètres › Où ranger : l'endroit par défaut des sauvegardes, des téléchargements et de « Envoyer vers… », et « Demander où ranger » (Oui : le défaut en premier ; Non : toujours le défaut).",
+    "Bibliothèque : avec des éléments cochés, ≡ › « Envoyer vers… » les copie vers un disque de cette console (copie vérifiée), un NAS, le nuage ou une autre PS5 (sauvegarde vérifiée)."
+   ],
+   "improved": [
+    "Une seule fenêtre « Où ranger ? » pour Sauvegarder (fiche d'un jeu, Carré), l'ajout d'un torrent et les réglages : le défaut en premier, puis cette PS5, les autres PS5 disque par disque, Switch, NAS et nuage."
+   ],
+   "fixed": [
+    "Fiche d'un jeu : « Sauvegarder » sans choix d'endroit allait sur le premier disque USB au lieu de la destination par défaut réglée."
+   ],
+   "web": "oui : Bibliothèque › Envoyer vers… sur la sélection ; fiche d'un jeu, le défaut des sauvegardes choisi d'abord ; Appareils › Où ranger (envoi par défaut, demander où ranger)"
+  },
+  {
+   "version": "3.1.32",
+   "date": "2026-11-17",
+   "title": "Rond ferme aussi les fenêtres de fichiers",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Appareils › Parcourir et tous les choix de dossier ou de fichier : Rond ferme la fenêtre, comme partout ; Gauche remonte au dossier parent (et Triangle quand il ne sert pas à choisir le dossier)."
+   ],
+   "web": "sans objet : touches de la manette ; sur le web, ces fenêtres se ferment déjà par leur bouton ou Échap"
+  },
+  {
+   "version": "3.1.31",
+   "date": "2026-11-17",
+   "title": "Téléchargements : deux familles bien séparées",
+   "new": [],
+   "improved": [
+    "Téléchargements en deux rangées : « Liens de partage » (MEGA, Google Drive, Dropbox, OneDrive : s'ouvrent comme un disque, avec « + Lien de partage ») et « BitTorrent » (« + Lien magnet », « + Fichier .torrent », « Créer un lien » bientôt, « Réglages BitTorrent ») ; dessous, « Pour les deux » montre où les téléchargements sont rangés et les débits, et ouvre ces réglages.",
+    "« + Lien magnet » : le lien se tape au clavier ou, plus simple, se colle depuis le téléphone (code QR, comme pour les liens de partage)."
+   ],
+   "fixed": [
+    "Choisir un fichier .torrent : Rond ferme, comme dans les autres fenêtres ; Triangle remonte au dossier parent."
+   ],
+   "web": "oui : mêmes deux rangées (boutons magnet, .torrent, réglages), même barre « Pour les deux » ; la page ouverte par le code QR va droit à l'ajout d'un lien magnet"
+  },
+  {
+   "version": "3.1.30",
+   "date": "2026-11-17",
+   "title": "Torrents : la fiche, les actions, le code QR",
+   "new": [
+    "Téléchargements : Croix sur un torrent ouvre sa fiche — Général (progression, vitesse, temps restant, reçu / envoyé / ratio, sources et pairs, disponibilité, morceaux, limites), Fichiers (avancement et priorité de chacun : haute, normale, basse, ou ne pas télécharger), Pairs et Trackers ; le lien magnet y est en code QR, à scanner pour le partager.",
+    "Actions d'un torrent (≡) : forcer le démarrage, chercher des pairs maintenant, passer en premier / monter / descendre dans la file, télécharger dans l'ordre, limiter ce torrent, revérifier les fichiers, retirer ou supprimer. Dans l'onglet Trackers : ajouter un tracker, changer l'adresse d'un tracker qui a déménagé, ou le retirer."
+   ],
+   "improved": [
+    "Paramètres › Réseau : « Téléchargements en même temps » (les autres attendent leur tour dans la file) et « Connexions au plus ».",
+    "La liste des torrents suit l'ordre de la file et dit quand un torrent attend son tour ou a un démarrage forcé."
+   ],
+   "fixed": [],
+   "web": "oui : même fiche (onglets, code QR, bouton « Copier le lien magnet »), mêmes actions (menu Actions), trackers modifiables, mêmes deux réglages dans Réseau"
+  },
+  {
+   "version": "3.1.29",
+   "date": "2026-11-17",
+   "title": "Corrections : les fenêtres reviennent d'où on vient",
+   "new": [],
+   "improved": [],
+   "fixed": [
+    "Téléchargements : la carte choisie ne perd plus sa surbrillance après un passage par la barre du haut ; les fichiers d'un lien reçu, ouverts depuis Téléchargements, y ramènent avec Rond ; le choix d'un fichier .torrent se ferme avec Triangle.",
+    "Bibliothèque : Rond décoche d'abord tout ce qui est coché (l'aide du bas le dit)."
+   ],
+   "web": "sans objet : défauts de la manette sur la télé (focus, Rond) ; le web n'a ni barre fantôme ni ces fenêtres"
+  },
+  {
+   "version": "3.1.28",
+   "date": "2026-11-17",
+   "title": "Téléchargements : liens magnet et .torrent",
+   "new": [
+    "Dans Téléchargements, « + Ajouter un lien » accepte aussi un lien magnet ou un fichier .torrent : on choisit le disque où le ranger (celui de Paramètres › Réseau est proposé d'abord), puis on suit l'avancement (sources, débit, temps restant) et on met en pause, reprend ou retire (télé et web)."
+   ],
+   "improved": [
+    "Paramètres › Réseau : droite / gauche passent d'une colonne à l'autre, Croix ouvre la liste des choix ; les débits limitent aussi les échanges sur le réseau local.",
+    "Comparer · trier : « Tout comparer » est aussi là (Triangle sur la bulle, et dans les actions ≡ de la liste ; bouton sur le web)."
+   ],
+   "fixed": [],
+   "web": "oui : même ajout de lien (magnet, .torrent, choix du disque) et mêmes torrents en cours avec pause, reprise, retirer ; bouton « Tout comparer » dans Comparer et trier"
+  },
+  {
+   "version": "3.1.27",
+   "date": "2026-11-17",
+   "title": "BitTorrent dans le moteur (premier pas)",
+   "new": [
+    "Le moteur sait maintenant recevoir et partager par BitTorrent (libtorrent, compilé dedans : rien à installer) ; les écrans arrivent ensuite."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "sans objet : rien de visible encore (moteur seulement) ; Réseau › Tester les ports montre le port BitTorrent"
+  },
+  {
+   "version": "3.1.26",
+   "date": "2026-11-16",
+   "title": "Ports BitTorrent : jamais ceux de Backup Center",
+   "new": [],
+   "improved": [
+    "La plage de ports BitTorrent se règle librement sur chaque console (selon son pare-feu), sauf 52370 à 52373 et le port de « PS5 à distance », qui restent à Backup Center ; une plage qui les touche est refusée."
+   ],
+   "fixed": [],
+   "web": "oui : même refus et même phrase sur la page web"
+  },
+  {
+   "version": "3.1.25",
+   "date": "2026-11-16",
+   "title": "Téléchargements : débit et PS5 à distance",
+   "new": [],
+   "improved": [
+    "Les téléchargements respectent le débit maximal de Paramètres › Réseau, et ralentissent pendant une partie pour ne pas gêner le jeu en ligne.",
+    "Ce qui vient d'une PS5 à distance (par Internet) apparaît dans Téléchargements ; l'onglet télé montre combien sont en cours, comme le web."
+   ],
+   "fixed": [],
+   "web": "oui : le web montrait déjà le nombre en cours ; débit et PS5 à distance sont dans le moteur, donc pareils télé et web"
+  },
+  {
+   "version": "3.1.24",
+   "date": "2026-11-16",
+   "title": "Paramètres › Réseau",
+   "new": [
+    "Nouvelle section Paramètres › Réseau (télé et web) : les ports de la console et ce qu'il faut ouvrir sur la box ou le pare-feu, « Tester les ports », le port de « PS5 à distance », et les réglages BitTorrent (protocole TCP / UDP, un port ou une plage, entrant ou sortant seulement, UPnP, DHT, débits, endroit où ranger les téléchargements : interne, USB, NAS ou nuage), prêts pour son arrivée."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "oui : même section Paramètres › Réseau (ports, test des ports, réglages BitTorrent, endroit des téléchargements)"
+  },
+  {
+   "version": "3.1.23",
+   "date": "2026-11-16",
+   "title": "Toutes les bulles au même dessin",
+   "new": [],
+   "improved": [
+    "Les bulles qui restaient plates (joueurs de Parties, Que faire de Transferts, Jeux entiers, Switch ↔ Eden, cartes de l'Accueil) ont la même ombre douce et le même reflet que les autres ; l'autre PS5 montre tous ses disques (Interne, USB 0, USB 1), même vides."
+   ],
+   "fixed": [],
+   "web": "sans objet : dessin des bulles de la télé (le web a son propre style de cartes, aligné à part)"
+  },
+  {
+   "version": "3.1.22",
+   "date": "2026-11-16",
+   "title": "Sauvegardes : des bulles plus claires",
+   "new": [],
+   "improved": [
+    "Chaque bulle de Sauvegardes dit combien de copies elle contient, puis une précision (place libre, réseau, nombre d'endroits) ; l'autre PS5 s'ouvre en une bulle par disque, comme cette PS5.",
+    "Comparer · trier et la Corbeille deviennent deux bulles entières côte à côte, avec de nouvelles icônes ; Comparer dit combien de jeux restent à comparer."
+   ],
+   "fixed": [
+    "Les cartes n'ont plus de coins carrés : le reflet bleuté suit leur arrondi (Accueil, Sauvegardes, Synchro, Transferts, Téléchargements, Appareils)."
+   ],
+   "web": "sans objet : bulles et cartes de la télé ; la page Sauvegardes du web garde sa liste d'endroits (alignement des cartes web prévu à part)"
+  },
+  {
+   "version": "3.1.21",
+   "date": "2026-11-16",
+   "title": "Cartes d'appareils : le même dessin partout",
+   "new": [],
+   "improved": [
+    "Sauvegardes, Synchro, Transferts et Téléchargements montrent les appareils avec la même carte que l'onglet Appareils ; une famille affiche son nombre en « 3 › » et ce qu'elle contient, au lieu d'un rond bleu ou d'un texte coupé ; rien n'est retiré.",
+    "La famille Nuage dit « Voir les services › » : ce sont des services, pas des appareils."
+   ],
+   "fixed": [],
+   "web": "sans objet : dessin des cartes de la télé ; le web n'a ni rond compteur ni « Voir les appareils › » (ses cartes seront revues à part)"
+  },
+  {
+   "version": "3.1.20",
+   "date": "2026-11-16",
+   "title": "Compatibilité : les vrais chiffres",
+   "new": [],
+   "improved": [
+    "Web : les dernières confirmations du navigateur (défaire le lien entre deux PS5, porter une sauvegarde sur un autre compte, transférer une partie Switch ↔ Eden) passent dans les fenêtres de l'appli."
+   ],
+   "fixed": [
+    "Un backport fait pour un système plus récent que celui de la console n'est plus annoncé « présent » : la fiche dit « Ne se lancera pas » avec le SDK du backport (ex. 007 First Light, backport en SDK 4.00, sur une PS5 en 3.21). Sans backport, la fiche donne le SDK du jeu ou le système demandé (télé et web)."
+   ],
+   "web": "oui : mêmes phrases de compatibilité (SDK du jeu ou du backport) sur la fiche web ; plus aucune confirmation native du navigateur"
+  },
+  {
+   "version": "3.1.19",
+   "date": "2026-11-16",
+   "title": "Fiche d'un jeu : les actions en lignes",
+   "new": [],
+   "improved": [
+    "La fiche d'un jeu suit le modèle des fenêtres : à gauche ce qu'on sauvegarde, à droite les actions en lignes (Sauvegarder avec sa destination, Détails, Plans programmés…, Parcourir, Envoyer à une PS5…), ce qui retire ou efface en bas, en rouge ; Carré change la destination (télé et web)."
+   ],
+   "fixed": [
+    "Après une mise à jour, le compte à rebours « Réouverture automatique » ne chevauche plus l'aide de la fenêtre.",
+    "« Quoi de neuf » suit le modèle des fenêtres : la ligne de soutien sous un trait, puis l'aide dans la fenêtre (Croix : compris, Rond : fermer) au lieu d'un bouton à part."
+   ],
+   "web": "oui : la fiche web a les mêmes actions en lignes, mêmes libellés (Détails, Plans programmés…, Parcourir), ce qui retire ou efface en bas en rouge ; « Quoi de neuf » et la réouverture : sans objet (le web garde sa boîte « Compris » standard, pas de minuteur de réouverture)"
+  },
+  {
+   "version": "3.1.18",
+   "date": "2026-11-16",
+   "title": "Formulaires : le même cadre que les menus",
+   "new": [],
+   "improved": [
+    "Les formulaires (ajout et réglage d'un appareil, connexion au nuage, émulateur, plans, choix d'un dossier, clavier) ont le même cadre que les menus, et leur aide des touches est dans la fenêtre, en bas."
+   ],
+   "fixed": [
+    "Appareils : avec beaucoup d'appareils (famille Nuage ouverte), les cartes ne rétrécissent plus en débordant les unes sur les autres ; la page défile."
+   ],
+   "web": "sans objet : les fenêtres web ont déjà le cadre commun (3.1.14) et n'ont pas d'aide des touches ; la page Appareils du web défile déjà"
+  },
+  {
+   "version": "3.1.17",
+   "date": "2026-11-16",
+   "title": "Confirmations : la même forme partout",
+   "new": [],
+   "improved": [
+    "Les confirmations « maintenir » posent toutes une question, sans majuscules qui crient ; la consigne dit le bon verbe (confirmer pour une désinstallation) et n'apparaît qu'une fois ; une phrase dit ce qui va se passer (télé et web)."
+   ],
+   "fixed": [],
+   "web": "oui : même titre (sans majuscules qui crient) pour la suppression définitive d'une partie"
+  },
+  {
+   "version": "3.1.16",
+   "date": "2026-11-16",
+   "title": "Les touches seulement en bas",
+   "new": [],
+   "improved": [
+    "Télé : les textes ne nomment plus de touche (« Croix : voir les appareils » devient « Voir les appareils › ») ; l'aide du bas s'en charge. Les confirmations « maintenir » gardent leur consigne. Paramètres › Tout reprendre a ses touches en bas.",
+    "Fenêtres : elles se ferment toutes de la même façon (Rond ; Échap sur le web) et on revient exactement où on était ; une fenêtre ouverte depuis un menu ramène à ce menu. Le navigateur de dossiers ne se ferme plus avec Options."
+   ],
+   "fixed": [],
+   "web": "oui : toutes les fenêtres prennent le focus à l'ouverture et le rendent à la fermeture (bouton, Échap, clic dehors) ; le web ne nomme aucune touche de manette"
+  },
+  {
+   "version": "3.1.15",
+   "date": "2026-11-16",
+   "title": "Rien ne part d'un coup ; « Détails » partout",
+   "new": [],
+   "improved": [
+    "Synchro « Mettre à niveau » et la restauration d'une sauvegarde complète demandent d'abord (avec ce qui va se passer) au lieu de partir au premier appui (télé et web).",
+    "Télé : dans les menus, « Toutes les versions » s'appelle « Détails » et se place toujours juste après l'action attendue."
+   ],
+   "fixed": [],
+   "web": "oui : mêmes confirmations pour « Mettre à niveau » et la restauration d'une sauvegarde complète ; le menu ⋯ du web n'a pas de « Toutes les versions »"
+  },
+  {
+   "version": "3.1.14",
+   "date": "2026-11-16",
+   "title": "Fenêtres : un même cadre",
+   "new": [],
+   "improved": [
+    "Télé : menus d'actions, confirmations et fiche d'un jeu ont le même cadre (ombre douce, bandeau du titre) ; dans un menu, ce qui efface passe en bas, en rouge, sous un trait ; l'aide (✕ Choisir · ○ Fermer) est dans la fenêtre."
+   ],
+   "fixed": [],
+   "web": "oui : même cadre pour les fenêtres (ombre, bandeau du titre) ; dans un menu ⋯, ce qui efface en bas, en rouge, après un trait"
+  },
+  {
+   "version": "3.1.13",
+   "date": "2026-11-16",
+   "title": "Aide du bas : la même partout",
+   "new": [],
+   "improved": [
+    "Télé : l'aide du bas suit partout le même ordre (✕, △, □, L2, R2, Options, ○), la même taille, sur une ligne ; Options est dessinée avec ses trois traits et ouvre toujours « Actions » ; □ dit directement la vue suivante ; Bibliothèque : « R2 Page suivante », « ○ Retour ».",
+    "Télé : chaque onglet a le même haut de page (son nom, une phrase courte à droite, jamais coupée) ; Transferts reprend son nom. Web : Échap dans une confirmation vaut « Annuler », la fenêtre prend le focus et le rend en se fermant."
+   ],
+   "fixed": [],
+   "web": "sans objet pour l'instant : le web suivra la charte avec l'audit de Codex"
+  },
+  {
+   "version": "3.1.12",
+   "date": "2026-11-16",
+   "title": "R3 Paramètres rappelé en bas de l'écran",
+   "new": [],
+   "improved": [
+    "Télé : en bas à droite, « L3 Menus · R3 Paramètres » sur une ligne, « Accueil · Maintenir 2 s : quitter » sur l'autre ; l'aide de gauche ne passe plus jamais dessous."
+   ],
+   "fixed": [],
+   "web": "sans objet : la télé seulement"
+  },
+  {
+   "version": "3.1.11",
+   "date": "2026-11-16",
+   "title": "L3 : la barre du haut sur deux rangées",
+   "new": [],
+   "improved": [
+    "Télé : L3 n'ouvre plus une fenêtre : la barre du haut elle-même s'allonge sur deux rangées (même verre, L1 / R1, trait de l'onglet actif) ; Croix y va et elle redevient une seule rangée. « L3 Menus » est rappelé en bas à droite, à côté d'Accueil."
+   ],
+   "fixed": [],
+   "web": "sans objet : les menus sont déjà tous visibles"
+  },
+  {
+   "version": "3.1.10",
+   "date": "2026-11-16",
+   "title": "L3 : tous les menus ; R3 : Paramètres",
+   "new": [
+    "Télé : L3 (clic du stick gauche) ouvre tous les menus sur deux rangées, on y descend au lieu de défiler avec L1 / R1 ; R3 (clic du stick droit) mène aux Paramètres d'où qu'on soit, Rond ramène à l'écran d'avant. Les deux sont rappelés en haut de l'écran."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "sans objet : les menus sont déjà tous visibles ; la roue mène aux Paramètres"
+  },
+  {
+   "version": "3.1.9",
+   "date": "2026-11-16",
+   "title": "Provenance des tâches, date des parties, détail depuis Parties",
+   "new": [],
+   "improved": [
+    "Tâches : un téléchargement ou une copie montre d'où il vient et où il va (logo du service : MEGA, Google Drive…), dans la liste et dans Détails.",
+    "Parties : un jeu dont la partie ne dit pas où on en est montre au moins sa date (« Partie du … ») ; Croix › « Voir le détail (toutes les versions) »."
+   ],
+   "fixed": [],
+   "web": "oui : même provenance dans Tâches et Détails, même date et « Voir le détail » dans Parties"
+  },
+  {
+   "version": "3.1.8",
+   "date": "2026-11-16",
+   "title": "Carte Synchro à acquitter, logo du service sur un téléchargement",
+   "new": [
+    "Accueil : la carte Synchro qui annonce des cibles disponibles peut être acquittée (Options › Pas maintenant) ; elle ne revient que s'il y a du nouveau (un jeu, une partie ou un appareil de plus), marqué « nouveau ». Une synchro en cours s'affiche toujours. Synchro › Options : la réafficher."
+   ],
+   "improved": [
+    "Accueil : un téléchargement depuis un lien reçu montre le logo de son service (MEGA, Google Drive, Dropbox, OneDrive)."
+   ],
+   "fixed": [],
+   "web": "oui : même carte, menu ⋯ › Pas maintenant, et Synchro › Réafficher"
+  },
+  {
+   "version": "3.1.7",
+   "date": "2026-11-16",
+   "title": "Avancée de tous les jeux dans Parties, liens OneDrive et Dropbox",
+   "new": [],
+   "improved": [
+    "Parties : les jeux dont la partie ne dit pas où on en est (Elden Ring, Hades…) montrent l'avancée lue dans la partie, comme dans Sauvegardes ; ceux qui ne sont pas sur cette PS5 montrent celle de leur copie la plus avancée (« Copie : … »)."
+   ],
+   "fixed": [
+    "Liens reçus : un fichier OneDrive partagé seul s'ouvre (il était refusé) ; un dossier Dropbox vide s'ouvre aussi."
+   ],
+   "web": "oui : même avancée sur la page Parties du web"
+  },
+  {
+   "version": "3.1.6",
+   "date": "2026-11-16",
+   "title": "Reprise en plein fichier vers le nuage",
+   "new": [],
+   "improved": [
+    "Sauvegardes et copies vers Google Drive, OneDrive, Dropbox et S3 (Backblaze…) : après une pause, une coupure ou un redémarrage, le fichier en cours reprend là où il s'était arrêté (session d'envoi gardée sur la console quelques jours, début vérifié contre l'original) au lieu de repartir de zéro."
+   ],
+   "fixed": [],
+   "web": "sans objet : moteur seulement (envois vers le nuage), même comportement depuis la télé et le web"
+  },
+  {
+   "version": "3.1.5",
+   "date": "2026-11-16",
+   "title": "Reprise en plein fichier : restaurations et NAS",
+   "new": [],
+   "improved": [
+    "Restaurations : après un arrêt, ce qui est déjà en place à l'identique est sauté et le fichier en cours reprend là où il s'était arrêté (empreinte du manifeste vérifiée, refait de zéro si elle ne correspond pas).",
+    "Sauvegardes et copies vers un NAS en FTP ou SMB : le fichier en cours reprend lui aussi en plein fichier au lieu de repartir de zéro."
+   ],
+   "fixed": [],
+   "web": "sans objet : moteur seulement (restaurations, envois vers le NAS), même comportement depuis la télé et le web"
+  },
+  {
+   "version": "3.1.4",
+   "date": "2026-11-16",
+   "title": "Sauvegardes : reprise en plein fichier",
+   "new": [],
+   "improved": [
+    "Sauvegardes complètes (jeu, appli) vers un disque USB : après une pause ou un redémarrage, le gros fichier en cours reprend là où il s'était arrêté au lieu de repartir de zéro ; le début gardé est vérifié contre l'original."
+   ],
+   "fixed": [],
+   "web": "sans objet : moteur seulement (sauvegardes), même comportement depuis la télé et le web"
+  },
+  {
+   "version": "3.1.3",
+   "date": "2026-11-16",
+   "title": "Téléchargements : un menu à lui, et la reprise sans repartir de zéro",
+   "new": [
+    "Menu Téléchargements (télé et web) : liens reçus, téléchargements en cours avec le débit et le temps restant, terminés avec la vitesse moyenne, et ses propres notifications (fini, lien qui expire bientôt). Ouvrir un lien mène à ses fichiers : on choisit, on télécharge.",
+    "Liens de partage Google Drive, Dropbox et OneDrive (comptes personnels), en plus de MEGA : dossier ou fichier, en lecture seule, sans compte."
+   ],
+   "improved": [
+    "Copies et téléchargements : après une pause, une coupure ou un redémarrage, la reprise se fait en plein fichier, là où elle s'était arrêtée ; le début gardé est vérifié contre la source."
+   ],
+   "fixed": [],
+   "web": "fait aussi sur la page web (onglet Téléchargements, Fichiers en lecture seule depuis un lien)"
+  },
+  {
+   "version": "3.1.2",
+   "date": "2026-11-15",
+   "title": "Partage temporaire : un lien reçu devient un endroit",
+   "new": [
+    "Lien de partage : collez un lien MEGA reçu (dossier ou fichier), depuis le téléphone grâce au code QR ; il devient un endroit en lecture seule pour 1, 7 ou 30 jours, utilisable dans Transferts, Fichiers et Sauvegardes (restaurer une partie partagée). Rien n'y est jamais écrit, et le lien n'est jamais réaffiché."
+   ],
+   "improved": [],
+   "fixed": [],
+   "web": "fait aussi sur la page web (Appareils › Nuage › Lien de partage, Transferts, Sauvegardes)"
+  },
+  {
+   "version": "3.1.1",
+   "date": "2026-11-15",
+   "title": "MEGA arrive dans Appareils › Nuage",
+   "new": [
+    "MEGA : un compte MEGA s'ajoute dans Appareils › Nuage avec son e-mail et son mot de passe (gardés sur la console) ; sauvegardes, restauration et synchro comme avec un NAS. Les fichiers sont chiffrés sur la console avant l'envoi, comme le fait MEGA.",
+    "Corbeille : supprimer une copie pour de bon, ou vider la corbeille d'un endroit (télé : Options ; web : boutons), toujours avec le bouton maintenu."
+   ],
+   "improved": [
+    "Mêmes touches partout : Carré ne supprime plus (Supprimer est dans Options, avec l'aperçu) ; △ met en pause ou reprend une tâche, et l'arrêter passe par Options avec une confirmation (Tâches et Transferts) ; Fichiers et le choix d'un dossier : ✕ ouvre, ○ remonte, △ choisit ce dossier, L2 coche.",
+    "Aides justes partout : Bibliothèque (la rangée de filtres a ses aides, ○ remonte aux filtres, R2 annoncé), Parties (carte Switch et Eden), Paramètres (rien de faux dans le menu, Général annonce gauche / droite) ; Accueil : △ = Rechercher partout et ✕ dit ce qu'il fait sur chaque rangée.",
+    "Aides du bas : L1, R1, L2, R2 et Options dessinés comme de vraies touches ; deux lignes équilibrées, sous le contenu. Sauvegardes : Bas passe de Comparer et trier à la Corbeille."
+   ],
+   "fixed": [
+    "MEGA a son logo partout dès le démarrage (Accueil, Synchro, Transferts, Appareils, Sauvegardes, page web) ; Rond revient aux endroits depuis Comparer et trier ou la Corbeille, et « Retour » y est affiché."
+   ],
+   "web": "sans objet pour la règle des touches (manette, télé seulement : la page web a des boutons) ; MEGA est fait aussi sur la page web"
+  },
+  {
    "version": "3.1.0",
    "date": "2026-11-15",
    "title": "Un centre pour vos jeux et vos sauvegardes, partout",

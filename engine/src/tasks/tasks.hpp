@@ -82,6 +82,8 @@ public:
 
     // Appelé après chaque sauvegarde réussie (mise à jour de l'index, notification…).
     std::function<void(const Task&)> on_finished;
+    // Téléchargements (tâches « origin: download ») : débit maximal en Ko/s à cet instant (0 : illimité) — plus bas pendant une partie.
+    std::function<int()> download_limit_kbps;
     // Ouvre un appareil réseau enregistré (FTP…) pour une tâche qui le vise.
     std::function<std::unique_ptr<store::Store>(const std::string& remote_id, std::string& err)> open_remote;
     // Ouvre n'importe quel endroit pour « Fichiers » (disque d'ici, NAS / Switch, autre PS5) ; fourni par le moteur.

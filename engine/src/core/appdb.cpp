@@ -18,7 +18,7 @@ std::map<std::string, Info> read(const std::string& console_path) {
     int rc = sqlite3_open_v2(uri.c_str(), &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nullptr);
     if (rc != SQLITE_OK) { log("appdb open failed rc=%d", rc); sqlite3_close(db); return out; }
     sqlite3_stmt* st = nullptr;
-    rc = sqlite3_prepare_v2(db, "SELECT titleId, key, val FROM tbl_appinfo WHERE key IN ('TITLE','CATEGORY_TYPE')", -1, &st, nullptr);
+    rc = sqlite3_prepare_v2(db, "SELECT titleId, key, val FROM tbl_appinfo WHERE key IN ('TITLE','CATEGORY_TYPE','APP_TYPE')", -1, &st, nullptr);
     if (rc == SQLITE_OK) {
         while (sqlite3_step(st) == SQLITE_ROW) {
             const auto* tid = reinterpret_cast<const char*>(sqlite3_column_text(st, 0));
@@ -27,6 +27,7 @@ std::map<std::string, Info> read(const std::string& console_path) {
             if (!tid || !key || !val) continue;
             Info& i = out[tid];
             if (std::string(key) == "TITLE") i.title = val;
+            else if (std::string(key) == "APP_TYPE") i.app_type = std::strtol(val, nullptr, 10);
             else i.category = std::strtol(val, nullptr, 10);
         }
     } else log("appdb query failed rc=%d", rc);

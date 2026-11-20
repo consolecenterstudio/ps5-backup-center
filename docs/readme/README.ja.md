@@ -4,6 +4,17 @@
 
 [English](../../README.md) · [Français](README.fr.md) · [Français (Canada)](README.fr-CA.md) · [Español](README.es.md) · [Español (Latinoamérica)](README.es-419.md) · [Português (Brasil)](README.pt-BR.md) · [Português (Portugal)](README.pt-PT.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Nederlands](README.nl.md) · [Polski](README.pl.md) · [Türkçe](README.tr.md) · [Русский](README.ru.md) · [简体中文](README.zh-Hans.md) · [繁體中文](README.zh-Hant.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Tiếng Việt](README.vi.md) · [العربية](README.ar.md)
 
+## 3.2.0
+
+- 「ダウンロード」の「+ リンクを追加」でマグネットリンクや .torrent ファイルも追加できます。保存するディスクを選び（「設定 › ネットワーク」のものが先頭）、進行状況（ソース、速度、残り時間）を確認して、一時停止・再開・削除ができます（テレビとWeb）。
+- ダウンロード › マイリンク：本体から出したすべてのリンク（BitTorrent、本体の .zip、MEGA、OneDrive）を QR コード、アドレス、停止方法とともに表示。MEGA と OneDrive のリンクもここに保存されます。
+- プラン：保存先にすでにあるセーブやゲーム（どの PS5 がコピーしても内容が同じもの）は再コピーされず、結果に「最新です」と表示されます。確認のために読み直すことはありません。
+- ダウンロード ›「ORBIT と BLACKBOX」：Orbit と BlackBox が本体にダウンロードしたもの（状態、ドライブ、サイズ、ファイルが見つからない）と一時ファイル（残っているアーカイブ、ダウンロード中、残り）を、アプリ側を変更せずに読み取って表示します。
+- ゲームのツール、.pkg パッケージ、ダウンロード › Orbit と BlackBox に「インストール…」：その場でマウント（ドライブのゲームフォルダーへ移すだけでコピーなし、ShadowMount がマウント）、または別のドライブや別の PS5 にインストール（検証済みコピー、元は残すか削除）。
+- Kraken .pkg の「インストール… › その場でマウント」：ゲームを本体に登録し、パッケージから直接起動します。何も展開しません。Kraken Mount がインストールされていればそれで、なければ内蔵版で行います（私たちのエンジンで Kraken Mount の仕組みを実行し、ampr-emu-ng、pgo_stub、dlc_emu は私たちがビルドしたもの。kstuff が必要）。ShadowMount が扱っているゲームや本体にインストール済みのゲームには触れません。最初の版です。試してください。
+
+Dropbox の本番利用承認は審査中です。PS5 間の自動同期と別の本体へのインストールは初期版で、実機テストがまだ必要です。
+
 <p align="center">
   <img src="../assets/screenshots/en-oled-home.png" alt="PS5 Backup Center — ホーム画面" width="88%">
 </p>
@@ -14,7 +25,7 @@
 
 **ゲームをダウンロード、インストール、転送。** ローカルネットワーク上のペアリング済みPS5からゲームを受信できます。テレビやブラウザーから、PS5、USBドライブ、NAS、クラウド間でセーブデータをバックアップ、比較、同期、復元できます。PS5のアプリやDLC、Switchや対応エミュレーターのセーブも管理できます。
 
-[新機能 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+[新機能 3.2.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.2.0)
 
 **あなたのコレクション。あなたの進行状況。あなたのバックアップ。**
 

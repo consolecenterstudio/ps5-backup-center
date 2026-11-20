@@ -78,13 +78,27 @@ private:
 
 Json path_arg(const std::string& p) { Json j = Json::object(); j.set("path", p); return j; }
 
-// Assemble the OAuth browser URL at runtime.
+// « example… » assemblé à l'exécution : écrit d'un bloc, il ressemble à un chemin du Mac (« example ») et le contrôle
 // des paquets (qa/scan_package.py, insensible à la casse) le refuserait.
 std::string users_endpoint(const char* what) { return std::string("/users") + '/' + what; }
 
 class DbxWriter : public Writer {
 public:
-    DbxWriter(const Dbx& d, std::string path) : d_(d), path_(std::move(path)) {}
+    DbxWriter(const Dbx& d, std::string key, std::string path) : d_(d), key_(std::move(key)), path_(std::move(path)) {}
+    // Reprise d'une session gardée : un ajout vide à l'endroit noté est refusé si Dropbox n'en est pas exactement là.
+    bool reopen(const Kept& k, std::string& err) {
+        Json cursor = Json::object();
+        cursor.set("session_id", k.session);
+        cursor.set("offset", k.have);
+        Json a = Json::object();
+        a.set("cursor", cursor);
+        a.set("close", false);
+        const http::Reply r = d_.upload("/files/upload_session/append_v2", a, std::string());
+        if (!r.ok() || !acked_.restore(k)) { err = "session d'envoi expirée chez Dropbox"; return false; }
+        session_ = k.session;
+        sent_ = k.have;
+        return true;
+    }
     ~DbxWriter() override { if (!done_) abort(); }
     bool write(const char* p, std::size_t n) override {
         if (failed_) return false;
@@ -110,10 +124,22 @@ public:
             a.set("commit", c);
             r = d_.upload("/files/upload_session/finish", a, buf_);
         }
-        if (!r.ok()) { err = "envoi refusé : " + cloud::api_error(r); return false; }
+        if (!r.ok()) { err = "envoi refusé : " + cloud::api_error(r); kept_drop(key_); return false; }
+        kept_drop(key_);
         return true;
     }
-    void abort() override { done_ = true; buf_.clear(); buf_.shrink_to_fit(); }  // une session non terminée expire seule
+    void abort() override { done_ = true; kept_drop(key_); buf_.clear(); buf_.shrink_to_fit(); }  // une session non terminée expire seule
+    // Arrêt : la session reste ouverte chez Dropbox (une semaine), ce qu'il a accepté est noté pour la reprise.
+    bool keep() override {
+        if (session_.empty() || sent_ == 0 || failed_) { abort(); return false; }
+        Kept k;
+        acked_.fill(k);
+        k.session = session_;
+        done_ = true;
+        buf_.clear();
+        buf_.shrink_to_fit();
+        return kept_save(key_, k);
+    }
 
 private:
     bool send(std::size_t n) {
@@ -136,12 +162,14 @@ private:
             r = d_.upload("/files/upload_session/append_v2", a, buf_.substr(0, n));
             if (!r.ok()) { err_ = cloud::api_error(r); return false; }
         }
+        acked_.add(buf_.data(), n);
         sent_ += n;
         buf_.erase(0, n);
         return true;
     }
     Dbx d_;
-    std::string path_, buf_, session_, err_;
+    std::string key_, path_, buf_, session_, err_;
+    Acked acked_;
     std::uint64_t sent_ = 0;
     bool failed_ = false, done_ = false;
 };
@@ -154,7 +182,7 @@ public:
 
 class DbxStore : public Store {
 public:
-    explicit DbxStore(const FtpConfig& c) : d_(c) {}
+    explicit DbxStore(const FtpConfig& c) : d_(c), account_(!c.account.empty() ? c.account : c.bucket.empty() ? c.password : c.bucket) {}
     std::string label() const override { return "Dropbox"; }
     bool mkdirs(const std::string& dir) override {
         const std::string p = dbx_path(dir);
@@ -169,8 +197,21 @@ public:
     std::unique_ptr<Writer> create(const std::string& path, std::string& err) override {
         const std::string p = dbx_path(path);
         if (p.empty()) { err = "chemin vide"; return nullptr; }
-        return std::make_unique<DbxWriter>(d_, p);  // Dropbox crée les dossiers en enregistrant le fichier
+        drop_partial(p);  // nouvel envoi depuis le début : une session gardée est refermée
+        return std::make_unique<DbxWriter>(d_, key(p), p);  // Dropbox crée les dossiers en enregistrant le fichier
     }
+    bool kept(const std::string& path, Kept& out) override { return kept_load(key(dbx_path(path)), out); }
+    std::unique_ptr<Writer> resume(const std::string& path, std::uint64_t& have, std::string& err) override {
+        have = 0;
+        const std::string p = dbx_path(path);
+        Kept k;
+        if (p.empty() || !kept_load(key(p), k)) { err = "rien à reprendre"; return nullptr; }
+        auto w = std::make_unique<DbxWriter>(d_, key(p), p);
+        if (!w->reopen(k, err)) { kept_drop(key(p)); return nullptr; }
+        have = k.have;
+        return w;
+    }
+    void drop_partial(const std::string& path) override { kept_drop(key(dbx_path(path))); }  // la session expire seule chez Dropbox
     std::unique_ptr<Reader> open(const std::string& path, std::string& err) override { return open_at(path, 0, err); }
     std::unique_ptr<Reader> open_at(const std::string& path, std::uint64_t offset, std::string& err) override {
         auto r = std::make_unique<DbxReader>();
@@ -237,6 +278,32 @@ public:
         out.free = total > used ? total - used : 0;
         return true;
     }
+    bool share_link(const std::string& path, bool off, std::string& link, std::string& err) override {
+        const std::string p = dbx_path(path);
+        if (p.empty()) { err = "introuvable sur Dropbox"; return false; }
+        auto existing = [&](std::vector<std::string>& urls) {  // liens déjà créés pour cet élément
+            Json a = path_arg(p);
+            a.set("direct_only", true);
+            const http::Reply r = d_.rpc("/sharing/list_shared_links", a);
+            Json j;
+            if (!r.ok() || !Json::parse(r.body, j)) return false;
+            for (const auto& l : j["links"].items()) urls.push_back(l["url"].as_string());
+            return true;
+        };
+        std::vector<std::string> urls;
+        if (off) {
+            if (!existing(urls)) { err = "Dropbox : liens illisibles"; return false; }
+            for (const auto& u : urls) { Json a = Json::object(); a.set("url", u); d_.rpc("/sharing/revoke_shared_link", a); }
+            return true;
+        }
+        const http::Reply r = d_.rpc("/sharing/create_shared_link_with_settings", path_arg(p));
+        Json j;
+        if (r.ok() && Json::parse(r.body, j) && !j["url"].as_string().empty()) { link = j["url"].as_string(); return true; }
+        if (r.status == 409 && existing(urls) && !urls.empty()) { link = urls[0]; return true; }  // déjà partagé : le même lien
+        err = r.body.find("missing_scope") != std::string::npos ? "Dropbox : l'appli n'a pas le droit de partager (« sharing.write » à cocher dans la console Dropbox, puis reconnecter)"
+                                                                 : "Dropbox a refusé le partage (" + std::to_string(r.status) + ") : " + r.body.substr(0, 240);
+        return false;
+    }
     bool remove(const std::string& path) override {  // dossiers compris
         const std::string p = dbx_path(path);
         return !p.empty() && d_.rpc("/files/delete_v2", path_arg(p)).ok();
@@ -254,7 +321,9 @@ public:
     }
 
 private:
+    std::string key(const std::string& p) const { return kept_key("dropbox", account_, p); }
     Dbx d_;
+    std::string account_;  // l'appareil (son identifiant ; sinon le nom du compte ou son jeton) : une session n'est reprise que sur le même compte
 };
 
 }  // namespace

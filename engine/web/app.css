@@ -191,7 +191,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .logo { width: 40px; height: 40px; background: url(logo.png) center / contain no-repeat; }
 .logo.big { width: 96px; height: 96px; }
 .tabs { display: flex; gap: 6px; flex: 1; overflow-x: auto; }
-.tabs button { background: none; border: 0; padding: 8px 16px; border-radius: 999px; color: var(--muted); white-space: nowrap; }
+.tabs button { background: none; border: 0; padding: 8px 12px; border-radius: 999px; color: var(--muted); white-space: nowrap; }
 .tabs button:hover { color: var(--text); }
 .tabs button.active { background: var(--panel-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
 .count { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: var(--accent-2);
@@ -671,7 +671,7 @@ body.has-selbar .toast { bottom: 96px; }
 button.todo:hover { border-color: var(--tone); border-left-color: var(--tone); box-shadow: 0 0 0 2px color-mix(in srgb, var(--tone) 40%, transparent), 0 8px 20px #0005; }
 .todo .grow { display: grid; gap: 3px; min-width: 0; }
 .todo b { font-size: 19px; color: var(--tone); }
-.todo .eyebrow { font-weight: 600; color: var(--tone); }
+.todo .eyebrow { font-weight: 600; color: var(--tone); text-transform: none; }  /* écrite comme à la télé (« Fichiers · copie ») */
 .todo .hint { color: var(--muted); }
 .todo-img { width: 96px; height: 96px; flex: none; border-radius: 14px; overflow: hidden; display: grid; place-items: center; }
 .todo-img .thumb, .todo-img .thumb .cover { width: 96px; height: 96px; }
@@ -908,3 +908,119 @@ button.sy-dev { display: flex; border-radius: 16px; } .sy-covers > .hint { width
 .places-wrap { display: flex; gap: 12px; align-items: stretch; } .places-wrap .places { flex: 1; min-width: 0; }
 .place-tools { display: flex; flex-direction: column; gap: 8px; flex: 0 0 210px; } .place-tools .place-card { flex: 1; min-height: 0; padding: 6px 14px; justify-content: flex-start; }
 @media (max-width: 640px) { .places-wrap { flex-direction: column; } .place-tools { flex-direction: row; flex: none; } }
+.tag.share { color: #b48cff; }  /* partage reçu : lecture seule, temporaire */
+.dl-row { margin-bottom: 10px; } .dl-row .dl-top { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.dl-row .bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin: 8px 0; } .dl-row .bar span { display: block; height: 100%; background: var(--accent); }
+
+/* Carte « À faire » : menu (Pas maintenant…) */
+.todo{position:relative}
+.todo-more{position:absolute;top:6px;right:8px;padding:0 8px;border-radius:8px;font-size:18px;line-height:24px;color:var(--muted);cursor:pointer}
+.todo-more:hover,.todo-more:focus{background:var(--line);color:var(--text)}
+
+/* Fenêtres : même cadre que la télé (charte §4.6) — ombre douce, bandeau du titre, trait avant ce qui efface */
+.modal .dialog { box-shadow: 0 18px 50px rgba(0, 0, 0, .45); overflow: hidden; }
+.modal .dialog > h2:first-child { margin: -22px -24px 14px; padding: 18px 24px 14px; background: color-mix(in srgb, var(--text) 5%, transparent); }
+.dialog.hold { border-color: var(--bad); }
+.popmenu { box-shadow: 0 14px 36px rgba(0, 0, 0, .4); }
+.popmenu .mi-sep { border: 0; border-top: 1px solid var(--line); margin: 4px 8px; }
+/* Fiche d'un élément : les actions en lignes, comme les menus et la télé (charte §4.6) — ce qui retire ou efface en bas, en rouge */
+.act-lines { display: flex; flex-direction: column; gap: 4px; margin: 14px 0 6px; border: 1px solid var(--line); border-radius: 14px; padding: 6px; }
+.act-lines button { text-align: left; background: none; border: 0; border-radius: 10px; padding: 10px 14px; color: var(--text); font: inherit; cursor: pointer; }
+.act-lines button:hover, .act-lines button:focus-visible { background: color-mix(in srgb, var(--accent) 14%, transparent); outline: none; }
+.act-lines button.bad { color: var(--bad); }
+.act-lines .mi-hint { display: block; font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+.act-lines .mi-hint.ok { color: var(--ok); } .act-lines .mi-hint:empty { display: none; }
+.act-lines .mi-sep { border: 0; border-top: 1px solid var(--line); margin: 4px 8px; }
+/* Téléchargements : « Pour les deux » (où ranger, débits), sous les deux familles */
+.both-bar { display: flex; gap: 14px; align-items: baseline; width: 100%; text-align: left; margin-top: 14px; cursor: pointer; flex-wrap: wrap; }
+.devs .add:disabled { opacity: .55; cursor: default; }
+.tr-label .hint { letter-spacing: 0; text-transform: none; }
+
+/* Sauvegardes : les trois bulles de la télé (doublons sûrs, pas encore comparés, à vérifier) */
+.mg-pills { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0 8px; }
+.mg-pill { border: 0; border-radius: 999px; padding: 7px 16px; font: inherit; font-size: .95em; cursor: pointer;
+  background: color-mix(in srgb, currentColor 16%, transparent); }
+.mg-pill.ok { color: var(--ok); }
+.mg-pill.warn { color: var(--warn); }
+.mg-pill:disabled { opacity: 1; cursor: default; }
+.place-tools .tool-ico svg { width: 30px; height: 30px; }
+.place-tools .hint.warn { color: var(--warn); }
+.place-tools .hint.ok { color: var(--ok); }
+
+/* Appareils : les familles de la télé (Cette PS5, chaque NAS, Nuage, autres PS5), puis le détail de celle choisie */
+.dev-fams { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; margin: 16px 0; }
+.dev-fam { display: flex; gap: 16px; align-items: center; text-align: left; padding: 16px 18px; border-radius: 18px;
+  background: var(--panel); border: 1px solid var(--line); color: inherit; font: inherit; cursor: pointer; }
+.dev-fam.chosen { border: 2px solid var(--accent); padding: 15px 17px; }
+.dev-fam .dev-ico img { width: 84px; height: 84px; object-fit: contain; }
+.dev-fam .grow { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dev-fam .fam-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.dev-fam b { font-size: 1.35em; }
+.dev-fam .fam-n { color: var(--accent); }
+.dev-fam .fam-sub2 { color: var(--accent); }
+.dev-fam .hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dev-open { margin-bottom: 10px; }
+.place-tools { min-width: 250px; }
+.place-tools .place-card b { white-space: nowrap; }
+
+/* Paramètres › Où ranger : une ligne par réglage (nom et explication à gauche, choix à droite), comme la télé */
+.setting-row { display: flex; align-items: center; gap: 16px; padding: 12px 4px; border-bottom: 1px solid var(--line); }
+.setting-row:last-child { border-bottom: 0; }
+.setting-row select { min-width: 240px; }
+
+/* En-tête : le nom et la devise de la télé (« Votre collection, préservée. ») */
+.brand-text { display: flex; flex-direction: column; line-height: 1.15; }
+.brand-text small { color: var(--muted); font-weight: 400; font-size: .78em; }
+
+/* Titre de page comme la télé : le grand titre, puis sa phrase sur la même ligne (draw_page_head) */
+#view > h1:first-child { display: inline-block; margin-right: 22px; vertical-align: baseline; }
+#view > h1:first-child + p.sub, #view > h1:first-child + p.tab-help { display: inline-block; vertical-align: baseline; margin: 0 0 18px; max-width: 70%; }
+
+/* La phrase sous un menu, comme à la télé */
+.popmenu .mi-title { margin: 4px 10px 6px; max-width: 420px; color: var(--muted); font-size: .82em; font-weight: 600; }
+.popmenu .mi-note { margin: 6px 10px 4px; max-width: 420px; color: var(--muted); font-size: .82em; line-height: 1.35; }
+/* Paramètres › Où ranger : familles proposées dans « Où ranger ? » (cartes plus petites, sans action) */
+.where-fams { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 8px; }
+.where-fams .dev-fam { padding: 12px 14px; cursor: default; }
+.where-fams .dev-fam .dev-ico img { width: 56px; height: 56px; }
+.where-fams .dev-fam b { font-size: 1.1em; }
+.cmp-game.focus{border:2px solid var(--accent);padding:11px 13px}
+
+/* Téléchargements › BitTorrent : cinq cartes sur une rangée, comme la télé */
+@media (min-width: 1100px) { .devs.devs-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+/* Lien de la maison / Lien Internet (fenêtre d'un lien) : le choisi est plein, comme la touche Carré de la télé */
+.seg { display: inline-flex; gap: 6px; margin: 2px 0 14px; }
+.seg button.chosen { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
+/* Sauvegardes : endroits d'une famille ouverte (comme la télé), soulignés de la couleur d'accent */
+.place-card.fam-open { box-shadow: inset 0 -3px 0 var(--accent-2); }
+.place-card .hint.accent { color: var(--accent); }
+
+/* « Où ranger ? » en cartes (comme la télé) : trois par rangée, le choix par défaut en premier */
+.where-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 4px 0 14px; }
+@media (max-width: 760px) { .where-cards { grid-template-columns: 1fr; } }
+.where-card.light { opacity: .85; border-style: dashed; }
+.tr-label.accent { color: var(--accent); }
+/* Fiche : la destination sous « Sauvegarder », comme la télé */
+.go-dest { display: inline-flex; flex-direction: column; align-items: flex-start; line-height: 1.2; }
+.go-dest small { font-weight: 400; opacity: .85; font-size: .8em; }
+
+/* Fiche d'un jeu en deux colonnes (comme la télé) : à gauche quoi sauvegarder, à droite les lignes d'action */
+.sheet-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; align-items: start; }
+@media (max-width: 860px) { .sheet-cols { grid-template-columns: 1fr; } }
+.sheet-left .act-lines .go-dest { width: 100%; text-align: left; margin-bottom: 6px; }
+.sheet-left .act-lines .go-dest { background: var(--accent-2); color: #fff; border-radius: 12px; padding: 12px 16px; }
+.sheet-left .act-lines .go-dest small { color: #fff; }
+.where-card .hint { white-space: normal; }
+
+/* Synchro : résumé d'une famille fermée (comme la télé) */
+.sy-fam-panel { border: 2px solid var(--accent-2); }
+.sy-fam-panel .accent { color: var(--accent); margin-top: 10px; }
+.sy-group.chosen { outline: 2px solid var(--accent-2); }
+
+/* Installation par étapes : une pastille par étape (faite, en cours, à venir) */
+.job-steps { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 2px; }
+.job-steps span { font-size: 12px; color: var(--muted); border-top: 3px solid var(--line); padding-top: 4px; flex: 1; min-width: 110px; }
+.job-steps span.done { border-color: var(--ok); color: var(--ok); }
+.job-steps span.now { border-color: var(--accent); color: var(--text); }
+.job-steps span.bad { border-color: var(--bad); color: var(--bad); }

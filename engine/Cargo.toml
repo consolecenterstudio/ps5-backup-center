@@ -1,0 +1,17 @@
+# Paquets FPKG (docs/PLAN-paquets-fpkg.md) : notre façade C (pbc-fpkg) au-dessus du code de Dump Forge / PS5Upload,
+# copié tel quel dans engine/third_party/fpkg. Compilé en bibliothèque statique, liée au moteur (aucune appli, aucun port).
+[workspace]
+resolver = "2"
+members = ["fpkg/pbc-fpkg", "third_party/fpkg/ps5upload-fpkg", "third_party/fpkg/ps5upload-pkg", "kraken/pbc-kraken", "rust/pbc-rust", "third_party/kraken-mount/crates/kraken-mount-pkg"]
+
+[workspace.dependencies]
+blake3 = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+ps5upload-fpkg = { path = "third_party/fpkg/ps5upload-fpkg" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3

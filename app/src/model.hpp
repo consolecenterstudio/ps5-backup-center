@@ -34,8 +34,9 @@ struct Item {
     std::string cover_ref;  // source de la jaquette côté moteur : quand elle change, l'image est relue
     std::string location;   // dossier du jeu sur la console (premier fichier sauvegardé), pour « Parcourir »
     bool ignored = false;   // ignoré : plus sauvegardé ni proposé (Paramètres › Éléments ignorés)
+    pbc::Json via = pbc::Json();  // arrivé par Orbit / BlackBox : {app, app_name, format, at, place_label, saved} (sinon nul)
 };
-struct Place { std::string id, type, mount, label; std::uint64_t free = 0, total = 0; bool marked = false; std::string protocol, same_as, use, same_backups_as, service; };  // same_as : synchro du même dossier du même NAS par un autre appareil ; use : « both », « backups » ou « sync »
+struct Place { std::string id, type, mount, label; std::uint64_t free = 0, total = 0; bool marked = false; std::string protocol, same_as, use, same_backups_as, service; bool readonly = false; std::int64_t expires = 0; };  // readonly : partage reçu (lien), expires : date de retrait  // same_as : synchro du même dossier du même NAS par un autre appareil ; use : « both », « backups » ou « sync »
 struct Task {
     std::string id, type, state, title, error;
     std::uint64_t done = 0, total = 0;
@@ -83,13 +84,17 @@ struct Snapshot {
     bool ever_connected = false;
     std::int64_t revision = -1;
     std::string version, pair_code, default_place;
+    std::string send_place;          // « Envoyer vers… » par défaut (vide : demander)
+    bool ask_where = true;           // demander où ranger à chaque action
     bool update_auto_check = true;
     bool update_auto_install = false;
     std::string update_channel = "stable";  // « stable » ou « beta »
+    std::vector<std::string> home_ack_sync;  // carte Synchro de l'Accueil acquittée : ce qu'elle montrait (réglages du moteur)
     std::string tv_seen_version;  // dernière version dont la télé a montré « Quoi de neuf »
     std::string theme;            // thème choisi (Paramètres › Général), vide : moteur sans thèmes
     bool sound_ui = true, music = false;  // son (Paramètres › Général)
     int volume = 70;
+    pbc::Json net;                  // Paramètres › Réseau : réglages du moteur (wan_*, bt_*, dl_place), tels quels
     std::string language = "auto";  // réglage de langue du moteur (« auto » = langue de la console)
     std::string system_language;    // langue de la console déjà signalée au moteur
     bool settings_loaded = false;

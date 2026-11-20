@@ -8,6 +8,7 @@
 //     /link/send-current-save (l'autre console envoie sa partie ici).
 #include <chrono>
 #include <cstdlib>
+#include <mutex>
 #include <set>
 #include <thread>
 
@@ -183,6 +184,8 @@ Json Engine::parties_plan(const std::string& peer) {
     out.set("need", need);
     out.set("running_here", run_here);
     out.set("running_there", run_there);
+    out.set("auto", prefs["parties_auto"].as_string().empty() ? std::string("off") : prefs["parties_auto"].as_string());
+    out.set("auto_last", parties_auto_last(peer));
     return out;
 }
 
@@ -207,6 +210,11 @@ Json Engine::set_parties_prefs(const Json& body, std::string& error) {
         for (const auto& [tid, v] : body["resolve"].members()) rs.set(tid, v);
         for (const auto& [tid, v] : rs.members()) if (!v.as_string().empty()) kept.set(tid, v);
         p.set(rk, kept);
+    }
+    if (body.has("auto")) {  // synchro automatique de cette cible : off, close (à la fermeture d'un jeu), close_night (+ la nuit)
+        const std::string a = body["auto"].as_string();
+        if (a != "off" && a != "close" && a != "close_night") { error = "réglage automatique inconnu"; return Json(); }
+        p.set("parties_auto", a);
     }
     if (body.has("here_account") || body.has("there_account")) {  // compte choisi de chaque côté ("" = même personne PSN)
         p.set("parties_here_account", body["here_account"].as_string());
@@ -736,6 +744,11 @@ Json Engine::nas_parties_plan(const std::string& nas) {
     out.set("chosen", chosen);
     out.set("need", need);
     out.set("running_here", run_here);
+    {
+        const Json pa = sync_prefs(nas);
+        out.set("auto", pa["parties_auto"].as_string().empty() ? std::string("off") : pa["parties_auto"].as_string());
+        out.set("auto_last", parties_auto_last(nas));
+    }
     return out;
 }
 
@@ -998,6 +1011,107 @@ Json Engine::nas_apps_start(const Json& body, std::string& error) {
         ++revision_;
     }).detach();
     return parties_status();
+}
+
+// ---- Synchro automatique des parties (maquette docs/maquettes/synchro-auto.html, validée le 19/11) -----------------
+namespace {
+std::mutex auto_mu;
+}  // namespace
+
+// Dernière synchro automatique de chaque cible (sync-auto.json) : montrée dans Synchro et sur l'Accueil.
+Json Engine::parties_auto_last(const std::string& peer) {
+    std::lock_guard<std::mutex> l(auto_mu);
+    std::string t;
+    Json all;
+    if (!fs::read(fs::host(fs::join(dir_, "sync-auto.json")), t) || !Json::parse(t, all) || !all.is_object()) return Json::object();
+    return all[peer].is_object() ? all[peer] : Json::object();
+}
+
+// Relevé toutes les 30 s (boucle du moteur) : un jeu vient de se fermer → sa partie part 1 min après (si ce jeu est suivi
+// et la cible réglée ainsi) ; la nuit (4 h – 6 h, heure de la console), une fois par jour, tous les jeux suivis.
+// Rien tant qu'un jeu est ouvert ni pendant une autre mise à niveau.
+void Engine::parties_auto_tick(const std::string& run, std::int64_t now) {
+    const bool game = !run.empty() && run != "PPSA99950";
+    if (!auto_last_game_.empty() && auto_last_game_ != run) auto_closed_[auto_last_game_] = now;  // fermé (ou un autre lancé)
+    auto_last_game_ = game ? run : std::string();
+    if (game || auto_running_.load() || parties_running_.load() || sync_running_.load()) return;
+    for (auto it = auto_closed_.begin(); it != auto_closed_.end(); ++it) {
+        if (now - it->second < 60) continue;  // le jeu finit d'écrire sa partie
+        const std::string tid = it->first;
+        auto_closed_.erase(it);
+        auto_running_ = true;
+        std::thread([this, tid] { parties_auto_run("close", tid); auto_running_ = false; }).detach();
+        return;
+    }
+    const std::int64_t local = now + utc_offset(), day = local / 86400, sec = local % 86400;
+    if (sec >= 4 * 3600 && sec < 6 * 3600 && auto_night_day_ != day) {
+        auto_night_day_ = day;
+        auto_running_ = true;
+        std::thread([this] { parties_auto_run("night", ""); auto_running_ = false; }).detach();
+    }
+}
+
+void Engine::parties_auto_run(const std::string& why, const std::string& only_tid) {
+    OriginScope origin(why == "night" ? "auto:nuit" : "auto:fermeture");
+    std::vector<std::string> targets;
+    if (link_) {
+        const Json peers = link_->peers();  // gardé : jamais de boucle sur un temporaire
+        for (const auto& p : peers.items()) if (p["paired"].as_bool() && p["online"].as_bool()) targets.push_back(p["instance"].as_string());
+    }
+    for (const auto& r : remotes_->list())
+        if (r.type != "switch" && r.for_sync() && remotes_->same_as(r.id, "sync").empty()) targets.push_back(r.id);
+    for (const auto& peer : targets) {
+        if (quit_) return;
+        const std::string mode = sync_prefs(peer)["parties_auto"].as_string();
+        if (mode != "close" && mode != "close_night") continue;
+        if (why == "night" && mode != "close_night") continue;
+        if (why == "close") {  // ce jeu est-il suivi pour cette cible ? (sinon : pas de lecture de l'autre côté)
+            bool followed = false;
+            const Json pr = sync_prefs(peer);
+            for (const auto& g : pr["parties_games"].items()) followed = followed || g.as_string() == only_tid;
+            if (!followed) continue;
+        }
+        const Json plan = parties_plan(peer);
+        Json ids = Json::array(), names = Json::array();
+        std::string err = plan["error"].as_string();
+        if (err.empty())
+            for (const auto& t : plan["titles"].items()) {
+                if (!t["followed"].as_bool() || t["running"].as_bool()) continue;
+                const std::string st = t["state"].as_string();
+                if (why == "close") {  // la partie qu'on vient de jouer, vers l'autre côté seulement
+                    if (t["title_id"].as_string() != only_tid || (st != "here_newer" && st != "only_here")) continue;
+                } else if (st == "same" || st == "conflict" || st.empty()) continue;  // la nuit : les deux sens, jamais un conflit
+                ids.push(t["title_id"]);
+                names.push(t["title"]);
+            }
+        if (err.empty() && ids.size() == 0) continue;  // rien à faire pour cette cible
+        if (err.empty()) {
+            Json b = Json::object();
+            b.set("peer", peer);
+            b.set("title_ids", ids);
+            (void)parties_start(b, err);
+            if (err.empty()) {
+                for (int i = 0; i < 3600 && parties_running_.load() && !quit_; ++i) std::this_thread::sleep_for(std::chrono::seconds(1));
+                const Json st = parties_status();
+                for (const auto& e : st["errors"].items()) { if (err.empty()) err = e.is_string() ? e.as_string() : e["error"].as_string(); }
+            }
+        }
+        Json rec = Json::object();
+        rec.set("at", now_unix());
+        rec.set("why", why);
+        rec.set("titles", names);
+        if (!err.empty()) rec.set("error", err);
+        {
+            std::lock_guard<std::mutex> l(auto_mu);
+            std::string t;
+            Json all;
+            if (!fs::read(fs::host(fs::join(dir_, "sync-auto.json")), t) || !Json::parse(t, all) || !all.is_object()) all = Json::object();
+            all.set(peer, rec);
+            fs::write_atomic(fs::host(fs::join(dir_, "sync-auto.json")), all.dump() + "\n");
+        }
+        log("synchro automatique (%s) vers %s : %d jeu(x)%s%s", why.c_str(), peer.c_str(), static_cast<int>(names.size()), err.empty() ? "" : " — ", err.c_str());
+        ++revision_;
+    }
 }
 
 }  // namespace pbc

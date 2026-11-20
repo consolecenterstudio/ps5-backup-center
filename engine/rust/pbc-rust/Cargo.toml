@@ -1,0 +1,13 @@
+[package]
+name = "pbc-rust"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "La seule bibliothèque Rust liée au moteur : paquets .pkg (pbc-fpkg) et lancement depuis un .pkg (pbc-kraken)"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+pbc-fpkg = { path = "../../fpkg/pbc-fpkg" }
+pbc-kraken = { path = "../../kraken/pbc-kraken" }

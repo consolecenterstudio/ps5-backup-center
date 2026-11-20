@@ -60,6 +60,8 @@ bool valid(const Json& j) { return j.is_object() && j["version"].as_int() >= 1 &
 
 }  // namespace
 
+Json qr_code(const std::string& text) { return qr_rows(text); }
+
 // Ouvrir la page web au bon endroit depuis un téléphone (ex. « #cloud » : coller les clés d'un stockage S3).
 Json Engine::web_link(const std::string& place) {
     Json j = Json::object();

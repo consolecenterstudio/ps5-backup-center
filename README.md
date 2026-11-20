@@ -4,20 +4,30 @@
 
 [English](README.md) · [Français](docs/readme/README.fr.md) · [Français (Canada)](docs/readme/README.fr-CA.md) · [Español](docs/readme/README.es.md) · [Español (Latinoamérica)](docs/readme/README.es-419.md) · [Português (Brasil)](docs/readme/README.pt-BR.md) · [Português (Portugal)](docs/readme/README.pt-PT.md) · [Deutsch](docs/readme/README.de.md) · [Italiano](docs/readme/README.it.md) · [Nederlands](docs/readme/README.nl.md) · [Polski](docs/readme/README.pl.md) · [Türkçe](docs/readme/README.tr.md) · [Русский](docs/readme/README.ru.md) · [简体中文](docs/readme/README.zh-Hans.md) · [繁體中文](docs/readme/README.zh-Hant.md) · [日本語](docs/readme/README.ja.md) · [한국어](docs/readme/README.ko.md) · [Tiếng Việt](docs/readme/README.vi.md) · [العربية](docs/readme/README.ar.md)
 
+## 3.2.0
+
+- In Downloads, “+ Add a link” also takes a magnet link or a .torrent file: you choose the disk to store it on (the one from Settings › Network comes first), then follow its progress (sources, speed, time left) and pause, resume or remove it (TV and web).
+- Downloads › My links: every link given from the console (BitTorrent, console .zip, MEGA, OneDrive), with its QR code, its address and a way to stop it. MEGA and OneDrive links are kept there.
+- Plans: a save or a game already at the destination (same content, copied by any PS5) is no longer copied again; the summary says “already up to date”. Nothing is reread to know it.
+- Downloads › “ORBIT AND BLACKBOX”: what Orbit and BlackBox downloaded on the console (status, drive, size, file not found) and their temporary files (kept archive, download in progress, leftover), read from their side without changing anything.
+- “Install…” in a game's tools, .pkg packages and Downloads › Orbit and BlackBox: mount it where it is (placed in its drive's games folder, no copy, mounted by ShadowMount), or install it on another drive or another PS5 (verified copy, original kept or removed).
+- “Install… › Mount it where it is” for a Kraken .pkg: the game is declared to the console and runs from its package, nothing unpacked — by Kraken Mount if it's installed, otherwise by our built-in version (Kraken Mount's work inside our engine, with ampr-emu-ng, pgo_stub and dlc_emu built by us; needs kstuff). A game already taken by ShadowMount or installed by the console is left alone. First version, to be tried.
+
+Dropbox production approval pending. Automatic PS5-to-PS5 sync and cross-console installation are initial features with further console testing pending.
+
 <p align="center">
   <img src="docs/assets/screenshots/en-oled-home.png" alt="PS5 Backup Center — Home screen" width="88%">
 </p>
 
 **Download, install, and transfer your games.** Receive games from a paired PS5 on your local network. Back up, compare, sync, and restore saves across PS5 consoles, USB drives, NAS, and cloud storage, from the TV or a browser. Manage PS5 apps and DLC and saves from Nintendo Switch and compatible emulators.
 
-[What's new 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+[What's new 3.2.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.2.0)
 
 <p align="center">
-  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/documented%20version-3.1.0-7cc4ff?style=flat-square&labelColor=0a1729"></a>
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/documented%20version-3.2.0-7cc4ff?style=flat-square&labelColor=0a1729"></a>
   <a href="LICENSE"><img alt="License: GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-3d8bff?style=flat-square&labelColor=0a1729"></a>
   <img alt="Platform: PS5" src="https://img.shields.io/badge/platform-PS5%20(homebrew)-e8f1fb?style=flat-square&labelColor=0a1729">
   <img alt="19 languages" src="https://img.shields.io/badge/languages-19-f0b867?style=flat-square&labelColor=0a1729">
-  <img alt="Build" src="https://img.shields.io/badge/build-reproducible-5fd39a?style=flat-square&labelColor=0a1729">
   <img alt="C++20" src="https://img.shields.io/badge/C%2B%2B-20-7cc4ff?style=flat-square&labelColor=0a1729">
 </p>
 

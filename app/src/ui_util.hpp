@@ -25,6 +25,13 @@ inline std::string size_text(std::uint64_t b) {
     for (char* p = out; *p; ++p) if (*p == '.') { *p = i18n::decimal(); break; }
     return out;
 }
+// Un nombre à une décimale, avec le séparateur de la langue (« 1,5 » en français, « 1.5 » en anglais).
+inline std::string decimal_text(double v) {
+    char out[32];
+    std::snprintf(out, sizeof out, "%.1f", v);
+    for (char* p = out; *p; ++p) if (*p == '.') { *p = i18n::decimal(); break; }
+    return out;
+}
 inline std::string duration_text(double s) {
     char b[48];
     if (s < 60) std::snprintf(b, sizeof b, "%.0f s", s);

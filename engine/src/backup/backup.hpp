@@ -51,6 +51,7 @@ struct Request {
     // (« …/saves/<date>/sdimg_* »), le reste et le manifeste dans « _pbc/ ».
     bool flat = false;
     std::string origin;            // qui l'a lancée : vide = l'utilisateur, « plan:<nom> », « sync »
+    std::string console_id, console_name;  // la PS5 qui fait la copie (notée au manifeste : « faite par … »)
 };
 
 // Rangement « par plateforme » (rangement classique d'un NAS).
@@ -75,6 +76,11 @@ Result run(Request& req, Journal& journal, const ProgressFn& progress, const std
 
 // Index des sauvegardes d'un dossier « PBC Backup ». Reconstruit à partir des
 // manifestes si absent ou abîmé.
+// Signature bon marché d'un jeu (docs/PLAN-taches-automatiques.md, règle 1) : chemins et tailles des fichiers de ses
+// parties hors sauvegardes, triés. Côté console : la liste des fichiers seulement (rien n'est lu). Côté copie : la liste
+// du manifeste. Un jeu installé est un paquet signé : mêmes fichiers, mêmes tailles = même jeu, quelle que soit la console.
+std::string item_signature(const Item& item, const std::vector<Part>& parts);
+std::string manifest_signature(const Json& manifest);
 Json read_index(const std::string& folder, bool rebuild_if_needed = true);
 bool rebuild_index(const std::string& folder);
 // Même chose sur un appareil réseau (FTP…).

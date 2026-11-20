@@ -99,8 +99,24 @@ private:
 
 class GdWriter : public Writer {
 public:
-    GdWriter(const Drive& d, std::string parent, std::string name, std::string existing)
-        : d_(d), parent_(std::move(parent)), name_(std::move(name)), existing_(std::move(existing)) {}
+    GdWriter(const Drive& d, std::string key, std::string parent, std::string name, std::string existing)
+        : d_(d), key_(std::move(key)), parent_(std::move(parent)), name_(std::move(name)), existing_(std::move(existing)) {}
+    // Reprise d'une session gardée : Drive dit combien il a reçu, il doit en avoir exactement autant.
+    bool reopen(const Kept& k, std::string& err) {
+        http::Call c;
+        c.method = "PUT";
+        c.url = k.session;
+        c.headers = {{"Content-Range", "bytes */*"}};
+        c.timeout_s = 60;
+        const http::Reply r = http::call(c, std::string());
+        const std::string range = r.header("range");  // « bytes=0-N »
+        const auto dash = range.rfind('-');
+        const std::uint64_t got = r.status == 308 && dash != std::string::npos ? std::strtoull(range.c_str() + dash + 1, nullptr, 10) + 1 : 0;
+        if (r.status != 308 || got != k.have || !acked_.restore(k)) { err = "session d'envoi expirée chez Google Drive"; return false; }
+        session_ = k.session;
+        sent_ = k.have;
+        return true;
+    }
     ~GdWriter() override { if (!done_) abort(); }
     void size_hint(std::uint64_t n) override { total_ = n; }
     bool write(const char* p, std::size_t n) override {
@@ -111,10 +127,23 @@ public:
     }
     bool commit(std::string& err) override {
         done_ = true;
-        if (failed_ || !send_chunk(buf_.size(), true)) { err = "envoi refusé : " + err_; cancel(); return false; }
+        if (failed_ || !send_chunk(buf_.size(), true)) { err = "envoi refusé : " + err_; kept_drop(key_); cancel(); return false; }
+        kept_drop(key_);
         return true;
     }
-    void abort() override { done_ = true; cancel(); }
+    void abort() override { done_ = true; kept_drop(key_); cancel(); }
+    // Arrêt : la session reste ouverte chez Google (une semaine), ce qu'il a accepté est noté pour la reprise.
+    bool keep() override {
+        if (session_.empty() || sent_ == 0 || failed_) { abort(); return false; }
+        Kept k;
+        acked_.fill(k);
+        k.session = session_;
+        done_ = true;
+        buf_.clear();
+        buf_.shrink_to_fit();
+        if (!kept_save(key_, k)) { cancel(); return false; }
+        return true;
+    }
 
 private:
     bool open_session() {
@@ -142,6 +171,7 @@ private:
         c.timeout_s = 120;
         const http::Reply r = http::call(c, buf_.substr(0, n));
         if (last ? !(r.status == 200 || r.status == 201) : r.status != 308) { err_ = cloud::api_error(r); return false; }
+        acked_.add(buf_.data(), n);
         sent_ += n;
         buf_.erase(0, n);
         return true;
@@ -153,7 +183,8 @@ private:
         buf_.shrink_to_fit();
     }
     Drive d_;
-    std::string parent_, name_, existing_, buf_, session_, err_;
+    std::string key_, parent_, name_, existing_, buf_, session_, err_;
+    Acked acked_;
     std::uint64_t total_ = 0, sent_ = 0;
     bool failed_ = false, done_ = false;
 };
@@ -166,7 +197,7 @@ public:
 
 class GdStore : public Store {
 public:
-    explicit GdStore(const FtpConfig& c) : d_(c) {}
+    explicit GdStore(const FtpConfig& c) : d_(c), account_(!c.account.empty() ? c.account : c.bucket.empty() ? c.password : c.bucket) {}
     std::string label() const override { return "Google Drive"; }
     bool mkdirs(const std::string& dir) override {
         const std::string p = clean(dir);
@@ -193,7 +224,25 @@ public:
         if (p.empty() || !mkdirs("/" + parent_of(p)) || !d_.resolve(parent_of(p), parent)) { err = "dossier impossible à créer sur Google Drive"; return nullptr; }
         Json f;
         if (d_.child(parent, std::string(fs::basename(p)), f)) existing = f["id"].as_string();  // Drive accepte deux fichiers du même nom : on remplace
-        return std::make_unique<GdWriter>(d_, parent, std::string(fs::basename(p)), existing);
+        drop_partial("/" + p);  // nouvel envoi depuis le début : une session gardée pour ce fichier est refermée
+        return std::make_unique<GdWriter>(d_, key(p), parent, std::string(fs::basename(p)), existing);
+    }
+    bool kept(const std::string& path, Kept& out) override { return kept_load(key(clean(path)), out); }
+    std::unique_ptr<Writer> resume(const std::string& path, std::uint64_t& have, std::string& err) override {
+        have = 0;
+        const std::string p = clean(path);
+        Kept k;
+        if (!kept_load(key(p), k)) { err = "rien à reprendre"; return nullptr; }
+        auto w = std::make_unique<GdWriter>(d_, key(p), std::string(), std::string(fs::basename(p)), std::string());
+        if (!w->reopen(k, err)) { kept_drop(key(p)); return nullptr; }
+        have = k.have;
+        return w;
+    }
+    void drop_partial(const std::string& path) override {
+        const std::string p = clean(path);
+        Kept k;
+        if (kept_load(key(p), k)) { http::Call c; c.method = "DELETE"; c.url = k.session; http::call(c); }
+        kept_drop(key(p));
     }
     std::unique_ptr<Reader> open(const std::string& path, std::string& err) override { return open_at(path, 0, err); }
     std::unique_ptr<Reader> open_at(const std::string& path, std::uint64_t offset, std::string& err) override {
@@ -270,6 +319,23 @@ public:
         out.free = limit > used ? limit - used : 0;
         return true;
     }
+    bool share_link(const std::string& path, bool off, std::string& link, std::string& err) override {
+        std::string id;
+        Json meta;
+        if (!d_.resolve(path, id, &meta) || id == "root") { err = "introuvable sur Google Drive"; return false; }
+        if (off) {
+            const http::Reply r = d_.send("DELETE", d_.base() + "/files/" + id + "/permissions/anyoneWithLink");
+            if (!r.ok() && r.status != 404) { err = "Google Drive a refusé de retirer le lien (" + std::to_string(r.status) + ")"; return false; }
+            return true;
+        }
+        Json body = Json::object();
+        body.set("role", "reader");
+        body.set("type", "anyone");
+        const http::Reply r = d_.send_json("POST", d_.base() + "/files/" + id + "/permissions?fields=id", body);
+        if (!r.ok()) { err = "Google Drive a refusé le partage (" + std::to_string(r.status) + ") : " + r.body.substr(0, 240); return false; }
+        link = meta["mimeType"].as_string() == kFolder ? "https://drive.google.com/drive/folders/" + id : "https://drive.google.com/file/d/" + id + "/view";
+        return true;
+    }
     bool remove(const std::string& path) override {  // dossiers compris (définitif)
         std::string id;
         Json meta;
@@ -293,7 +359,9 @@ public:
     }
 
 private:
+    std::string key(const std::string& p) const { return kept_key("gdrive", account_, p); }
     Drive d_;
+    std::string account_;  // l'appareil (son identifiant ; sinon le nom du compte ou son jeton) : une session n'est reprise que sur le même compte
 };
 
 }  // namespace

@@ -4,6 +4,17 @@
 
 [English](../../README.md) · [Français](README.fr.md) · [Français (Canada)](README.fr-CA.md) · [Español](README.es.md) · [Español (Latinoamérica)](README.es-419.md) · [Português (Brasil)](README.pt-BR.md) · [Português (Portugal)](README.pt-PT.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Nederlands](README.nl.md) · [Polski](README.pl.md) · [Türkçe](README.tr.md) · [Русский](README.ru.md) · [简体中文](README.zh-Hans.md) · [繁體中文](README.zh-Hant.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Tiếng Việt](README.vi.md) · [العربية](README.ar.md)
 
+## 3.2.0
+
+- İndirmeler'de “+ Bağlantı ekle” bir magnet bağlantısı veya .torrent dosyası da alır: kaydedileceği diski seçersiniz (önce Ayarlar › Ağ'daki), sonra ilerlemeyi (kaynaklar, hız, kalan süre) izler, duraklatır, sürdürür veya kaldırırsınız (TV ve web).
+- İndirmeler › Bağlantılarım: konsoldan verilen tüm bağlantılar (BitTorrent, konsol .zip, MEGA, OneDrive), QR kodu, adresi ve durdurma seçeneğiyle. MEGA ve OneDrive bağlantıları orada saklanır.
+- Planlar: hedefte zaten bulunan bir kayıt ya da oyun (aynı içerik, hangi PS5 kopyalamış olursa olsun) artık yeniden kopyalanmaz; özet “zaten güncel” der. Bunun için hiçbir şey yeniden okunmaz.
+- İndirmeler › “ORBIT VE BLACKBOX”: Orbit ve BlackBox'ın konsola indirdikleri (durum, sürücü, boyut, dosya bulunamadı) ve geçici dosyaları (tutulan arşiv, süren indirme, kalan), onların tarafında hiçbir şey değiştirilmeden okunur.
+- Bir oyunun araçlarında, .pkg paketlerinde ve İndirilenler › Orbit ve BlackBox'ta “Yükle…”: bulunduğu yerde bağla (diskinin oyun klasörüne taşınır, kopya yok, ShadowMount bağlar) ya da başka bir diske veya başka bir PS5'e yükle (doğrulanmış kopya, orijinal korunur veya silinir).
+- Kraken .pkg için “Kur… › Olduğu yerde bağla”: oyun konsola bildirilir ve paketinden, hiçbir şey açılmadan çalışır — yüklüyse Kraken Mount ile, değilse yerleşik sürümümüzle (Kraken Mount'un işi motorumuzda; ampr-emu-ng, pgo_stub ve dlc_emu bizim tarafımızdan derlendi; kstuff gerekir). ShadowMount'un zaten aldığı veya konsolun kurduğu bir oyuna dokunulmaz. İlk sürüm, denenmek üzere.
+
+Dropbox üretim onayı bekleniyor. PS5’ler arası otomatik eşitleme ve başka konsola kurulum, konsol testleri tamamlanmamış ilk sürümlerdir.
+
 <p align="center">
   <img src="../assets/screenshots/en-oled-home.png" alt="PS5 Backup Center — Ana ekran" width="88%">
 </p>
@@ -14,7 +25,7 @@
 
 **Oyunlarınızı indirin, kurun ve aktarın.** Yerel ağınızdaki eşleştirilmiş PS5’ten oyun alın. TV veya tarayıcıdan PS5, USB sürücüler, NAS ve bulut depolama arasında kayıtları yedekleyin, karşılaştırın, eşitleyin ve geri yükleyin. PS5 uygulamalarını, DLC’leri ve Switch ile uyumlu emülatör kayıtlarını yönetin.
 
-[Yenilikler 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+[Yenilikler 3.2.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.2.0)
 
 **Koleksiyonunuz. Oyun ilerlemeniz. Yedekleriniz.**
 

@@ -19,12 +19,18 @@
 namespace app {
 bool copy_suspect(const pbc::Json& c);
 void draw_checkbox(Surface& s, int x, int cy, bool on, bool dim);  // case à cocher commune (ui_manage.cpp)
+std::string install_job_line(const Task& t);  // installation par étapes, en une ligne (ui_transfers.cpp)
 const char* task_kind(const std::string& type);  // « Compression », « Transfert »… (ui_transfers.cpp)  // copie « à vérifier » : incomplète ou vide (ui_manage.cpp)
+
+// Services du nuage (même rôle qu'un NAS) : S3, Google Drive, OneDrive, Dropbox, MEGA.
+// « share » : lien de partage reçu (MEGA…), rangé avec le nuage, logo de son service.
+inline bool cloud_proto(const std::string& t) { return t == "s3" || t == "gdrive" || t == "onedrive" || t == "dropbox" || t == "mega" || t == "share"; }
 
 namespace key {
 inline constexpr std::uint32_t up = 0x10, right = 0x20, down = 0x40, left = 0x80, l2 = 0x100, r2 = 0x200, l1 = 0x400, r1 = 0x800,
                                triangle = 0x1000, circle = 0x2000, cross = 0x4000, square = 0x8000, options = 0x8,
-                               touchpad = 0x100000;  // clic du pavé tactile (bouton du milieu) : retour à l'Accueil
+                               touchpad = 0x100000,  // clic du pavé tactile (bouton du milieu) : retour à l'Accueil
+                               l3 = 0x2, r3 = 0x4;   // clics des sticks : L3 = tous les menus, R3 = Paramètres
 }
 
 struct InputState {
@@ -48,19 +54,25 @@ public:
     void draw(Surface& s);
     void set_logo(Image logo) { logo_ = logo; }
     // Images d'appareils (Destinations) : interne, USB, Switch, NAS, réseau, nuage.
-    enum Device { dev_internal, dev_usb, dev_switch, dev_nas, dev_network, dev_cloud, dev_synology, dev_qnap, dev_consoles, dev_x, dev_youtube, dev_reddit, dev_discord, dev_gdrive, dev_dropbox, dev_onedrive, dev_b2, dev_aws, device_count };
-    static constexpr const char* device_files[device_count] = {"internal", "usb", "switch", "nas", "network", "cloud", "synology", "qnap", "consoles", "x", "youtube", "reddit", "discord", "svc-gdrive", "svc-dropbox", "svc-onedrive", "svc-b2", "svc-aws"};
+    enum Device { dev_internal, dev_usb, dev_switch, dev_nas, dev_network, dev_cloud, dev_synology, dev_qnap, dev_consoles, dev_x, dev_youtube, dev_reddit, dev_discord, dev_gdrive, dev_dropbox, dev_onedrive, dev_b2, dev_aws, dev_mega, device_count };
+    static constexpr const char* device_files[device_count] = {"internal", "usb", "switch", "nas", "network", "cloud", "synology", "qnap", "consoles", "x", "youtube", "reddit", "discord", "svc-gdrive", "svc-dropbox", "svc-onedrive", "svc-b2", "svc-aws", "svc-mega"};
     int cloud_dev(const std::string& type, const std::string& service = {}) const;  // logo du service (Google Drive…), sinon le nuage
     void set_device(int i, Image img) { if (i >= 0 && i < device_count) devices_[i] = img; }
     void skip_whats_new() { whats_new_checked_ = true; }  // aperçu Mac : captures sans fenêtre
+    // Aperçu Mac : montrer une fenêtre sans attendre l'événement (« Quoi de neuf », « … est prête » avec son minuteur).
+    void preview_news(std::vector<ChangelogEntry> list) { whats_new_ = std::move(list); }
+    void preview_reopen(const std::string& v);
     bool start_engine_requested() { bool r = start_engine_; start_engine_ = false; return r; }
     // Vrai quand l'app doit se fermer (redémarrage après une mise à jour : le moteur la relance).
     bool quit_requested() const { return quit_requested_.load(); }
 
 private:
-    enum Tab { home, library, parties, backups, synchro, transfers, destinations, tasks, settings, tab_count };
+    enum Tab { home, library, parties, backups, synchro, transfers, downloads, destinations, tasks, settings, tab_count };
     void draw_header(Surface& s);
     void draw_footer(Surface& s, std::initializer_list<std::pair<int, const char*>> hints);
+    // Fenêtre (formulaire) : l'aide suivante est dessinée dans la fenêtre, en bas, sous un trait (charte §4.6), pas en bas de l'écran.
+    struct Box { int x = 0, y = 0, w = 0, h = 0; } footer_box_;
+    void help_in(int x, int y, int w, int h) { footer_box_ = {x, y, w, h}; }
     void draw_quit_hint(Surface& s);
     int quit_hint_width() const;
     int home_hint_width() const;
@@ -78,6 +90,11 @@ private:
     int popup_ = 0, popup_sel_ = 0;  // 1 émulateur, 2 emplacement, 3 destination
     std::string popup_title_;
     std::string popup_note_;
+    // Fenêtres en chaîne (un menu qui en ouvre un autre) : ○ ramène à la précédente, telle qu'elle était (charte §2).
+    struct PopupState { int kind = 0, sel = 0; std::string title, note; std::vector<std::string> items, subs; std::vector<int> kinds;
+                        std::vector<std::function<void()>> fns; };
+    std::vector<PopupState> popup_back_;
+    std::vector<int> popup_kind_;  // menu d'actions : 0 normale, 1 efface (rouge, en bas), 2 Annuler / Fermer (tout en bas)
     std::vector<std::string> popup_subs_;  // explication courte de chaque choix (même ordre), vide d'habitude  // paragraphe sous le titre (coupé aux mots), vide d'habitude
     std::vector<std::string> popup_items_;
     std::vector<int> dest_places_;  // index des emplacements proposés comme destination
@@ -118,7 +135,8 @@ private:
     // Supprimer la sauvegarde d'un jeu sur la console (choix du compte s'il y en a plusieurs, puis confirmation).
     void delete_console_save(const std::string& title_id, const std::string& title);
     // Dernière étape d'une action sans retour : maintenir Carré 5 s (Rond annule). La barre se remplit.
-    void open_hold_confirm(std::string title, std::string note, std::function<void()> fn);
+    void open_hold_confirm(std::string title, std::string note, std::function<void()> fn, std::string how = {});  // how : la consigne (« … pour confirmer »)
+    std::string hold_how_;
     void draw_hold_confirm(Surface& s);
     bool hold_open_ = false;
     std::string hold_title_, hold_note_;
@@ -145,6 +163,12 @@ private:
     std::vector<int> update_actions() const;
     void run_update_action(int action);
     void open_launch_menu();
+    void open_mounting_menu();
+    void open_tools_menu();
+    void open_install_from(const pbc::Json& src_place, const std::string& path, const std::string& name, std::uint64_t bytes, bool dir,
+                           const pbc::Json& alt = pbc::Json(), const std::string& title = "");
+    void open_install_formats(const pbc::Json& options, const std::string& sid, const std::string& pid, const std::string& label, const std::string& img_path,
+                              std::uint64_t img_size, const std::string& pkg_path, std::uint64_t pkg_size, bool dir, const std::string& shown);
     void open_power_menu();
     void open_versions_menu();  // démarrage du moteur : chargeurs (ordre) et « Démarrer avec la console »
     void post_toast(std::string msg) { std::lock_guard<std::mutex> l(async_mu_); pending_toast_ = std::move(msg); }  // depuis le fil de synchronisation
@@ -172,7 +196,7 @@ private:
     std::vector<const Item*> hero_items() const;
     // bk_first / peer_first : index de la 1re case dans home_bk_games_ / home_peer_refs_ ; away : pastille « pas sur cette
     // console » ; later : rangée affichée après le bloc « ailleurs » (rétro, applications).
-    struct Shelf { std::string title; std::vector<const Item*> items; bool todo = false; std::size_t total = 0; int bk_first = -1; int peer_first = -1; std::string away = {}; bool later = false; };  // peer_first : index dans home_peer_refs_
+    struct Shelf { std::string title; std::vector<const Item*> items; bool todo = false; std::size_t total = 0; int bk_first = -1; int peer_first = -1; std::string away = {}; bool later = false; int gl_first = -1; };  // peer_first : index dans home_peer_refs_ ; gl_first : dans home_gl_refs_ / lib_gl_refs_
     // Accueil › « Backups disponibles » : jeux dont des copies existent (ici ou sur une autre PS5) mais absents de la console.
     mutable std::vector<Item> home_bk_items_;
     mutable std::vector<pbc::Json> home_bk_games_;  // total : taille de la catégorie (grille)
@@ -182,6 +206,34 @@ private:
     struct HomeCard { std::string eyebrow, title, sub; std::uint32_t tone; int action; std::vector<std::pair<std::string, std::string>> games; std::vector<int> progress = {}; std::vector<std::string> eta = {}; };  // games (clé, titre) : défilent dans la bulle ; progress : ‰ de chaque tâche (-1 : en attente)  // 0..3 vues de Backups, 4 Tâches, 5 Parties, -1 rien
     std::vector<HomeCard> home_cards() const;
     void run_home_card(int action);
+    // Cadre commun de toutes les fenêtres (charte §4.6) : ombre douce, panneau, bandeau du titre, contour (rouge si danger).
+    void window_frame(Surface& s, int x, int y, int w, int h, int band = 96, bool danger = false);
+    // Carte d'appareil commune (charte : un seul dessin) — celle de l'onglet Appareils, à toutes les tailles :
+    // ombre, panneau et reflet à gauche, l'image, le nom, une étiquette en haut à droite (type, « 2 › »), une ligne,
+    // et en grande taille une pastille (« expire dans 7 j »). « Ajouter… » : fond léger ; « N de plus » : mini-images.
+    struct DevCard {
+        int dev = -1;                // image (devices_), -1 : aucune
+        bool reserve = false;        // garder la place de l'image (icône dessinée par l'écran)
+        std::string name, tag, line, pill;
+        std::uint32_t tag_col = 0, line_col = 0, pill_col = 0;
+        bool light = false;          // « + Ajouter… », « + N de plus » : carte légère
+        std::vector<int> minis;      // petites images sous la ligne (« + 3 de plus »)
+        int img = 0;                 // taille de l'image (0 : selon la hauteur de la carte)
+    };
+    // Retourne l'abscisse du texte (après l'image).
+    int device_card(Surface& s, const DevCard& c, int x, int y, int w, int h, bool focus, bool chosen = false);
+    // Le cadre seul de cette carte (ombre douce, panneau, reflet arrondi, contour) : pour toutes les bulles de l'appli.
+    void card_frame(Surface& s, int x, int y, int w, int h, bool focus, bool chosen = false, bool light = false);
+    // Haut de page commun (charte §4.2) : le nom de l'onglet en grand, une phrase courte à sa droite, toujours au même endroit.
+    void draw_page_head(Surface& s, const std::string& name, const std::string& sub);
+    // Carte Synchro de l'Accueil : ce qu'elle montre (« appareil|jeu|sens|date », « appareil|idle », « appareil|same ») ;
+    // acquittée (« Pas maintenant »), elle reste cachée tant qu'elle ne montre rien de plus. Une synchro en cours s'affiche toujours.
+    std::vector<std::string> sync_card_keys() const;
+    static std::string sync_title_key(const std::string& peer, const pbc::Json& t);
+    std::set<std::string> sync_acked() const;
+    void sync_ack(bool on);
+    std::set<std::string> sync_ack_local_;   // juste après un changement, avant que les réglages relus ne le disent
+    std::uint32_t sync_ack_at_ = 0;
     std::vector<Shelf> home_shelves() const;
     std::vector<Shelf> library_shelves() const;
     int lib_row_ = 0, lib_scroll_ = 0;
@@ -208,6 +260,9 @@ private:
     pbc::Json ed_qr_, pending_ed_qr_;          // code QR de la page web (coller les clés depuis un téléphone)
     bool has_pending_ed_qr_ = false;
     pbc::Json ed_s3_body() const;              // réglages S3 saisis, pour le moteur
+    pbc::Json ed_mega_body() const;
+    bool ro_place(const std::string& id) const;  // partage reçu : lecture seule (ui_manage.cpp)
+    pbc::Json ed_share_body() const;           // lien de partage : le lien, un nom, combien de jours            // MEGA : e-mail et mot de passe saisis, pour le moteur
     pbc::Json ed_drive_body() const;           // Google Drive, OneDrive : réglages saisis + connexion par code
     std::string ed_link_;                      // connexion par code réussie, reprise par Enregistrer
     // Connexion par code (Google Drive, OneDrive) : code QR + code court, la télé attend l'accord donné sur le téléphone.
@@ -216,6 +271,7 @@ private:
     void draw_cloud_link(Surface& s);
     bool cl_open_ = false, cl_polling_ = false;
     std::string cl_provider_, cl_id_, cl_code_, cl_url_, cl_state_, cl_error_;
+    std::string cl_reconnect_;   // compte déjà là à reconnecter (mêmes réglages, nouveau jeton) ; vide : nouveau compte
     pbc::Json cl_qr_, cl_status_, pending_cl_;
     bool has_pending_cl_ = false;
     std::uint64_t cl_next_ = 0;
@@ -245,6 +301,7 @@ private:
     void draw_emulator(Surface& s);
     // Explorateur de dossiers de la console (pour choisir sans taper de chemin).
     bool br_open_ = false, br_files_ = false, br_loading_ = false;
+    bool br_any_ = false;  // « Créer un lien » : Croix choisit un fichier, Triangle le dossier ouvert
     std::string br_path_, br_title_, br_remote_;  // br_remote_ : appareil réseau parcouru (vide = console)
     pbc::Json br_config_;                          // appareil pas encore enregistré : réglages saisis (parcourir avant d'enregistrer)
     bool br_view_ = false;                         // simple consultation (Destinations) : rien à choisir
@@ -295,10 +352,12 @@ private:
     std::string sheet_key_;
     int sheet_focus_ = 0;
     // Boutons du bas de la fiche tels que dessinés (focus, centre x, ligne) : Haut / Bas vont au plus proche.
+    static constexpr int sheet_go = 100000;  // focus « Sauvegarder » à l'ouverture de la fiche (le rang dépend du nombre de cases)
     struct SheetBtn { int focus, cx, line; };
     std::vector<SheetBtn> sheet_btns_;
     std::set<int> unchecked_;
     int dest_ = 0;
+    std::string sheet_place_;  // fiche : endroit choisi par Carré (vide : le défaut des sauvegardes, proposé en premier)
     // Sauvegardes
     int backups_disk_ = 0, backups_row_ = 0;
     // Sauvegardes › Par disque : la liste de chaque disque est gardée (on passe de l'un à l'autre sans
@@ -367,6 +426,16 @@ private:
     std::uint64_t peer_games_at_ = 0;
     mutable std::vector<Item> home_peer_items_;
     mutable std::vector<std::pair<std::string, pbc::Json>> home_peer_refs_;  // (instance, jeu) de chaque case
+    // Bibliothèques de jeux non installés (dossiers déclarés : NAS, nuages, USB, l'autre PS5) : l'index du moteur,
+    // lu toutes les 60 s sur l'Accueil et la Bibliothèque ; cases de remplacement et jeu de chaque case.
+    pbc::Json gamelib_;
+    std::uint64_t gamelib_at_ = 0;
+    void load_gamelib();
+    std::vector<std::size_t> gamelib_missing() const;  // index dans gamelib_["games"] : un par jeu, absents de cette PS5
+    mutable std::vector<Item> home_gl_items_, lib_gl_items_;
+    mutable std::vector<std::size_t> home_gl_refs_, lib_gl_refs_;
+    void open_gamelib_game(const pbc::Json& g);
+    void open_gamelibs();  // Paramètres › Bibliothèques de jeux
     void receive_peer_game(const std::string& peer, const std::string& peer_name, const pbc::Json& g);
     // Synchro des copies avec une autre PS5 (Backups › carte de cette PS5 › Options) : aperçu puis validation.
     void sync_copies_dialog(const std::string& peer, const std::string& name, bool full);
@@ -395,6 +464,7 @@ private:
     void draw_synchro(Surface& s);
     void draw_synchro_pick(Surface& s, int x, int w);
     int sn_card_ = 0, sn_zone_ = 0, sn_btn_ = 0, sn_row_ = 0;
+    int hdr_px0_ = 0, hdr_px1_ = 0;  // la pastille des onglets (gauche, droite), pour l'allonger sur place (L3)
     int hdr_first_ = 0;  // premier onglet visible quand la barre du haut défile  // « sn » : onglet Synchro (« sy » : Transferts › Synchroniser)
     bool sy_pick_ = false;
     pbc::Json sy_pick_plan_;
@@ -424,6 +494,8 @@ private:
     int sp_filter_ = 0;                          // filtre de l'écran des parties actives
     std::vector<const pbc::Json*> sy_parties_rows() const;                   // l'écran de choix ouvert est celui des parties actives
     const pbc::Json* parties_plan_for(const std::string& peer) const;
+    std::string parties_auto_label(const std::string& a) const;
+    std::string parties_auto_line(const pbc::Json& last, const std::string& name) const;
     void sy_open_parties(const std::string& peer, const std::string& name, int section = -1);
     void sy_parties_start(const std::string& peer, const std::string& name);
     void input_synchro_parties(std::uint32_t k);
@@ -500,6 +572,13 @@ private:
     // Sauvegardes : choix du haut groupés (Partout · Cette PS5 · NAS · Nuage · chaque autre PS5 · Corbeille).
     struct MgChip { int old = 0; std::string fam; bool group = false; int count = 0; };
     std::vector<MgChip> mg_chips() const;
+    std::string peer_name(const std::string& fam) const;
+    void mg_compare_all();  // « Tout comparer » (Sauvegardes et Comparer · trier)  // « peer:<instance> » → nom de l'autre PS5
+    // Paramètres › Réseau : changer un réglage du moteur, tester les ports.
+    void net_set(const char* key, pbc::Json value);
+    void input_network(std::uint32_t k);
+    pbc::Json net_test_;
+    bool net_testing_ = false;
     std::string mg_fam(int old) const;
     std::string mg_open_;
     int mg_chip_ = 0;  // bulle sous le curseur (rang visible)
@@ -541,6 +620,7 @@ private:
     void mg_compare_game(const pbc::Json& g);
     void draw_mg_overview(Surface& s, int x, int w);
     // Sauvegardes › Comparer et trier : toutes les copies d'un jeu côte à côte, jugées par leur contenu.
+    std::string hero_btn_;  // texte du bouton du bandeau de l'Accueil (repris par l'aide du bas)
     bool mg_compare_ = false;
     int mg_cfilter_ = 0, mg_cmp_row_ = 0;
     std::vector<std::size_t> mg_cmp_rows() const;
@@ -567,6 +647,13 @@ private:
     // Rangée de filtres (Sauvegardes, Par disque, Synchronisation, Tâches) : Haut depuis la première
     // ligne pour y aller, Gauche / Droite pour changer, Bas pour revenir — comme la Bibliothèque.
     bool bar_ = false;
+    // L3 : tous les menus sur deux rangées (on y descend au lieu de défiler L1 / R1) ; R3 : Paramètres, Rond ramène où on était.
+    bool menus_open_ = false;
+    int menus_sel_ = 0;
+    int set_back_tab_ = -1;
+    void draw_menus(Surface& s);
+    void input_menus(std::uint32_t k);
+    void close_overlays();
     bool filter_bar(std::uint32_t k, int& value, int count, int& row);
     std::vector<std::size_t> saves_rows() const;
     // Synchronisation Switch ↔ ProsperoEden
@@ -613,6 +700,130 @@ private:
     void draw_tr_files(Surface& s);
     void input_tr_files(std::uint32_t k);
     void fl_open(int side, int place, const std::string& path);
+    std::string fl_pending_place_;  // endroit à ouvrir dès que la liste des endroits est relue (lien reçu tout juste ajouté)
+    // Téléchargements (ui_downloads.cpp) : liens reçus, en cours, terminés ; notifications à lui.
+    int dl_zone_ = 0, dl_card_ = 0, dl_row_ = 0, dl_drow_ = 0, dl_bt_ = 0;  // zones : 0 partage, 5 BitTorrent, 6 pour les deux, 7 Orbit et BlackBox, 1 en cours, 2 terminés
+    std::set<std::string> dl_seen_done_, dl_warned_;
+    bool dl_seen_init_ = false;
+    std::vector<const pbc::Json*> dl_shares() const;
+    std::vector<const Task*> dl_tasks(bool active) const;
+    // Torrents (moteur, /api/v2/torrents) : relus toutes les 2 s sur Téléchargements ; ajout d'un lien magnet / .torrent
+    // avec le choix de l'endroit ; menu d'un torrent (pause, reprise, retirer).
+    pbc::Json tor_;
+    std::uint64_t tor_loaded_ = 0;
+    bool tor_loading_ = false;
+    void load_torrents();
+    void add_torrent(const std::string& source);
+    void open_bt_options();  // Paramètres › Réseau › Options BitTorrent : arrêter de partager, place, plein débit la nuit
+    static std::string bt_options_summary(const pbc::Json& n);
+    // « Créer un lien » : un fichier ou un dossier de la console devient un torrent partagé depuis là où il est.
+    void create_link(const std::string& path);
+    std::vector<const pbc::Json*> dl_tors() const;  // les liens en préparation (« job »), puis les torrents
+    std::set<std::string> tor_jobs_seen_, tor_jobs_cancelled_;
+    void open_torrent_menu(const pbc::Json& t, bool from_detail = false);
+    // Fiche d'un torrent (Croix sur un torrent) : Général (avec le code QR du lien magnet), Fichiers (priorité de chacun),
+    // Pairs, Trackers ; relue toutes les 1,5 s ; ≡ : toutes ses actions ; △ : pause / reprise.
+    bool td_open_ = false, td_loading_ = false;
+    std::string td_id_;
+    pbc::Json td_;
+    std::uint64_t td_loaded_ = 0;
+    int td_tab_ = 0, td_row_ = 0;
+    void open_torrent_detail(const std::string& id);
+    // « + Lien magnet » : le clavier, ou plus simple le téléphone (code QR de la page web, ouverte sur l'ajout d'un lien
+    // magnet) ; la fenêtre se ferme seule dès qu'un torrent de plus arrive.
+    bool mag_open_ = false;
+    std::string mag_torrent_;  // non vide : la fenêtre montre le code QR du .torrent de ce torrent (son nom)
+    pbc::Json mag_qr_;
+    int mag_count0_ = -1;
+    // Partager ma copie (ui_manage.cpp)
+    bool sh_open_ = false;
+    pbc::Json sh_;  // lien affiché : {kind, url, qr, url_public, qr_public, title, where, expires, token}
+    bool sh_pub_ = false;
+    std::uint64_t sh_poll_ = 0;          // lien BitTorrent en préparation : relu toutes les 2 s tant que la fenêtre est ouverte
+    pbc::Json links_ = pbc::Json::array();  // « Mes liens » (GET /api/v2/links), pour la carte de Téléchargements
+    std::uint64_t links_at_ = 0;
+    void load_links();
+    void open_link(const pbc::Json& l);   // un lien dans la fenêtre « Partager » (QR, adresse, préparation)
+    void show_new_bt_link(const std::string& job, const std::string& title);
+    std::string link_line(const pbc::Json& l) const;
+    bool pub_asked_ = false;  // adresse publique redemandée à l'ouverture de l'appli
+    std::string pub_addr_;    // la dernière connue (Paramètres › Réseau)
+    void refresh_public_address(bool say);  // Carré : le lien Internet (adresse publique) au lieu du lien de la maison
+    void open_share_copy(const pbc::Json& g, const pbc::Json& c);
+    void share_from_sheet(const Item& it);
+    std::string item_disk_label(const Item& it) const;  // le vrai disque d'un élément (comme la fiche)
+    void open_share_hub();                              // Téléchargements › Partager… : quoi ?
+    void share_hub_where(std::vector<Item> list, const std::string& what);  // où ?
+    void share_hub_list(std::vector<Item> list, const std::string& what);   // la liste, de A à Z
+    std::string copy_kind_text(const pbc::Json& g, const pbc::Json& c) const;  // « Sauvegarde de partie · Alex » ou « Copie du jeu »
+    void open_my_shares();
+    // Orbit / BlackBox (passerelle, étape 1 : voir) : GET /api/v2/apps-downloads, lu toutes les 5 s sur Téléchargements.
+    pbc::Json apps_dl_ = pbc::Json::object();
+    std::uint64_t apps_dl_at_ = 0;
+    void load_apps_dl();
+    bool apps_dl_present() const;
+    std::string apps_dl_summary() const;
+    std::string apps_dl_state(const pbc::Json& x) const;
+    void open_apps_dl();
+    // Orbit / BlackBox, étape 3 : les jeux qu'ils ont amenés (carte « À faire » de l'Accueil, choix).
+    pbc::Json arrivals_ = pbc::Json::object();
+    std::uint64_t arrivals_at_ = 0;
+    void load_arrivals();
+    void open_arrivals();
+    // Transferts › Paquets .pkg : les paquets des disques (GET /api/v2/images, format « pkg »), leurs outils.
+    pbc::Json pk_list_ = pbc::Json::array();
+    std::uint64_t pk_at_ = 0;
+    void load_packages();
+    std::string package_line(const pbc::Json& x) const;
+    void open_packages();
+    void open_package(const pbc::Json& x);
+    // « Installer… » (maquette docs/maquettes/installer.html) : le monter là où il est, ou l'installer sur un autre disque ou
+    // une autre PS5. path : image, dossier ou .pkg ; disk_id : son disque (vide : trouvé par le chemin).
+    void open_install(const std::string& path, const std::string& name, std::uint64_t bytes, const std::string& disk_id, bool pkg);
+    void open_apps_dl_item(const pbc::Json& x);
+    void draw_share(Surface& s);
+    void input_share(std::uint32_t k);
+    void open_magnet();
+    void draw_magnet(Surface& s);
+    void input_magnet(std::uint32_t k);
+    void load_torrent_detail();
+    void draw_torrent_detail(Surface& s);
+    void input_torrent_detail(std::uint32_t k);
+    void torrent_post(const std::string& id, const std::string& what, const std::string& body, const std::string& done);
+    void torrent_file_priority(const std::string& id, int index, int current, const std::string& name);
+    void open_network_settings(int row);
+    // « Où ranger ? » (propriétaire, 17/11) : un réglage par action dans Paramètres › Où ranger, puis la même fenêtre à
+    // chaque action — toutes les destinations par famille (cette PS5, autres PS5, Switch, NAS, nuage), le choix par
+    // défaut en premier. wh_pick_ reçoit l'id de l'endroit (« auto » : premier USB, sinon interne).
+    bool wh_open_ = false, wh_auto_ = false;
+    std::string wh_title_, wh_note_, wh_default_;
+    std::function<void(const std::string&)> wh_pick_;
+    int wh_sel_ = 0;
+    struct WhCard { std::string id; int x, y; };
+    std::vector<WhCard> wh_cards_;  // positions dessinées (Haut / Bas : la carte la plus proche de la rangée voisine)
+    // Réglages « demander où ranger » et « Envoyer vers… par défaut » : ceux du moteur, ou la valeur que l'on vient
+    // d'enregistrer tant que l'instantané ne l'a pas encore relue.
+    int wh_ask_set_ = -1;
+    std::string send_place_set_;
+    bool send_place_pending_ = false;
+    bool ask_where() const { return wh_ask_set_ >= 0 ? wh_ask_set_ == 1 : snap_->ask_where; }
+    std::string send_place() const { return send_place_pending_ ? send_place_set_ : snap_->send_place; }
+    void save_where_setting(const std::string& key, const pbc::Json& value);
+    // Choisir où ranger puis agir : sans la question si « Demander où ranger » vaut Non (toujours le défaut).
+    void ask_where_then(const std::string& title, const std::string& note, const std::string& def, int filter, std::function<void(const std::string&)> pick);
+    int wh_filter_ = 0;              // 0 sauvegardes (ni Switch, ni « synchro seulement »), 1 téléchargements (disques de la console), 2 envoi
+    void send_marked_to(const std::vector<std::string>& keys, const std::string& place);
+    void open_where(const std::string& title, const std::string& note, const std::string& def, int filter, std::function<void(const std::string&)> pick);
+    void draw_where(Surface& s);
+    void input_where(std::uint32_t k);
+    void input_storage(std::uint32_t k);
+    std::string where_label(const std::string& id) const;  // Paramètres › Réseau, sur une rangée (Rond ramène à l'onglet d'avant)
+    bool fl_from_downloads_ = false;  // Fichiers ouvert depuis Téléchargements : ○ y ramène
+    std::string dl_place_name(const std::string& id) const;
+    void open_share_files(const std::string& id);
+    void dl_notify();
+    void draw_downloads(Surface& s);
+    void input_downloads(std::uint32_t k);
     void verify_menu(const Task& t);
     void open_add_service();  // « Ajouter un service » : PS5, USB, Switch, NAS, nuage
     void add_device(int which);
@@ -620,6 +831,7 @@ private:
     void files_delete_flow();
     // Désinstaller un jeu : sur cette PS5 (inst vide) ou sur une PS5 jumelée (inst = son identifiant de liaison).
     void uninstall_flow(const std::string& inst, const std::string& console_name, const std::string& title_id, const std::string& title, const std::string& detail);
+    void uninstall_menu(const std::string& inst, const std::string& console_name, const std::string& title_id, const std::string& title, const std::string& detail, const pbc::Json& info);
     void peer_uninstall_list(const std::string& inst, const std::string& name);
     // Bibliothèque d'une autre PS5 (« Console : … » dans les filtres) : vide = cette PS5. Ses éléments viennent du cache du
     // moteur (aucun appel tant qu'on ne relit pas) ; chacun dit s'il est aussi ici et où est la partie la plus récente.
@@ -647,6 +859,8 @@ private:
     void task_details(const Task& t);
     void clear_tasks(int group);
     int tr_cat_ = 0, tr_pill_ = 0, tr_row_ = 0, tr_top_ = 0, tr_opt_ = 0, tr_task_ = 0, tr_full_ = 0, tr_full_mode_ = 0;
+    int tr_format_ = 0, tr_pkg_level_ = 1;  // compression : 0 image .ffpfsc, 1 paquet .pkg (et sa compression 0 / 1 / 2)
+    void open_tr_format();
     bool tr_compress_ = false, tr_saves_ = true, tr_verify_ = true;
     std::set<std::string> tr_sel_;
     std::set<int> tr_full_off_{3, 7};            // catégories décochées dans la sauvegarde complète
@@ -696,7 +910,7 @@ private:
     void draw_tr_sync(Surface& s);
     void input_tr_sync(std::uint32_t k);
     void open_switch_sync(const std::string& remote_id);  // Parties, sur cette Switch
-    void tr_device_card(Surface& s, const TrDevice& d, int x, int y, int w, int h, bool focus, bool chosen);
+    void tr_device_card(Surface& s, const TrDevice& d, int x, int y, int w, int h, bool focus, bool chosen, const std::string& tag = {});
     // Tâches
     int tasks_group_ = 0, tasks_row_ = 0, tasks_action_ = 0;
     std::set<std::string> tasks_sel_;  // tâches cochées (L2) : retirer de la liste, mettre leurs sauvegardes à la corbeille

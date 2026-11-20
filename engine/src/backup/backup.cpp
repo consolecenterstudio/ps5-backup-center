@@ -45,12 +45,50 @@ bool copy_to_store(const std::string& src_host, store::Store& st, const std::str
                    const std::function<void(std::uint64_t)>& tick, const std::atomic<bool>& stop, std::string& err) {
     const int in = ::open(src_host.c_str(), O_RDONLY);
     if (in < 0) { err = "lecture " + std::string(std::strerror(errno)); return false; }
-    auto w = st.create(dst, err);
-    if (!w) { ::close(in); return false; }
-    w->size_hint(expect);
     std::vector<char> buf(chunk);
     Sha256 h;
     std::uint64_t copied = 0;
+    // Fichier commencé avant un arrêt (pause, redémarrage) : on reprend à la suite au lieu de repartir de zéro. Le début
+    // vient de l'original (empreinte) ; la fin du morceau gardé est comparée à l'original avant de continuer.
+    // Ordre : relire d'abord le début gardé (FTP : une seule transmission à la fois), puis rouvrir l'envoi à la suite.
+    std::uint64_t have = 0;
+    std::unique_ptr<store::Writer> w;
+    std::string mine;
+    if (expect != UINT64_MAX) {
+        if (auto pr = st.open_partial(dst, err)) {
+            for (long n; (n = pr->read(buf.data(), buf.size())) > 0;) { have += static_cast<std::uint64_t>(n); mine.append(buf.data(), static_cast<std::size_t>(n)); if (mine.size() > 65536) mine.erase(0, mine.size() - 65536); }
+        }
+    }
+    // Nuage : rien à relire, la session d'envoi est gardée sur la console avec l'empreinte du début (comparée plus bas).
+    store::Kept kept;
+    const bool cloud = expect != UINT64_MAX && have == 0 && st.kept(dst, kept) && kept.have > 0 && kept.have < expect;
+    if (cloud) have = kept.have;
+    if (have > 0 && have < expect) {
+        const std::uint64_t k = std::min<std::uint64_t>(have, 65536);
+        std::string theirs(static_cast<std::size_t>(k), '\0');
+        const bool tail_read = ::pread(in, &theirs[0], static_cast<std::size_t>(k), static_cast<off_t>(have - k)) == static_cast<ssize_t>(k);
+        bool same = tail_read && (cloud ? sha256_hex(theirs) == kept.tail_sha : mine.size() == k && mine == theirs);
+        std::uint64_t at = 0;
+        while (same && at < have) {  // empreinte du début, relu sur l'original (disque de la console : rapide)
+            const ssize_t n = ::pread(in, buf.data(), static_cast<std::size_t>(std::min<std::uint64_t>(buf.size(), have - at)), static_cast<off_t>(at));
+            if (n <= 0) { same = false; break; }
+            h.add(buf.data(), static_cast<std::size_t>(n));
+            at += static_cast<std::uint64_t>(n);
+        }
+        if (same && cloud) { Sha256 c = h, want; same = want.restore(kept.sha_state) && c.hex() == want.hex(); }  // tout le début, pas seulement sa fin
+        std::uint64_t got = 0;
+        auto rw = same ? st.resume(dst, got, err) : nullptr;
+        if (rw && got == have && ::lseek(in, static_cast<off_t>(have), SEEK_SET) == static_cast<off_t>(have)) {
+            w = std::move(rw);
+            copied = have;
+            tick(have);
+            log("backup : reprise de %s à %llu Mo", dst.c_str(), static_cast<unsigned long long>(have >> 20));
+        } else { if (rw) rw->abort(); h = Sha256(); }
+    }
+    err.clear();
+    if (!w) w = st.create(dst, err);
+    if (!w) { ::close(in); return false; }
+    w->size_hint(expect);
     bool ok = true;
     for (;;) {
         if (stop.load()) { err = "arrêt demandé"; ok = false; break; }
@@ -64,24 +102,52 @@ bool copy_to_store(const std::string& src_host, store::Store& st, const std::str
     }
     ::close(in);
     if (ok && expect != UINT64_MAX && copied != expect) { err = "taille modifiée pendant la copie"; ok = false; }
-    if (!ok) { w->abort(); return false; }
+    if (!ok) { if (stop.load()) w->keep(); else w->abort(); return false; }  // arrêt : le début est gardé pour la reprise
     if (!w->commit(err)) return false;
     sha = h.hex();
     return true;
 }
 
 // Copie d'un fichier d'un appareil vers la console (restauration), vérifiée par SHA-256.
-bool copy_from_store(store::Store& st, const std::string& src, const std::string& dst_host, std::string& sha, std::uint64_t& copied,
+// Empreinte d'un fichier de la console (vide si illisible).
+std::string sha256_file(const std::string& host_path) {
+    const int in = ::open(host_path.c_str(), O_RDONLY);
+    if (in < 0) return {};
+    std::vector<char> buf(chunk);
+    Sha256 h;
+    ssize_t k;
+    while ((k = ::read(in, buf.data(), buf.size())) > 0) h.add(buf.data(), static_cast<std::size_t>(k));
+    ::close(in);
+    return k < 0 ? std::string() : h.hex();
+}
+
+// Un fichier commencé avant un arrêt (« .part » gardé) reprend à la suite : la source est relue à partir de là (FTP, SMB,
+// WebDAV, nuage, autre PS5 savent lire à partir d'un décalage) ; l'empreinte finale est comparée au manifeste par l'appelant.
+bool copy_from_store(store::Store& st, const std::string& src, const std::string& dst_host, std::uint64_t expect, std::string& sha, std::uint64_t& copied,
                      const std::function<void(std::uint64_t)>& tick, const std::atomic<bool>& stop, std::string& err) {
-    auto r = st.open(src, err);
-    if (!r) return false;
     if (!fs::mkdirs(std::string(fs::dirname(dst_host)))) { err = "mkdir " + std::string(std::strerror(fs::last_error())); return false; }
     const std::string tmp = dst_host + ".part";
-    const int out = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    if (out < 0) { err = "écriture " + std::string(std::strerror(errno)); return false; }
     std::vector<char> buf(chunk);
     Sha256 h;
     copied = 0;
+    std::uint64_t have = 0;
+    {
+        struct ::stat ps {};
+        if (::stat(tmp.c_str(), &ps) == 0 && ps.st_size > 0 && static_cast<std::uint64_t>(ps.st_size) < expect) have = static_cast<std::uint64_t>(ps.st_size);
+    }
+    std::unique_ptr<store::Reader> r;
+    if (have) {
+        const int in = ::open(tmp.c_str(), O_RDONLY);
+        std::uint64_t n = 0;
+        if (in >= 0) { for (ssize_t k; (k = ::read(in, buf.data(), buf.size())) > 0;) { h.add(buf.data(), static_cast<std::size_t>(k)); n += static_cast<std::uint64_t>(k); } ::close(in); }
+        if (n == have) r = st.open_at(src, have, err);
+        if (!r) { h = Sha256(); have = 0; err.clear(); }
+    }
+    if (!r) r = st.open(src, err);
+    if (!r) return false;
+    const int out = ::open(tmp.c_str(), have ? (O_WRONLY | O_APPEND) : (O_WRONLY | O_CREAT | O_TRUNC), 0666);
+    if (out < 0) { err = "écriture " + std::string(std::strerror(errno)); return false; }
+    if (have) { copied = have; tick(have); log("restauration : reprise de %s à %llu Mo", dst_host.c_str(), static_cast<unsigned long long>(have >> 20)); }
     bool ok = true;
     for (;;) {
         if (stop.load()) { err = "arrêt demandé"; ok = false; break; }
@@ -101,7 +167,7 @@ bool copy_from_store(store::Store& st, const std::string& src, const std::string
     if (ok && ::fsync(out) != 0) { err = "fsync"; ok = false; }
     ::close(out);
     if (ok && ::rename(tmp.c_str(), dst_host.c_str()) != 0) { err = "renommage " + std::string(std::strerror(errno)); ok = false; }
-    if (!ok) { ::unlink(tmp.c_str()); return false; }
+    if (!ok) { if (!stop.load()) ::unlink(tmp.c_str()); return false; }  // arrêt : le début est gardé pour la reprise
     sha = h.hex();
     return true;
 }
@@ -247,6 +313,12 @@ Result run(Request& req, Journal& journal, const ProgressFn& progress, const std
     m.set("created", iso_time(now_unix()));
     m.set("created_unix", now_unix());
     m.set("disk_id", req.disk_id);
+    if (!req.console_id.empty()) {  // la PS5 qui a fait la copie (règle « dernière copie de chaque console »)
+        Json c = Json::object();
+        c.set("instance", req.console_id);
+        c.set("name", req.console_name);
+        m.set("console", c);
+    }
     m.set("item", req.item.to_json());
     m.set("components", comps);
     m.set("files", files);
@@ -264,6 +336,34 @@ Result run(Request& req, Journal& journal, const ProgressFn& progress, const std
     return res;
 }
 
+// ---- Signature bon marché d'un jeu ------------------------------------------------
+
+static std::string files_signature(std::vector<std::pair<std::string, std::uint64_t>> v) {
+    if (v.empty()) return {};
+    std::sort(v.begin(), v.end());
+    Sha256 h;
+    for (const auto& [rel, size] : v) { const std::string line = rel + "\t" + std::to_string(size) + "\n"; h.add(line.data(), line.size()); }
+    return h.hex();
+}
+
+std::string item_signature(const Item& item, const std::vector<Part>& parts) {
+    std::vector<FileJob> jobs;
+    for (const auto& c : item.components) {
+        if (c.part == Part::save || !wanted(parts, c.part)) continue;
+        for (const auto& src : c.sources) expand(c.part, src.source, fs::join(to_string(c.part), src.relative), jobs);
+    }
+    std::vector<std::pair<std::string, std::uint64_t>> v;
+    for (const auto& j : jobs) v.emplace_back(j.rel, j.size);
+    return files_signature(std::move(v));
+}
+
+std::string manifest_signature(const Json& m) {
+    std::vector<std::pair<std::string, std::uint64_t>> v;
+    for (const auto& f : m["files"].items())
+        if (f["part"].as_string() != "save") v.emplace_back(f["path"].as_string(), static_cast<std::uint64_t>(f["size"].as_int()));
+    return files_signature(std::move(v));
+}
+
 // ---- Index du disque -----------------------------------------------------------
 
 bool rebuild_index(const std::string& folder) { return rebuild_index(local_store(), folder); }
@@ -272,7 +372,7 @@ bool rebuild_index(store::Store& st, const std::string& folder) {
     std::vector<fs::Entry> entries;
     Json idx = Json::object();
     idx.set("format", "pbck-index");
-    idx.set("version", 4);  // v4 : empreinte du contenu de chaque compte (« raw »), lue dans le manifeste
+    idx.set("version", 5);  // v4 : empreinte du contenu de chaque compte (« raw ») ; v5 : signature du jeu (« game_sig »)
     idx.set("updated", iso_time(now_unix()));
     Json list = Json::array();
     if (st.list(folder, entries)) {
@@ -290,6 +390,8 @@ bool rebuild_index(store::Store& st, const std::string& folder) {
             entry.set("created", m["created"].as_string());
             entry.set("created_unix", m["created_unix"].as_int());
             entry.set("title_id", m["item"]["title_id"].as_string());
+            if (const std::string gs = manifest_signature(m); !gs.empty()) entry.set("game_sig", gs);  // tâches : « déjà à jour »
+            if (m["console"].is_object()) entry.set("console", m["console"]);  // faite par quelle PS5
             // Comptes des sauvegardes PS5/PS4 contenues (vue « Sauvegardes par compte »).
             Json accounts = Json::array();
             for (const auto& c : m["components"].items()) {
@@ -328,7 +430,7 @@ Json read_index(store::Store& st, const std::string& folder, bool rebuild_if_nee
     std::string text;
     Json idx;
     // Index d'une version plus ancienne : reconstruit depuis les manifestes (rien n'est perdu).
-    if (st.read_small(fs::join(folder, "index.json"), text) && Json::parse(text, idx) && idx["backups"].is_array() && idx["version"].as_int() >= 4) return idx;  // v4 : empreintes du contenu
+    if (st.read_small(fs::join(folder, "index.json"), text) && Json::parse(text, idx) && idx["backups"].is_array() && idx["version"].as_int() >= 4) return idx;  // v4 suffit ; v5 ajoute « game_sig » (index refaits)
     if (rebuild_if_needed && rebuild_index(st, folder) && st.read_small(fs::join(folder, "index.json"), text) && Json::parse(text, idx)) return idx;
     return Json::object();
 }
@@ -465,15 +567,33 @@ Result restore(const RestoreRequest& req, const ProgressFn& progress, const std:
         if (!req.target.empty()) dst = fs::join(req.target, rel);
         else dst = f["source"].as_string();
         if (rel.find("..") != std::string::npos || dst.empty()) { res.error = "chemin refusé : " + rel; return res; }
+        const std::uint64_t fsize = static_cast<std::uint64_t>(f["size"].as_int());
+        pr.current = rel;
+        {   // déjà restauré à l'identique (reprise après un arrêt) : sauté, rien n'est relu sur l'appareil
+            struct ::stat ds {};
+            if (::stat(fs::host(dst).c_str(), &ds) == 0 && static_cast<std::uint64_t>(ds.st_size) == fsize && sha256_file(fs::host(dst)) == f["sha256"].as_string()) {
+                pr.bytes_done += fsize;
+                ++pr.files_done;
+                ++res.files;
+                res.bytes += fsize;
+                if (progress) progress(pr);
+                continue;
+            }
+        }
         if (!req.overwrite && fs::exists(fs::host(dst))) { res.error = "existe déjà : " + dst; return res; }
         std::string sha, err;
         std::uint64_t copied = 0;
-        pr.current = rel;
         auto tick = [&](std::uint64_t n) { pr.bytes_done += n; if (progress) progress(pr); };
         const std::string stored = f["stored"].as_string().empty() ? fs::join("data", rel) : f["stored"].as_string();
-        if (!copy_from_store(st, fs::join(req.bundle, stored), fs::host(dst), sha, copied, tick, stop, err)) {
+        const std::uint64_t before = pr.bytes_done;
+        if (!copy_from_store(st, fs::join(req.bundle, stored), fs::host(dst), fsize, sha, copied, tick, stop, err)) {
             res.error = rel + " : " + err;
             return res;
+        }
+        if (sha != f["sha256"].as_string() && !stop.load()) {  // reprise sur un début qui n'allait pas : refait une fois depuis zéro
+            ::unlink(fs::host(dst).c_str());
+            pr.bytes_done = before;
+            if (!copy_from_store(st, fs::join(req.bundle, stored), fs::host(dst), fsize, sha, copied, tick, stop, err)) { res.error = rel + " : " + err; return res; }
         }
         if (copied != static_cast<std::uint64_t>(f["size"].as_int())) { res.error = "taille différente : " + rel; return res; }
         if (sha != f["sha256"].as_string()) { res.error = "empreinte différente : " + rel; return res; }

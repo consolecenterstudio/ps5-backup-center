@@ -10,6 +10,7 @@
 #include <set>
 
 #include "core/http_client.hpp"
+#include "store/kept.hpp"
 #include "core/util.hpp"
 
 namespace pbc::store {
@@ -137,6 +138,7 @@ struct Shared {
     std::mutex mu;
     http::Conn conn;
     std::set<std::string> dirs;
+    int ranged = -1;  // le serveur écrit-il un PUT « Content-Range » à sa place ? -1 : pas encore essayé
 };
 
 class Dav {
@@ -176,6 +178,21 @@ public:
             it = it->rfind(prefix, 0) == 0 ? shared_->dirs.erase(it) : std::next(it);
     }
     const FtpConfig& cfg() const { return cfg_; }
+    // Reprise (3.1.41) : le serveur sait-il écrire un morceau à sa place (PUT avec « Content-Range », comme Apache et
+    // le Synology) ? Essayé une fois par appareil avec un petit fichier dans le dossier de destination, puis retenu.
+    bool ranged_puts(const std::string& dir) const {
+        { std::lock_guard<std::mutex> l(shared_->mu); if (shared_->ranged >= 0) return shared_->ranged == 1; }
+        const std::string p = (dir == "/" ? std::string() : dir) + "/.pbc-essai-reprise";
+        bool ok = send(call("PUT", p), "ab").ok() && send(call("PUT", p, {{"Content-Range", "bytes 2-3/*"}}), "cd").ok();
+        if (ok) {
+            const http::Reply r = send(call("GET", p));
+            ok = r.ok() && r.body == "abcd";
+        }
+        send(call("DELETE", p));
+        std::lock_guard<std::mutex> l(shared_->mu);
+        shared_->ranged = ok ? 1 : 0;
+        return ok;
+    }
 
 private:
     FtpConfig cfg_;
@@ -202,12 +219,34 @@ bool parse_entry(const std::string& block, fs::Entry& e, std::string& href) {
 
 // Écriture : les 8 premiers Mo restent en mémoire. Un petit fichier part en une fois avec sa taille (accepté par
 // tous les serveurs) ; au-delà, envoi en flux (« chunked »). Toujours dans <chemin>.part, renommé par commit().
+// Si le serveur sait écrire un morceau à sa place (ranged_puts), un gros fichier part par morceaux de 16 Mo : un arrêt
+// garde les morceaux déjà acceptés, et la reprise écrit à la suite (3.1.41).
 class DavWriter : public Writer {
 public:
-    DavWriter(const Dav& d, std::string path) : d_(d), path_(std::move(path)) {}
+    DavWriter(const Dav& d, std::string path, std::string kept = {}, bool ranged = false) : d_(d), path_(std::move(path)), kept_(std::move(kept)), ranged_(ranged) {}
     ~DavWriter() override { if (!done_) abort(); }
+    bool reopen(const Kept& k, const fs::Entry& part, std::string& err) {
+        if (!ranged_ || k.session != "dav" || part.dir || part.size != k.have || !acked_.restore(k)) { err = "envoi gardé introuvable ou modifié sur le NAS"; return false; }
+        off_ = k.have;
+        return true;
+    }
+    bool keep() override {
+        if (!ranged_ || off_ == 0 || failed_ || kept_.empty()) { abort(); return false; }
+        Kept k;
+        acked_.fill(k);
+        k.session = "dav";
+        done_ = true;
+        buf_.clear();
+        if (!kept_save(kept_, k)) { remove_part(); return false; }
+        return true;
+    }
     bool write(const char* p, std::size_t n) override {
         if (failed_) return false;
+        if (ranged_) {  // par morceaux écrits à leur place
+            buf_.append(p, n);
+            while (buf_.size() >= kSeg) if (!send_seg(kSeg)) { failed_ = true; return false; }
+            return true;
+        }
         if (!streaming_) {
             buf_.append(p, n);
             if (buf_.size() <= kHold) return true;
@@ -222,6 +261,14 @@ public:
     }
     bool commit(std::string& err) override {
         done_ = true;
+        if (ranged_) {
+            if (failed_ || (!buf_.empty() && !send_seg(buf_.size())) || (off_ == 0 && !send_seg(0))) {
+                err = "envoi refusé : " + seg_err_; remove_part(); kept_drop(kept_); return false;
+            }
+            kept_drop(kept_);
+            if (!d_.move(path_ + ".part", path_)) { err = "le NAS n'a pas pu renommer le fichier envoyé"; remove_part(); return false; }
+            return true;
+        }
         if (failed_) { err = "envoi interrompu vers le NAS" + (up_.error().empty() ? std::string() : " (" + up_.error() + ")"); up_.abort(); remove_part(); return false; }
         const http::Reply r = streaming_ ? up_.finish() : d_.send(d_.call("PUT", path_ + ".part"), buf_);
         if (!r.ok()) { err = "envoi refusé : " + why(r); remove_part(); return false; }
@@ -231,16 +278,32 @@ public:
     void abort() override {
         done_ = true;
         up_.abort();
-        if (streaming_) remove_part();
+        if (streaming_ || (ranged_ && off_ > 0)) remove_part();
+        kept_drop(kept_);
     }
 
 private:
+    // Un morceau de `n` octets (le début du tampon) écrit à sa place dans le .part.
+    bool send_seg(std::size_t n) {
+        http::Headers h;
+        if (off_ > 0 && n > 0) h.push_back({"Content-Range", "bytes " + std::to_string(off_) + "-" + std::to_string(off_ + n - 1) + "/*"});
+        http::Call c = d_.call("PUT", path_ + ".part", h);
+        c.timeout_s = 300;
+        const http::Reply r = d_.send(c, buf_.substr(0, n));
+        if (!r.ok()) { seg_err_ = why(r); return false; }
+        acked_.add(buf_.data(), n);
+        off_ += n;
+        buf_.erase(0, n);
+        return true;
+    }
     void remove_part() { d_.send(d_.call("DELETE", path_ + ".part")); }
-    static constexpr std::size_t kHold = 8u << 20;
+    static constexpr std::size_t kHold = 8u << 20, kSeg = 16u << 20;
     Dav d_;  // copie (partage la connexion) : l'écriture peut finir après le magasin
-    std::string path_, buf_;
+    std::string path_, buf_, kept_, seg_err_;
     http::Upload up_;
-    bool streaming_ = false, failed_ = false, done_ = false;
+    Acked acked_;
+    std::uint64_t off_ = 0;
+    bool ranged_ = false, streaming_ = false, failed_ = false, done_ = false;
 };
 
 class DavReader : public Reader {
@@ -274,8 +337,23 @@ public:
     }
     std::unique_ptr<Writer> create(const std::string& path, std::string& err) override {
         if (!mkdirs(std::string(fs::dirname(path)))) { err = "dossier impossible à créer sur le NAS"; return nullptr; }
-        return std::make_unique<DavWriter>(d_, path);
+        kept_drop(kkey(path));  // nouvel envoi depuis le début
+        return std::make_unique<DavWriter>(d_, path, kkey(path), d_.ranged_puts(std::string(fs::dirname(path))));
     }
+    bool kept(const std::string& path, Kept& out) override { return kept_load(kkey(path), out); }
+    std::unique_ptr<Writer> resume(const std::string& path, std::uint64_t& have, std::string& err) override {
+        have = 0;
+        Kept k;
+        if (!kept_load(kkey(path), k)) { err = "rien à reprendre"; return nullptr; }
+        fs::Entry part;
+        if (!stat(path + ".part", part)) { kept_drop(kkey(path)); err = "envoi gardé introuvable sur le NAS"; return nullptr; }
+        auto w = std::make_unique<DavWriter>(d_, path, kkey(path), d_.ranged_puts(std::string(fs::dirname(path))));
+        if (!w->reopen(k, part, err)) { kept_drop(kkey(path)); return nullptr; }
+        have = k.have;
+        return w;
+    }
+    void drop_partial(const std::string& path) override { remove(path + ".part"); kept_drop(kkey(path)); }
+    std::string kkey(const std::string& path) const { return kept_key("webdav", d_.cfg().host + "\n" + std::to_string(d_.cfg().port) + "\n" + d_.cfg().user, path); }
     std::unique_ptr<Reader> open(const std::string& path, std::string& err) override { return open_at(path, 0, err); }
     std::unique_ptr<Reader> open_at(const std::string& path, std::uint64_t offset, std::string& err) override {
         auto r = std::make_unique<DavReader>();

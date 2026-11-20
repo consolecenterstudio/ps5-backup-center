@@ -7,9 +7,17 @@
 #include <vector>
 
 #include "core/json.hpp"
+#include "core/util.hpp"
 #include "store/ftp.hpp"
 
 namespace pbc::store {
+
+// Lien de partage reçu (type « share », lecture seule) : password = le lien complet (il porte la clé), host = le
+// service (« mega »), expires = date de retrait. share_probe : ce que contient le lien, sans rien enregistrer.
+std::string share_service(const std::string& url);
+std::unique_ptr<Store> share_store(const FtpConfig& cfg, std::string& err);
+bool share_probe(const std::string& url, Json& out, std::string& err);
+void share_forget(const std::string& url);
 
 // Ouvre un appareil réseau selon son type : « ftp », « smb », « webdav » ou « switch » (FTP ou SMB selon cfg.proto).
 std::unique_ptr<Store> connect(const std::string& type, const FtpConfig& cfg, std::string& err);
@@ -19,7 +27,9 @@ struct Remote {
     std::string use;  // à quoi il sert : vide (Sauvegardes et Synchro), « backups » ou « sync » seulement
     FtpConfig ftp;
     bool for_backups() const { return use != "sync"; }
-    bool for_sync() const { return use != "backups"; }
+    bool for_sync() const { return use != "backups" && type != "share"; }
+    bool read_only() const { return type == "share"; }  // lien de partage reçu
+    bool expired() const { return type == "share" && ftp.expires && ftp.expires <= now_unix(); }
     Json to_json(bool with_secret) const;
     static Remote from_json(const Json&);
     std::string folder() const;   // dossier des backups sur l'appareil
@@ -31,7 +41,8 @@ class Remotes {
 public:
     explicit Remotes(std::string host_path) : path_(std::move(host_path)) {}
     void load();
-    std::vector<Remote> list() const;
+    std::vector<Remote> list() const;  // sans les partages expirés
+    std::vector<Remote> purge_expired();  // retire les partages arrivés à échéance ; renvoie ceux retirés
     bool find(const std::string& id, Remote& out) const;
     // Teste la connexion (écriture d'un fichier témoin) puis enregistre ; renvoie l'id.
     bool add(Remote r, std::string& id, std::string& err);

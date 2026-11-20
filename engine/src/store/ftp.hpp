@@ -24,7 +24,9 @@ struct FtpConfig {
     std::string pin;                  // WebDAV : empreinte du certificat maison du NAS (vide : certificat vérifié)
     // Rangement des backups : « pbc » (dossier « PBC Backup ») ou « platform » (rangement classique :
     // « PS5 backup/[PS5] Nom (ID)/saves/<date>/ », « Switch backup/… »).
-    std::string layout = "pbc";       // « auto » : chiffré si le serveur le propose ; « on » : exigé ; « off »
+    std::string layout = "pbc";
+    std::int64_t expires = 0;         // lien de partage : retiré tout seul à cette date (heure Unix ; 0 : quand on l'enlève)       // « auto » : chiffré si le serveur le propose ; « on » : exigé ; « off »
+    std::string account;              // identifiant de l'appareil (non enregistré) : une reprise d'envoi n'est faite que sur le même
     Json to_json(bool with_password) const;
     static FtpConfig from_json(const Json&);
 };

@@ -30,6 +30,7 @@ struct Plan {
     std::string place;               // destination ("" = par défaut)
     int keep = 5;                    // versions gardées par élément (0 = toutes)
     std::int64_t last_run = 0, next_run = 0;
+    std::int64_t retry_at = 0;      // remis à plus tard (une autre PS5 tient le verrou) : réessayé à cette heure ; next_run reste dû
     std::string last_result;
     Json to_json() const;
     static Plan from_json(const Json&);
@@ -46,6 +47,7 @@ public:
     bool get(const std::string& id, Plan& out) const;
     std::string put(Plan p);              // ajoute ou remplace ; renvoie l'id
     bool remove(const std::string& id);
+    void postpone(const std::string& id, std::int64_t when);  // « une autre PS5 fait ce plan » : réessayé plus tard
     void mark_run(const std::string& id, std::int64_t when, const std::string& result, std::int64_t utc_offset);
     // Plans dus à `now` (activés, prochaine exécution passée).
     std::vector<Plan> due(std::int64_t now) const;

@@ -1,0 +1,2363 @@
+<!doctype html>
+<html lang="en" manifest="kraken.appcache">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kraken Mount v__VERSION__</title>
+<style>
+:root {
+  --fg: #f4f4f8;
+  --fg-2: #d6d6e0;
+  --muted: rgba(235, 235, 245, 0.78);
+  --focus: #9db6ff;
+  --accent: #3d6bff;
+  --danger-ink: #ffb0b0;
+  --danger-bg: rgba(255, 70, 70, 0.32);
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Frosted glass: a translucent white fill, heavy blur, an inset top highlight, a soft drop shadow. No borders. */
+  --glass: rgba(255, 255, 255, 0.16);
+  --glass-hi: rgba(255, 255, 255, 0.26);
+  --glass-blur: blur(3.2rem) saturate(230%);
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  --glass-drop: 0 0.6rem 2rem rgba(0, 0, 0, 0.35);
+  --gutter: 2.5rem;
+  --gap: 1.5rem;
+}
+/* 16px at 1920 wide: every size below is in rem, so the page scales with the TV. */
+html { font-size: 0.8333vw; }
+@media (max-width: 1100px) { html { font-size: 14px; } }
+@media (min-width: 2600px) { html { font-size: 22px; } }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+/* ps5-dump-forge's page colour (its --page): flat, no photo. */
+html, body { background: #0e0e15; }
+body {
+  color: var(--fg); font-family: var(--sans); font-size: 1rem;
+  -webkit-font-smoothing: antialiased; overflow-x: hidden;
+}
+[hidden] { display: none !important; }
+h1, h2, h3, p { margin: 0; }
+img { display: block; }
+/* One glass recipe for every surface. */
+.glass {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-edge), var(--glass-drop);
+}
+/* D-pad focus: a ring on every control. Old WebKit drops the :not() rule and keeps it always. */
+:focus { outline: 0.19rem solid var(--focus); outline-offset: 0.19rem; }
+:focus:not(:focus-visible) { outline: none; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.icon { width: 1.15rem; height: 1.15rem; flex: none; }
+button, a.button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;
+  height: 2.6rem; padding: 0 1.2rem; border-radius: 999px;
+  border: 0; background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-edge);
+  color: var(--fg); font: inherit; font-weight: 500; white-space: nowrap; cursor: pointer;
+  text-decoration: none;
+}
+button:hover, a.button:hover { background: var(--glass-hi); }
+button.small { height: 2.2rem; padding: 0 0.95rem; font-size: 0.85rem; gap: 0.4rem; }
+button.primary { background: rgba(255, 255, 255, 0.88); color: #12121a; }
+button.primary:hover { background: #fff; }
+button.danger { background: var(--danger-bg); color: #fff; }
+button.danger:hover { background: rgba(255, 70, 70, 0.48); }
+
+/* ---------- Header: dump-forge's layout (icon, centred tabs, actions), surfaces in glass ---------- */
+.topbar { position: sticky; top: 0; z-index: 5; padding: 1.1rem var(--gutter) 0; }
+.topbar-in {
+  display: -webkit-box; display: flex; align-items: center; justify-content: space-between;
+  height: 3.6rem; gap: 1rem;
+}
+.topbar-in > .brand-row, .topbar-in > .top-actions { -webkit-box-flex: 1; flex: 1 1 0; }
+.brand-row { display: flex; align-items: center; gap: 0.7rem; min-width: 0; }
+.brand { display: flex; align-items: center; margin: 0; }
+/* The logo's navy square is clipped to its round emblem; the glow melts its edge into the photo. */
+.brand img {
+  width: 3.4rem; height: 3.4rem; border-radius: 50%;
+  box-shadow: 0 0 1.2rem rgba(80, 170, 255, 0.45), 0 0 2.6rem rgba(255, 140, 60, 0.22);
+}
+.top-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.6rem; }
+/* Segmented pill: the screen tabs. The filter row uses separate chips (below). */
+.seg { display: inline-flex; gap: 0.15rem; padding: 0.25rem; border-radius: 999px; }
+.seg-opt {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;
+  height: 2.3rem; padding: 0 1.2rem; border: 0; border-radius: 999px;
+  background: transparent; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+  color: var(--muted); font: inherit; font-size: 0.95rem; font-weight: 500; white-space: nowrap; cursor: pointer;
+}
+.seg-opt:hover { background: rgba(255, 255, 255, 0.08); color: var(--fg); }
+.seg-opt[aria-selected="true"], .seg-opt[aria-pressed="true"] {
+  background: rgba(255, 255, 255, 0.9); color: #12121a;
+  box-shadow: 0 0.15rem 0.6rem rgba(0, 0, 0, 0.25);
+}
+.nav .seg-opt { min-width: 7.5rem; }
+/* Type filter: each type is its own frosted chip, with a gap between them. */
+.chips { display: flex; align-items: center; gap: 0.6rem; }
+.chips .seg-opt {
+  height: 2.6rem; color: var(--fg); background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-edge), 0 0.4rem 1.2rem rgba(0, 0, 0, 0.25);
+}
+.chips .seg-opt:hover { background: var(--glass-hi); }
+.chips .seg-opt[aria-pressed="true"] { background: rgba(255, 255, 255, 0.9); color: #12121a; }
+.gh-link {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2.6rem; height: 2.6rem; padding: 0; border-radius: 999px; color: var(--fg);
+}
+.gh-link .icon { width: 1.3rem; height: 1.3rem; }
+
+/* ---------- Filter row: L2 [chips] R2 ... storage pill ---------- */
+main { padding: 1.1rem var(--gutter) 2rem; }
+.filters { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.3rem; }
+/* One card per drive; Internal is always the last (rightmost), extra drives grow to its left. */
+.storage { display: flex; justify-content: flex-end; gap: 0.6rem; margin-left: auto; min-width: 0; }
+.seg-wrap { display: flex; align-items: center; gap: 0.6rem; min-width: 0; flex: none; }
+/* PS5 L2 / R2 hints: dump-forge's shoulder keycaps, out of the Tab order (the triggers are the binding). */
+button.shoulder {
+  flex: none; width: 2.2rem; height: 1.55rem; padding: 0; margin: 0;
+  border-radius: 0.6rem 0.6rem 0.4rem 0.4rem;
+  color: var(--muted); font: 600 0.78rem var(--mono); letter-spacing: 0.02em;
+}
+button.shoulder:hover { color: var(--fg); }
+.count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.4rem; height: 1.4rem; padding: 0 0.4rem; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16); color: var(--fg); font-size: 0.78rem; font-weight: 600;
+}
+.seg-opt[aria-pressed="true"] .count { background: #12121a; color: #fff; }
+.storage-pill {
+  display: flex; align-items: center; gap: 0.9rem; height: 2.85rem; padding: 0 1.2rem;
+  border-radius: 999px; font-size: 0.92rem; white-space: nowrap; min-width: 0; overflow: hidden;
+}
+.storage-pill b { font-weight: 600; }
+.storage-pill b, .storage-pill > span:last-of-type, .storage-pill .eject { flex: none; }
+.storage-pill .eject { height: 2rem; padding: 0 0.8rem; }
+/* On one row with the filters: the meters give up width first when many drives are mounted. */
+.storage-pill .meter { min-width: 1.5rem; }
+.meter { width: 7rem; height: 0.4rem; border-radius: 999px; background: rgba(255, 255, 255, 0.16); overflow: hidden; }
+.meter i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #8fb0ff, #fff); }
+
+/* ---------- Game cards: 6 per row on a 1920 TV, two rows fill the screen ---------- */
+.grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--gap); }
+.card {
+  position: relative; display: block; width: 100%; height: auto; padding: 0; margin: 0;
+  border-radius: 16px; overflow: hidden; text-align: left; cursor: pointer;
+  background: #222; -webkit-backdrop-filter: none; backdrop-filter: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4), var(--glass-edge), 0 0 0 1px rgba(0, 0, 0, 0.6), 0 1rem 3rem rgba(0, 0, 0, 0.85);
+  -webkit-transition: -webkit-transform 0.18s ease; transition: transform 0.18s ease;
+  /* Safari clips the blurred children to the radius only with a mask or transform. */
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
+}
+/* ponytail: padding-bottom keeps the card square (aspect-ratio needs Safari 15). */
+.card:before { content: ""; display: block; padding-bottom: 100%; }
+.card:hover, .card:focus { -webkit-transform: scale(1.03); transform: scale(1.03); }
+.card:focus { outline: 0.22rem solid #fff; outline-offset: 0.25rem; }
+.cover { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; }
+/* No art yet: coverStyle() in the script paints a gradient in the game's hue; its initials sit on top. */
+.cover .ini {
+  position: absolute; left: 0; right: 0; top: 22%; text-align: center;
+  font-size: 5rem; font-weight: 800; letter-spacing: -0.04em; color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 0.3rem 1.6rem rgba(0, 0, 0, 0.35);
+}
+.badge {
+  position: absolute; left: 0.75rem; top: 0.75rem; padding: 0.3rem 0.7rem; border-radius: 999px;
+  font-size: 0.78rem; font-weight: 600; letter-spacing: 0.02em;
+  background: rgba(30, 30, 44, 0.34);
+  -webkit-backdrop-filter: blur(1.6rem) saturate(230%); backdrop-filter: blur(1.6rem) saturate(230%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+.info {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 0.95rem 1rem 1rem;
+  background: rgba(12, 12, 22, 0.66);
+  -webkit-backdrop-filter: blur(3.6rem) saturate(180%); backdrop-filter: blur(3.6rem) saturate(180%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.info h3 {
+  font-size: 1.05rem; font-weight: 600; line-height: 1.25; color: #fff;
+  text-shadow: 0 1px 0.4rem rgba(0, 0, 0, 0.6);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.info p { margin-top: 0.3rem; font: 500 0.8rem var(--mono); color: rgba(255, 255, 255, 0.86); }
+.empty { padding: 4rem 0; text-align: center; color: var(--muted); }
+
+/* ---------- Game modal: full-screen glass sheet ---------- */
+.scrim {
+  position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: center; padding: 3vh 3vw;
+  background: rgba(6, 6, 12, 0.62);
+  -webkit-backdrop-filter: blur(2.4rem); backdrop-filter: blur(2.4rem);
+}
+.sheet {
+  position: relative; width: 100%; max-width: 110rem; height: 100%; max-height: 62rem;
+  display: grid; grid-template-columns: 24rem minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 1.6rem 2.4rem; padding: 2.2rem 2.4rem; border-radius: 2rem;
+}
+/* The game sheet and the settings form share one dark surface. */
+.sheet, .settings {
+  background: rgba(18, 18, 30, 0.78);
+  -webkit-backdrop-filter: blur(4rem) saturate(180%); backdrop-filter: blur(4rem) saturate(180%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), var(--glass-edge), 0 1.4rem 4rem rgba(0, 0, 0, 0.6);
+}
+.sheet-side { grid-row: 1 / 4; display: flex; flex-direction: column; gap: 0.9rem; min-height: 0; }
+.sheet-pic { position: relative; border-radius: 1.2rem; overflow: hidden; box-shadow: var(--glass-edge), var(--glass-drop); }
+.sheet-pic:before { content: ""; display: block; padding-bottom: 100%; }
+.sheet-side .btns { display: flex; flex-direction: column; gap: 0.6rem; }
+.sheet-side button { width: 100%; height: 3rem; font-size: 1rem; }
+.sheet-side .badge { left: 1rem; top: 1rem; }
+.sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.sheet-head h2 { font-size: 2.2rem; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; text-shadow: 0 0.1rem 0.8rem rgba(0, 0, 0, 0.55); }
+.sheet-head p { margin-top: 0.4rem; font: 500 0.95rem var(--mono); color: var(--muted); }
+button.close { flex: none; width: 3rem; height: 3rem; padding: 0; }
+button.close .icon { width: 1.3rem; height: 1.3rem; }
+.panel { border-radius: 1.4rem; padding: 1.4rem 1.6rem; background: rgba(255, 255, 255, 0.07); overflow: auto; }
+.fields { display: grid; grid-template-columns: 12rem minmax(0, 1fr); gap: 0.85rem 1.4rem; margin: 0; }
+.fields dt { color: var(--muted); font-size: 0.95rem; }
+.fields dd { margin: 0; font-size: 1rem; word-wrap: break-word; overflow-wrap: break-word; min-width: 0; }
+.fields dd.mono { font-family: var(--mono); font-size: 0.9rem; }
+.tag { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.82rem; font-weight: 600; background: rgba(255, 255, 255, 0.14); }
+.tag.green { background: rgba(47, 210, 122, 0.22); color: #9ff0c4; }
+.storage-line { border-radius: 1.4rem; padding: 1.1rem 1.6rem; background: rgba(255, 255, 255, 0.07); }
+.storage-line h3 { font-size: 0.85rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.stack { display: flex; height: 0.7rem; margin: 0.7rem 0; border-radius: 999px; overflow: hidden; background: rgba(255, 255, 255, 0.12); }
+.stack i { display: block; height: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.6rem; font-size: 0.92rem; }
+.legend span:before { content: ""; display: inline-block; width: 0.65rem; height: 0.65rem; margin-right: 0.45rem; border-radius: 50%; background: var(--c); }
+.c-game { --c: #8fb0ff; } .c-dlc { --c: #c9a4ff; } .c-save { --c: #7fe3d8; } .c-cache { --c: #ffd27a; }
+
+/* ---------- Settings: glass form rows ---------- */
+.settings { max-width: 64rem; margin: 0 auto; border-radius: 1.8rem; padding: 1.8rem 2rem; }
+.settings h2 { font-size: 1.6rem; font-weight: 700; margin-bottom: 1.2rem; }
+.row {
+  display: flex; align-items: center; justify-content: space-between; gap: 1.4rem;
+  padding: 1rem 1.2rem; border-radius: 1.1rem; background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12); margin-bottom: 0.6rem;
+}
+.row.col { display: block; }
+.row .lbl { font-size: 1rem; font-weight: 500; }
+.row .hint { display: block; margin-top: 0.25rem; font-size: 0.82rem; color: var(--muted); }
+.row textarea, .row input[type="number"], .row select {
+  font: inherit; color: var(--fg); background: rgba(0, 0, 0, 0.28); border: 0;
+  box-shadow: inset 0 1px 0.2rem rgba(0, 0, 0, 0.3);
+  border-radius: 0.8rem; padding: 0.55rem 0.8rem;
+}
+.row textarea { display: block; width: 100%; min-height: 5.5rem; margin-top: 0.7rem; font-family: var(--mono); font-size: 0.9rem; resize: vertical; }
+.row input[type="number"] { width: 8rem; text-align: right; }
+.row select { max-width: 30rem; min-width: 0; }
+.row input[type="checkbox"] { width: 1.5rem; height: 1.5rem; flex: none; margin: 0; accent-color: var(--accent); }
+.settings-foot { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1.2rem; }
+.settings-foot p { color: var(--muted); font-size: 0.9rem; }
+.settings-foot .btns { display: flex; gap: 0.6rem; }
+
+/* ---------- Narrower screens ---------- */
+@media (max-width: 1100px) {
+  .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .sheet { grid-template-columns: 16rem minmax(0, 1fr); }
+}
+@media (max-width: 860px) {
+  :root { --gutter: 16px; --gap: 12px; }
+  .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* dump-forge's narrow header: brand + actions on one row, the tabs full width under them. */
+  .topbar-in {
+    display: grid; height: auto; gap: 10px 12px;
+    grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "brand actions" "nav nav";
+  }
+  .brand-row { grid-area: brand; }
+  .top-actions { grid-area: actions; }
+  .topbar-in > .nav { grid-area: nav; display: flex; }
+  .nav .seg-opt { -webkit-box-flex: 1; flex: 1 1 0; min-width: 0; }
+  .filters, .storage { flex-wrap: wrap; }
+  .seg-wrap { width: 100%; }
+  .chips { -webkit-box-flex: 1; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 0.3rem 0.1rem; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chips .seg-opt { padding: 0 0.8rem; }
+  .chips .seg-opt:focus { outline-offset: -0.19rem; }
+  .scrim { padding: 0; }
+  .sheet { display: block; max-height: none; border-radius: 0; overflow-y: auto; padding: 16px; }
+  .sheet-side { flex-direction: row; flex-wrap: wrap; margin-bottom: 16px; }
+  .sheet-pic { width: 40%; }
+  .sheet-side .btns { flex: 1; display: flex; flex-direction: column; gap: 0.6rem; }
+  .sheet-head { margin-bottom: 16px; }
+  .sheet-head h2 { font-size: 1.5rem; }
+  .panel { margin-bottom: 16px; }
+  .fields { grid-template-columns: 8rem minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cover .ini { font-size: 3.6rem; }
+  .stop-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .settings { padding: 16px; border-radius: 1.2rem; }
+  .row { flex-wrap: wrap; }
+  .row select { max-width: 100%; }
+  .settings-foot { flex-direction: column; align-items: stretch; }
+}
+
+/* ---------- Live state and actions ---------- */
+button:disabled { opacity: 0.5; cursor: default; }
+.banners { padding: 0 var(--gutter); }
+.banner {
+  display: none; margin: 0.8rem 0 0; padding: 0.8rem 1.1rem; border-radius: 1rem;
+  background: rgba(125, 34, 42, 0.34); color: #ffe4e4;
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-edge), var(--glass-drop); overflow-wrap: break-word;
+}
+.banner.warn { background: rgba(125, 83, 26, 0.34); color: #fff0cf; }
+.banner.ok { background: var(--glass); color: var(--fg); }
+.banner.show { display: block; }
+.banner:first-child { margin-top: 1rem; }
+.card .status-pill, .card .running-pill {
+  position: absolute; right: 0.75rem; top: 0.75rem; max-width: calc(100% - 1.5rem);
+  padding: 0.3rem 0.7rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600;
+  background: rgba(30, 30, 44, 0.5); color: #fff; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; -webkit-backdrop-filter: blur(1.6rem) saturate(230%);
+  backdrop-filter: blur(1.6rem) saturate(230%);
+  box-shadow: var(--glass-edge), 0 0.3rem 0.8rem rgba(0, 0, 0, 0.25);
+}
+.card .status-pill.s-error { background: rgba(150, 37, 51, 0.58); }
+.card .status-pill.s-duplicate { background: rgba(143, 92, 22, 0.58); }
+.card .status-pill.s-building, .card .status-pill.s-checking { background: rgba(45, 85, 168, 0.6); }
+.card .running-pill { top: 3rem; background: rgba(32, 121, 80, 0.62); }
+.card .status-pill[hidden] + .running-pill { top: 0.75rem; }
+.empty p { margin-top: 0.5rem; }
+.empty code { color: var(--fg); }
+.logbox.open { margin: 0 0 1.2rem; }
+.logbox pre {
+  display: none; max-height: 22rem; margin: 0; padding: 1rem;
+  border-radius: 1.2rem; background: rgba(20, 20, 32, 0.44); color: var(--fg-2);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-edge), var(--glass-drop); overflow: auto;
+  font: 0.8rem/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: break-word;
+}
+.logbox.open pre { display: block; }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 0 0 1.2rem; }
+.settings .banner { margin: 0 0 1.2rem; }
+.msg { min-height: 1.2em; margin-top: 0.6rem; color: var(--danger-ink); overflow-wrap: break-word; }
+.m-err { margin-top: 0.9rem; color: var(--danger-ink); overflow-wrap: break-word; }
+.m-err:empty { display: none; }
+#confirm { z-index: 20; }
+.dialog {
+  width: 100%; max-width: 34rem; max-height: 100%; overflow: auto; padding: 1.6rem;
+  border-radius: 1.6rem; background: rgba(255, 255, 255, 0.16);
+}
+.dialog h2 { margin-bottom: 0.7rem; font-size: 1.5rem; }
+.dialog p { margin-bottom: 1.4rem; color: var(--fg-2); overflow-wrap: break-word; }
+.dialog .btns { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 0.6rem; }
+@media (max-width: 600px) {
+  .brand img { width: 3rem; height: 3rem; }
+  .brand-row { gap: 0.4rem; }
+  .top-actions { gap: 0.35rem; }
+  .storage-pill { max-width: 100%; white-space: normal; height: auto; min-height: 2.85rem; flex-wrap: wrap; padding: 0.6rem 0.9rem; }
+  .dialog { max-width: none; border-radius: 1.2rem; }
+  .settings-foot .btns { flex-wrap: wrap; }
+}
+
+/* ---------- Right-to-left (Arabic): setLang() sets <html dir="rtl"> ----------
+   Flex rows, grids and text flip by themselves; these are the physical leftovers.
+   Paths, title ids and the log stay left to right, isolated from the text around them. */
+[dir="rtl"] .card { text-align: right; }
+[dir="rtl"] .badge { left: auto; right: 0.75rem; }
+[dir="rtl"] .sheet-side .badge { left: auto; right: 1rem; }
+[dir="rtl"] .card .status-pill, [dir="rtl"] .card .running-pill { right: auto; left: 0.75rem; }
+[dir="rtl"] .storage { margin-left: 0; margin-right: auto; }
+/* The L2 keycap stays on the left and R2 on the right, like the controller's triggers. */
+[dir="rtl"] .seg-wrap { flex-direction: row-reverse; }
+[dir="rtl"] .legend span:before { margin-right: 0; margin-left: 0.45rem; }
+[dir="rtl"] .fields dd.mono, [dir="rtl"] .info p, [dir="rtl"] .sheet-head p, [dir="rtl"] code,
+[dir="rtl"] .row textarea { direction: ltr; unicode-bidi: isolate; text-align: right; }
+[dir="rtl"] .row textarea, [dir="rtl"] .logbox pre { text-align: left; }
+[dir="rtl"] .logbox pre { direction: ltr; unicode-bidi: isolate; }
+
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="brand-row">
+      <h1 class="brand"><img src="/app-icon.png" alt="Kraken Mount" width="128" height="128"></h1>
+    </div>
+    <div class="seg nav glass" role="tablist" aria-label="Screens" data-i18n-aria="screens">
+      <button class="seg-opt" role="tab" id="tab-library" aria-selected="true" aria-controls="library" data-view="library" data-i18n="library">Library</button>
+      <button class="seg-opt" role="tab" id="tab-settings" aria-selected="false" aria-controls="settings" data-view="settings" data-i18n="settings">Settings</button>
+    </div>
+    <div class="top-actions">
+      <button class="small" id="stop" type="button" title="Stop Kraken Mount" data-i18n-title="stopApp">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg>
+        <span class="stop-label" data-i18n="stop">Stop</span>
+      </button>
+      <a class="gh-link button" href="https://github.com/quer3q/kraken-mount" aria-label="Kraken Mount on GitHub" title="Kraken Mount on GitHub" data-i18n-aria="github" data-i18n-title="github">
+        <svg class="icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false"><path d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.36-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A8 8 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="banners">
+  <div class="banner" id="offline" role="status">Offline: payload not running. Retrying.</div>
+  <div class="banner warn" id="lowspace" role="status"></div>
+  <div class="banner warn" id="noampr" role="status" data-i18n="noAmpr" data-args="file=libSceAmpr.sprx;dir=/data/krakenmount/ampr/" data-wrap="file=b">ampr-emu-ng is missing: put <b>libSceAmpr.sprx</b> into /data/krakenmount/ampr/. FPKG games cannot run without it.</div>
+  <div class="banner warn" id="paused" role="status"></div>
+  <div class="banner warn" id="waiting" role="status"></div>
+  <div class="banner" id="eject" role="status"></div>
+</div>
+
+<main>
+<section id="library" role="tabpanel" aria-labelledby="tab-library">
+  <div class="filters">
+    <div class="seg-wrap">
+      <button class="shoulder glass" type="button" tabindex="-1" data-step="-1" aria-label="Previous filter (L2)" data-i18n-aria="prevFilter">L2</button>
+      <div class="chips" id="chips" role="group" aria-label="Source type" data-i18n-aria="sourceType"></div>
+      <button class="shoulder glass" type="button" tabindex="-1" data-step="1" aria-label="Next filter (R2)" data-i18n-aria="nextFilter">R2</button>
+    </div>
+    <div class="storage" id="storage"></div>
+  </div>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" hidden>
+    <h2>No games found.</h2>
+    <p data-i18n="emptyCopy" data-args="pkg=.pkg;dir=/data/homebrew;usb=homebrew" data-wrap="pkg=code;dir=code;usb=code">Copy <code>.pkg</code> files or game folders to <code>/data/homebrew</code> (or <code>homebrew</code> on a USB drive), then press Rescan.</p>
+    <p data-i18n="emptyHome">Each game shows up here and on the home screen once it is registered.</p>
+  </div>
+</section>
+
+<section id="settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+  <form class="settings glass" id="sform" onsubmit="return false">
+    <h2 data-i18n="settings">Settings</h2>
+    <div class="banner warn" id="snoampr" data-i18n="sNoAmpr" data-args="file=libSceAmpr.sprx;dir=/data/krakenmount/ampr/">ampr-emu-ng (libSceAmpr.sprx) is not in /data/krakenmount/ampr/.</div>
+    <div class="settings-actions">
+      <button class="primary" id="rescan" type="button" data-i18n="rescan">Rescan</button>
+      <button id="rebuildall" type="button" data-i18n="rebuildAll">Rebuild all</button>
+      <button id="logtoggle" type="button" aria-expanded="false" aria-controls="log">Show log</button>
+    </div>
+    <div class="logbox" id="logbox"><pre id="log"></pre></div>
+    <label class="row col"><span class="lbl" data-i18n="scanPaths">Scan paths</span>
+      <span class="hint" data-i18n="scanPathsHint">One per line. Empty = default roots (/data/homebrew, /data/etaHEN/games, each drive's homebrew, etaHEN/games and root).</span>
+      <textarea id="f_scanpath" spellcheck="false"></textarea></label>
+    <label class="row"><span class="lbl" data-i18n="addEmulators">Add the bundled DLC (dlc_emu) and PlayGo (pgo_stub) emulators when a game needs them and has none</span><input type="checkbox" id="f_add_emulators"></label>
+    <label class="row"><span class="lbl" data-i18n="injectAmpr">Inject ampr-emu-ng into folder games' fakelib (pkg games always get it)</span><input type="checkbox" id="f_inject_ampr"></label>
+    <label class="row"><span class="lbl" data-i18n="amprAutoUpdate">Auto-update ampr-emu-ng (checked once at start)</span><input type="checkbox" id="f_ampr_auto_update"></label>
+    <div class="row"><span><span class="lbl" id="amprstatus">ampr-emu-ng</span><span class="hint" id="amprmsg"></span></span><button id="amprupdate" type="button" data-i18n="amprUpdateNow">Update ampr-emu-ng now</button></div>
+    <label class="row"><span class="lbl" data-i18n="backports">Apply backports</span><input type="checkbox" id="f_backports"></label>
+    <label class="row"><span class="lbl" data-i18n="scanInterval">Scan interval, seconds (1-3600)</span><input type="number" id="f_scan_interval_seconds" min="1" max="3600"></label>
+    <label class="row"><span class="lbl" data-i18n="stabilityWait">Wait for a copy to finish, seconds (0-3600, 0 = off)</span><input type="number" id="f_stability_wait_seconds" min="0" max="3600"></label>
+    <label class="row"><span class="lbl" data-i18n="autoRemoveMissing">Remove a game from the home screen when its source is missing</span><input type="checkbox" id="f_auto_remove_missing"></label>
+    <label class="row"><span class="lbl" data-i18n="autoRemoveDelay">Remove after missing for, seconds (1-86400)</span><input type="number" id="f_auto_remove_delay_seconds" min="1" max="86400"></label>
+    <label class="row"><span class="lbl" data-i18n="lowSpaceGb">Low space warning, GB</span><input type="number" id="f_low_space_gb" min="0"></label>
+    <label class="row"><span class="lbl" data-i18n="notify">System notifications</span><input type="checkbox" id="f_notify"></label>
+    <label class="row"><span class="lbl" data-i18n="writeLog">Write kraken.log (up to 1 MB)</span><input type="checkbox" id="f_log"></label>
+    <label class="row"><span class="lbl" data-i18n="debug">Debug (klog capture, file route)</span><input type="checkbox" id="f_debug"></label>
+    <label class="row"><span class="lbl" data-i18n="language">Language</span><select id="f_lang"></select></label>
+    <div class="settings-foot">
+      <div>
+        <p id="scache"></p>
+        <p id="sdrives"></p>
+        <div class="msg" id="smsg"></div>
+      </div>
+      <div class="btns">
+        <button class="danger" id="spurge" type="button" data-i18n="purgeCache">Purge cache</button>
+        <button class="primary" id="ssave" type="button" data-i18n="save">Save</button>
+      </div>
+    </div>
+  </form>
+</section>
+</main>
+
+<div class="scrim" id="modal" hidden>
+  <div class="sheet glass" role="dialog" aria-modal="true" aria-labelledby="m-name">
+    <div class="sheet-side">
+      <div class="sheet-pic" id="m-pic"></div>
+      <div class="btns">
+        <button class="danger" type="button" id="m-delete" data-i18n="delete">Delete</button>
+        <button type="button" id="m-rebuild" data-i18n="rebuildCache">Rebuild cache</button>
+      </div>
+    </div>
+    <div class="sheet-head">
+      <div>
+        <h2 id="m-name"></h2>
+        <p id="m-sub"></p>
+      </div>
+      <button class="close" type="button" id="m-close" aria-label="Close" data-i18n-aria="close">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="panel">
+      <dl class="fields" id="m-fields"></dl>
+      <div class="m-err" id="m-err"></div>
+    </div>
+    <div class="storage-line">
+      <h3 data-i18n="storage">Storage</h3>
+      <div class="stack" id="m-stack"></div>
+      <div class="legend" id="m-legend"></div>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="confirm" hidden>
+  <div class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="ctitle">
+    <h2 id="ctitle"></h2>
+    <p id="ctext"></p>
+    <div class="btns">
+      <button id="cno" type="button" data-i18n="cancel">Cancel</button>
+      <button id="cyes" class="danger" type="button"></button>
+    </div>
+  </div>
+</div>
+<script>
+'use strict';
+var $ = function (id) { return document.getElementById(id); };
+
+// ---- i18n: English is the source and the fallback; t(key, args) fills {name} from args ----
+// Stays as it is in every language: Kraken Mount, paths, file names, title ids, versions,
+// L2/R2, PKG/LZ4/ZSTD, ampr-emu-ng, GB/MB. A key missing in a language falls back to `en`.
+// To add a translation: fill its object below with the same keys (all keys are in `en`).
+var MSG = {
+  en: {
+    // Header, tabs, banners
+    screens: 'Screens', library: 'Library', settings: 'Settings',
+    stopApp: 'Stop Kraken Mount', stop: 'Stop', github: 'Kraken Mount on GitHub',
+    offline: 'Offline: payload not running. Retrying.',
+    starting: 'Starting Kraken Mount...',
+    elfMissing: 'kraken-mount.elf is not saved yet: send the ELF to port 9021 once.',
+    noAmpr: 'ampr-emu-ng is missing: put {file} into {dir}. FPKG games cannot run without it.',
+    lowSpace: 'Low space on the internal SSD: {free} free. Cache builds may fail.',
+    paused: 'Game running ({games}), scan paused; requests run after it exits.',
+    queued: 'Your request is queued.',
+    stopBusy: 'A game is running: close it first, then stop Kraken Mount.',
+    waitKstuff: 'Waiting for kstuff: it is not running yet. Games appear once it starts.', waitSmp: 'ShadowMount+ is running: stop it to use Kraken Mount. Games appear once it stops.',
+    stopped: 'Kraken Mount stopped. Open the Kraken Mount tile to start it again.',
+    // Library: filters, drives, cards, empty state, log
+    prevFilter: 'Previous filter (L2)', nextFilter: 'Next filter (R2)', sourceType: 'Source type',
+    kindAll: 'All', kindFolders: 'Folders', badgeFolder: 'Folder',
+    driveInternal: 'Internal', driveUsb: 'USB {n}', driveExt: 'Extended {n}',
+    driveFree: 'free {free} of {total}',
+    eject: 'Unmount', ejecting: 'Unmounting...', ejectAria: 'Unmount {drive}', ejectTitle: 'Unmount {drive}?',
+    ejectText: 'Keep the drive connected until this finishes. Games on it leave the library.', ejected: '{drive} unmounted. You can disconnect it now.', ejectFailed: 'Could not unmount {drive}: {reason}',
+    stPending: 'Pending', stChecking: 'Checking', stBuilding: 'Building', stReady: 'Ready',
+    stError: 'Error', stDuplicate: 'Duplicate', running: 'Running',
+    statusRunning: '{status} · running',
+    cardAria: '{name}, {type}, {status}', cardAriaRunning: '{name}, {type}, {status}, running',
+    noGames: 'No games found.', noGamesType: 'No games of this type.',
+    emptyCopy: 'Copy {pkg} files or game folders to {dir} (or {usb} on a USB drive), then press Rescan.',
+    emptyHome: 'Each game shows up here and on the home screen once it is registered.',
+    showLog: 'Show log', hideLog: 'Hide log',
+    // Game sheet
+    delete: 'Delete', rebuildCache: 'Rebuild cache', close: 'Close', storage: 'Storage',
+    fTitleId: 'Title ID', fVersion: 'Version', fStatus: 'Status', fType: 'Type', fDrive: 'Drive',
+    fPath: 'Path', fCachePath: 'Cache path', fCacheSize: 'Cache size', fCacheBuilt: 'Cache built',
+    fBackport: 'Backport', yes: 'Yes', no: 'No', notBuilt: 'not built',
+    szGame: 'Game', szDlc: 'DLC', szSave: 'Save', szCache: 'Cache',
+    szPart: '{part} {size}', szNa: '{part} n/a', szTotal: 'Total {size}',
+    sizesNone: 'Sizes unavailable', sizesLoading: 'Loading sizes...',
+    sizesDup: 'Duplicate copy: sizes are shown on the library copy.',
+    // Dialogs
+    cancel: 'Cancel',
+    rebuildTitle: 'Rebuild the cache of {name}?',
+    rebuildText: 'The cache will be built again. The game is unavailable until it finishes.',
+    rebuildYes: 'Rebuild',
+    deleteTitle: 'Delete {name}?',
+    deletePkg: 'The .pkg file and its cache will be deleted from the drive: {path}. This cannot be undone.',
+    deleteFolder: 'The game folder and its cache will be deleted from the drive: {path}. This cannot be undone.',
+    stopTitle: 'Stop Kraken Mount?',
+    stopText: 'Games stay registered. Open the Kraken Mount tile to start it again.',
+    stopYes: 'Stop',
+    rebuildAllTitle: 'Rebuild all caches?',
+    rebuildAllText: 'Every game cache is emptied and built again. Games are unavailable while they rebuild.',
+    purgeTitle: 'Purge cache?',
+    purgeText: 'Deletes the caches of games no longer in the library and empties and rebuilds all others ({size} now). Games are unavailable while they rebuild.',
+    purgeYes: 'Purge',
+    // Settings
+    sNoAmpr: 'ampr-emu-ng ({file}) is not in {dir}.',
+    rescan: 'Rescan', rebuildAll: 'Rebuild all',
+    scanPaths: 'Scan paths',
+    scanPathsHint: "One per line. Empty = default roots (/data/homebrew, /data/etaHEN/games, each drive's homebrew, etaHEN/games and root).",
+    addEmulators: 'Add the bundled DLC (dlc_emu) and PlayGo (pgo_stub) emulators when a game needs them and has none',
+    injectAmpr: "Inject ampr-emu-ng into folder games' fakelib (pkg games always get it)",
+    amprAutoUpdate: 'Auto-update ampr-emu-ng (checked once at start)',
+    amprUpdateNow: "Update ampr-emu-ng now",
+    amprUpdating: "Updating ampr-emu-ng...",
+    amprBundled: "bundled",
+    amprDownloaded: "downloaded",
+    amprHand: "hand-placed",
+    amprMissing: "not installed",
+    amprReplaceTitle: "Replace the hand-placed ampr-emu-ng?",
+    amprReplaceText: "The latest release replaces it. Your file is moved to {backup}.",
+    amprReplaceYes: "Replace",
+    backports: 'Apply backports',
+    scanInterval: 'Scan interval, seconds (1-3600)',
+    stabilityWait: 'Wait for a copy to finish, seconds (0-3600, 0 = off)',
+    autoRemoveMissing: 'Remove a game from the home screen when its source is missing',
+    autoRemoveDelay: 'Remove after missing for, seconds (1-86400)',
+    lowSpaceGb: 'Low space warning, GB',
+    notify: 'System notifications',
+    writeLog: 'Write kraken.log (up to 1 MB)',
+    debug: 'Debug (klog capture, file route)',
+    language: 'Language', system: 'System',
+    purgeCache: 'Purge cache', save: 'Save',
+    cacheInfo: 'Cache: {size} in {path}, {free} free on the internal SSD.',
+    driveInfo: '{drive}: {free} free of {total}',
+    loading: 'Loading...', saving: 'Saving...', saved: 'Saved.',
+    loadFailed: 'Could not load settings: {error}. Close and reopen to retry; Save is off.',
+    saveFailed: 'Save failed: {error}'
+  },
+  ru: {
+    screens: 'Разделы', library: 'Библиотека', settings: 'Настройки',
+    stopApp: 'Остановить Kraken Mount', stop: 'Остановить', github: 'Kraken Mount на GitHub',
+    offline: 'Нет связи: payload не запущен. Повтор.',
+    starting: 'Запуск Kraken Mount...',
+    elfMissing: 'kraken-mount.elf ещё не сохранён: один раз отправьте ELF на порт 9021.',
+    noAmpr: 'Нет ampr-emu-ng: положите {file} в {dir}. Без него игры FPKG не запустятся.',
+    lowSpace: 'Мало места на внутреннем SSD: свободно {free}. Сборка кеша может не удаться.',
+    paused: 'Идёт игра ({games}), сканирование на паузе; запросы выполнятся после её закрытия.',
+    queued: 'Запрос в очереди.',
+    stopBusy: 'Идёт игра: сначала закройте её, затем остановите Kraken Mount.',
+    waitKstuff: 'Ожидание kstuff: он ещё не запущен. Игры появятся после его запуска.', waitSmp: 'Запущен ShadowMount+: остановите его, чтобы использовать Kraken Mount. Игры появятся после его остановки.',
+    stopped: 'Kraken Mount остановлен. Чтобы запустить его снова, откройте плитку Kraken Mount.',
+    prevFilter: 'Предыдущий фильтр (L2)', nextFilter: 'Следующий фильтр (R2)', sourceType: 'Тип источника',
+    kindAll: 'Все', kindFolders: 'Папки', badgeFolder: 'Папка',
+    driveInternal: 'Внутренний', driveUsb: 'USB {n}', driveExt: 'Расширенный {n}',
+    driveFree: 'свободно {free} из {total}',
+    eject: 'Размонтировать', ejecting: 'Размонтирование...', ejectAria: 'Размонтировать {drive}', ejectTitle: 'Размонтировать {drive}?',
+    ejectText: 'Не отключайте накопитель, пока операция не завершится. Игры с него пропадут из библиотеки.', ejected: '{drive} размонтирован. Теперь его можно отключить.', ejectFailed: 'Не удалось размонтировать {drive}: {reason}',
+    stPending: 'Ожидает', stChecking: 'Проверка', stBuilding: 'Сборка', stReady: 'Готово',
+    stError: 'Ошибка', stDuplicate: 'Дубликат', running: 'Запущена',
+    statusRunning: '{status} · запущена',
+    cardAria: '{name}, {type}, {status}', cardAriaRunning: '{name}, {type}, {status}, запущена',
+    noGames: 'Игры не найдены.', noGamesType: 'Нет игр этого типа.',
+    emptyCopy: 'Скопируйте файлы {pkg} или папки игр в {dir} (или в {usb} на USB-накопителе), затем нажмите «Пересканировать».',
+    emptyHome: 'Каждая игра появится здесь и на главном экране после регистрации.',
+    showLog: 'Показать журнал', hideLog: 'Скрыть журнал',
+    delete: 'Удалить', rebuildCache: 'Пересобрать кеш', close: 'Закрыть', storage: 'Хранилище',
+    fTitleId: 'Title ID', fVersion: 'Версия', fStatus: 'Статус', fType: 'Тип', fDrive: 'Накопитель',
+    fPath: 'Путь', fCachePath: 'Путь кеша', fCacheSize: 'Размер кеша', fCacheBuilt: 'Кеш собран',
+    fBackport: 'Бэкпорт', yes: 'Да', no: 'Нет', notBuilt: 'не собран',
+    szGame: 'Игра', szDlc: 'DLC', szSave: 'Сохранения', szCache: 'Кеш',
+    szPart: '{part} {size}', szNa: '{part} н/д', szTotal: 'Всего {size}',
+    sizesNone: 'Размеры недоступны', sizesLoading: 'Загрузка размеров...',
+    sizesDup: 'Дубликат: размеры показаны у копии в библиотеке.',
+    cancel: 'Отмена',
+    rebuildTitle: 'Пересобрать кеш {name}?',
+    rebuildText: 'Кеш будет собран заново. Пока сборка не закончится, игра недоступна.',
+    rebuildYes: 'Пересобрать',
+    deleteTitle: 'Удалить {name}?',
+    deletePkg: 'Файл .pkg и его кеш будут удалены с накопителя: {path}. Это нельзя отменить.',
+    deleteFolder: 'Папка игры и её кеш будут удалены с накопителя: {path}. Это нельзя отменить.',
+    stopTitle: 'Остановить Kraken Mount?',
+    stopText: 'Игры останутся зарегистрированными. Чтобы запустить его снова, откройте плитку Kraken Mount.',
+    stopYes: 'Остановить',
+    rebuildAllTitle: 'Пересобрать все кеши?',
+    rebuildAllText: 'Кеш каждой игры будет очищен и собран заново. Пока идёт сборка, игры недоступны.',
+    purgeTitle: 'Очистить кеш?',
+    purgeText: 'Удаляет кеши игр, которых больше нет в библиотеке, а остальные очищает и собирает заново (сейчас {size}). Пока идёт сборка, игры недоступны.',
+    purgeYes: 'Очистить',
+    sNoAmpr: 'ampr-emu-ng ({file}) нет в {dir}.',
+    rescan: 'Пересканировать', rebuildAll: 'Пересобрать все',
+    scanPaths: 'Пути сканирования',
+    scanPathsHint: 'По одному на строку. Пусто = корни по умолчанию (/data/homebrew, /data/etaHEN/games, на каждом накопителе homebrew, etaHEN/games и корень).',
+    addEmulators: 'Добавлять встроенные эмуляторы DLC (dlc_emu) и PlayGo (pgo_stub), если они нужны игре и у неё их нет',
+    injectAmpr: 'Внедрять ampr-emu-ng в fakelib игр-папок (pkg-игры получают его всегда)',
+    amprAutoUpdate: 'Автообновление ampr-emu-ng (проверка один раз при запуске)',
+    amprUpdateNow: "Обновить ampr-emu-ng сейчас",
+    amprUpdating: "Обновление ampr-emu-ng...",
+    amprBundled: "встроенный",
+    amprDownloaded: "загруженный",
+    amprHand: "положен вручную",
+    amprMissing: "не установлен",
+    amprReplaceTitle: "Заменить ampr-emu-ng, положенный вручную?",
+    amprReplaceText: "Его заменит последний релиз. Ваш файл будет перемещён в {backup}.",
+    amprReplaceYes: "Заменить",
+    backports: 'Применять бэкпорты',
+    scanInterval: 'Интервал сканирования, секунды (1-3600)',
+    stabilityWait: 'Ждать окончания копирования, секунды (0-3600, 0 = выкл.)',
+    autoRemoveMissing: 'Убирать игру с главного экрана, если её источник пропал',
+    autoRemoveDelay: 'Убирать после отсутствия в течение, секунды (1-86400)',
+    lowSpaceGb: 'Предупреждать о нехватке места, GB',
+    notify: 'Системные уведомления',
+    writeLog: 'Писать kraken.log (до 1 MB)',
+    debug: 'Отладка (захват klog, маршрут файлов)',
+    language: 'Язык', system: 'Как в системе',
+    purgeCache: 'Очистить кеш', save: 'Сохранить',
+    cacheInfo: 'Кеш: {size} в {path}, свободно {free} на внутреннем SSD.',
+    driveInfo: '{drive}: свободно {free} из {total}',
+    loading: 'Загрузка...', saving: 'Сохранение...', saved: 'Сохранено.',
+    loadFailed: 'Не удалось загрузить настройки: {error}. Закройте и откройте снова; сохранение отключено.',
+    saveFailed: 'Не удалось сохранить: {error}'
+  },
+  zh: {
+    screens: '页面', library: '游戏库', settings: '设置',
+    stopApp: '停止 Kraken Mount', stop: '停止', github: 'GitHub 上的 Kraken Mount',
+    offline: '离线：payload 未运行。正在重试。',
+    starting: '正在启动 Kraken Mount...',
+    elfMissing: 'kraken-mount.elf 尚未保存：请将 ELF 发送到端口 9021 一次。',
+    noAmpr: '缺少 ampr-emu-ng：请将 {file} 放入 {dir}。没有它 FPKG 游戏无法运行。',
+    lowSpace: '内部 SSD 空间不足：可用 {free}。缓存构建可能失败。',
+    paused: '游戏运行中 ({games})，扫描已暂停；请求将在游戏退出后执行。',
+    queued: '你的请求已排队。',
+    stopBusy: '有游戏正在运行：请先关闭游戏，再停止 Kraken Mount。',
+    waitKstuff: '正在等待 kstuff：它尚未运行。启动后游戏将会显示。', waitSmp: 'ShadowMount+ 正在运行：请停止它以使用 Kraken Mount。停止后游戏将会显示。',
+    stopped: 'Kraken Mount 已停止。打开 Kraken Mount 磁贴即可再次启动。',
+    prevFilter: '上一个筛选 (L2)', nextFilter: '下一个筛选 (R2)', sourceType: '来源类型',
+    kindAll: '全部', kindFolders: '文件夹', badgeFolder: '文件夹',
+    driveInternal: '内部', driveUsb: 'USB {n}', driveExt: '扩展 {n}',
+    driveFree: '可用 {free}，共 {total}',
+    eject: '弹出', ejecting: '正在弹出...', ejectAria: '弹出 {drive}', ejectTitle: '弹出 {drive}？',
+    ejectText: '完成前请保持驱动器连接。其中的游戏将从游戏库中移除。', ejected: '{drive} 已弹出，现在可以断开连接。', ejectFailed: '无法弹出 {drive}：{reason}',
+    stPending: '等待中', stChecking: '检查中', stBuilding: '构建中', stReady: '就绪',
+    stError: '错误', stDuplicate: '重复', running: '运行中',
+    statusRunning: '{status} · 运行中',
+    cardAria: '{name}，{type}，{status}', cardAriaRunning: '{name}，{type}，{status}，运行中',
+    noGames: '未找到游戏。', noGamesType: '没有此类型的游戏。',
+    emptyCopy: '将 {pkg} 文件或游戏文件夹复制到 {dir}（或 USB 驱动器上的 {usb}），然后按“重新扫描”。',
+    emptyHome: '每个游戏注册后都会显示在这里和主屏幕上。',
+    showLog: '显示日志', hideLog: '隐藏日志',
+    delete: '删除', rebuildCache: '重建缓存', close: '关闭', storage: '存储',
+    fTitleId: 'Title ID', fVersion: '版本', fStatus: '状态', fType: '类型', fDrive: '驱动器',
+    fPath: '路径', fCachePath: '缓存路径', fCacheSize: '缓存大小', fCacheBuilt: '缓存构建时间',
+    fBackport: '向下移植', yes: '是', no: '否', notBuilt: '未构建',
+    szGame: '游戏', szDlc: 'DLC', szSave: '存档', szCache: '缓存',
+    szPart: '{part} {size}', szNa: '{part} 不可用', szTotal: '总计 {size}',
+    sizesNone: '大小不可用', sizesLoading: '正在加载大小...',
+    sizesDup: '重复副本：大小显示在游戏库中的副本上。',
+    cancel: '取消',
+    rebuildTitle: '重建 {name} 的缓存？',
+    rebuildText: '缓存将重新构建。完成前游戏不可用。',
+    rebuildYes: '重建',
+    deleteTitle: '删除 {name}？',
+    deletePkg: '将从驱动器删除 .pkg 文件及其缓存：{path}。此操作无法撤销。',
+    deleteFolder: '将从驱动器删除游戏文件夹及其缓存：{path}。此操作无法撤销。',
+    stopTitle: '停止 Kraken Mount？',
+    stopText: '游戏将保持注册。打开 Kraken Mount 磁贴即可再次启动。',
+    stopYes: '停止',
+    rebuildAllTitle: '重建所有缓存？',
+    rebuildAllText: '每个游戏的缓存都会清空并重新构建。重建期间游戏不可用。',
+    purgeTitle: '清除缓存？',
+    purgeText: '删除已不在游戏库中的游戏的缓存，并清空和重建其他所有缓存（当前 {size}）。重建期间游戏不可用。',
+    purgeYes: '清除',
+    sNoAmpr: '{dir} 中没有 ampr-emu-ng ({file})。',
+    rescan: '重新扫描', rebuildAll: '全部重建',
+    scanPaths: '扫描路径',
+    scanPathsHint: '每行一个。留空 = 默认根目录（/data/homebrew、/data/etaHEN/games，以及每个驱动器的 homebrew、etaHEN/games 和根目录）。',
+    addEmulators: '当游戏需要且自身没有时，添加内置的 DLC (dlc_emu) 和 PlayGo (pgo_stub) 模拟器',
+    injectAmpr: '将 ampr-emu-ng 注入文件夹游戏的 fakelib（pkg 游戏始终注入）',
+    amprAutoUpdate: '自动更新 ampr-emu-ng（启动时检查一次）',
+    amprUpdateNow: "立即更新 ampr-emu-ng",
+    amprUpdating: "正在更新 ampr-emu-ng...",
+    amprBundled: "内置",
+    amprDownloaded: "已下载",
+    amprHand: "手动放置",
+    amprMissing: "未安装",
+    amprReplaceTitle: "替换手动放置的 ampr-emu-ng？",
+    amprReplaceText: "将由最新版本替换。你的文件会移动到 {backup}。",
+    amprReplaceYes: "替换",
+    backports: '应用向下移植',
+    scanInterval: '扫描间隔，秒 (1-3600)',
+    stabilityWait: '等待复制完成，秒 (0-3600，0 = 关闭)',
+    autoRemoveMissing: '来源缺失时从主屏幕移除游戏',
+    autoRemoveDelay: '缺失多久后移除，秒 (1-86400)',
+    lowSpaceGb: '空间不足警告，GB',
+    notify: '系统通知',
+    writeLog: '写入 kraken.log（最多 1 MB）',
+    debug: '调试（klog 捕获、文件路由）',
+    language: '语言', system: '跟随系统',
+    purgeCache: '清除缓存', save: '保存',
+    cacheInfo: '缓存：{size}，位于 {path}，内部 SSD 可用 {free}。',
+    driveInfo: '{drive}：可用 {free}，共 {total}',
+    loading: '正在加载...', saving: '正在保存...', saved: '已保存。',
+    loadFailed: '无法加载设置：{error}。请关闭后重新打开以重试；保存已停用。',
+    saveFailed: '保存失败：{error}'
+  },
+  de: {
+    screens: 'Bereiche', library: 'Bibliothek', settings: 'Einstellungen',
+    stopApp: 'Kraken Mount beenden', stop: 'Beenden', github: 'Kraken Mount auf GitHub',
+    offline: 'Offline: Payload läuft nicht. Wird erneut versucht.',
+    starting: 'Kraken Mount wird gestartet...',
+    elfMissing: 'kraken-mount.elf ist noch nicht gespeichert: Senden Sie die ELF einmal an Port 9021.',
+    noAmpr: 'ampr-emu-ng fehlt: Legen Sie {file} in {dir} ab. Ohne sie laufen FPKG-Spiele nicht.',
+    lowSpace: 'Wenig Platz auf der internen SSD: {free} frei. Cache-Builds können fehlschlagen.',
+    paused: 'Spiel läuft ({games}), Scan pausiert; Anfragen laufen, sobald es beendet ist.',
+    queued: 'Ihre Anfrage wartet in der Warteschlange.',
+    stopBusy: 'Ein Spiel läuft: Schließen Sie es zuerst und beenden Sie dann Kraken Mount.',
+    waitKstuff: 'Warte auf kstuff: Es läuft noch nicht. Die Spiele erscheinen, sobald es startet.', waitSmp: 'ShadowMount+ läuft: Beenden Sie es, um Kraken Mount zu nutzen. Die Spiele erscheinen, sobald es beendet ist.',
+    stopped: 'Kraken Mount wurde beendet. Öffnen Sie die Kachel Kraken Mount, um es erneut zu starten.',
+    prevFilter: 'Vorheriger Filter (L2)', nextFilter: 'Nächster Filter (R2)', sourceType: 'Quelltyp',
+    kindAll: 'Alle', kindFolders: 'Ordner', badgeFolder: 'Ordner',
+    driveInternal: 'Intern', driveUsb: 'USB {n}', driveExt: 'Erweitert {n}',
+    driveFree: '{free} von {total} frei',
+    eject: 'Aushängen', ejecting: 'Wird ausgehängt...', ejectAria: '{drive} aushängen', ejectTitle: '{drive} aushängen?',
+    ejectText: 'Lassen Sie das Laufwerk angeschlossen, bis der Vorgang abgeschlossen ist. Die Spiele darauf verschwinden aus der Bibliothek.', ejected: '{drive} ausgehängt. Sie können es jetzt trennen.', ejectFailed: '{drive} konnte nicht ausgehängt werden: {reason}',
+    stPending: 'Ausstehend', stChecking: 'Wird geprüft', stBuilding: 'Wird erstellt', stReady: 'Bereit',
+    stError: 'Fehler', stDuplicate: 'Duplikat', running: 'Läuft',
+    statusRunning: '{status} · läuft',
+    cardAria: '{name}, {type}, {status}', cardAriaRunning: '{name}, {type}, {status}, läuft',
+    noGames: 'Keine Spiele gefunden.', noGamesType: 'Keine Spiele dieses Typs.',
+    emptyCopy: 'Kopieren Sie {pkg}-Dateien oder Spielordner nach {dir} (oder {usb} auf einem USB-Laufwerk) und drücken Sie dann „Neu scannen“.',
+    emptyHome: 'Jedes Spiel erscheint hier und auf dem Startbildschirm, sobald es registriert ist.',
+    showLog: 'Protokoll anzeigen', hideLog: 'Protokoll ausblenden',
+    delete: 'Löschen', rebuildCache: 'Cache neu erstellen', close: 'Schließen', storage: 'Speicher',
+    fTitleId: 'Title ID', fVersion: 'Version', fStatus: 'Status', fType: 'Typ', fDrive: 'Laufwerk',
+    fPath: 'Pfad', fCachePath: 'Cache-Pfad', fCacheSize: 'Cache-Größe', fCacheBuilt: 'Cache erstellt',
+    fBackport: 'Backport', yes: 'Ja', no: 'Nein', notBuilt: 'nicht erstellt',
+    szGame: 'Spiel', szDlc: 'DLC', szSave: 'Spielstand', szCache: 'Cache',
+    szPart: '{part} {size}', szNa: '{part} k. A.', szTotal: 'Gesamt {size}',
+    sizesNone: 'Größen nicht verfügbar', sizesLoading: 'Größen werden geladen...',
+    sizesDup: 'Doppelte Kopie: Die Größen stehen bei der Kopie in der Bibliothek.',
+    cancel: 'Abbrechen',
+    rebuildTitle: 'Cache von {name} neu erstellen?',
+    rebuildText: 'Der Cache wird neu erstellt. Bis dahin ist das Spiel nicht verfügbar.',
+    rebuildYes: 'Neu erstellen',
+    deleteTitle: '{name} löschen?',
+    deletePkg: 'Die .pkg-Datei und ihr Cache werden vom Laufwerk gelöscht: {path}. Das lässt sich nicht rückgängig machen.',
+    deleteFolder: 'Der Spielordner und sein Cache werden vom Laufwerk gelöscht: {path}. Das lässt sich nicht rückgängig machen.',
+    stopTitle: 'Kraken Mount beenden?',
+    stopText: 'Die Spiele bleiben registriert. Öffnen Sie die Kachel Kraken Mount, um es erneut zu starten.',
+    stopYes: 'Beenden',
+    rebuildAllTitle: 'Alle Caches neu erstellen?',
+    rebuildAllText: 'Jeder Spiel-Cache wird geleert und neu erstellt. Währenddessen sind die Spiele nicht verfügbar.',
+    purgeTitle: 'Cache bereinigen?',
+    purgeText: 'Löscht die Caches von Spielen, die nicht mehr in der Bibliothek sind, und leert und erstellt alle anderen neu (derzeit {size}). Währenddessen sind die Spiele nicht verfügbar.',
+    purgeYes: 'Bereinigen',
+    sNoAmpr: 'ampr-emu-ng ({file}) ist nicht in {dir}.',
+    rescan: 'Neu scannen', rebuildAll: 'Alle neu erstellen',
+    scanPaths: 'Scan-Pfade',
+    scanPathsHint: 'Einer pro Zeile. Leer = Standardorte (/data/homebrew, /data/etaHEN/games, auf jedem Laufwerk homebrew, etaHEN/games und das Stammverzeichnis).',
+    addEmulators: 'Mitgelieferte DLC- (dlc_emu) und PlayGo-Emulatoren (pgo_stub) hinzufügen, wenn ein Spiel sie braucht und keine hat',
+    injectAmpr: 'ampr-emu-ng in die fakelib von Ordner-Spielen einfügen (pkg-Spiele erhalten es immer)',
+    amprAutoUpdate: 'ampr-emu-ng automatisch aktualisieren (einmal beim Start geprüft)',
+    amprUpdateNow: "ampr-emu-ng jetzt aktualisieren",
+    amprUpdating: "ampr-emu-ng wird aktualisiert...",
+    amprBundled: "mitgeliefert",
+    amprDownloaded: "heruntergeladen",
+    amprHand: "von Hand abgelegt",
+    amprMissing: "nicht installiert",
+    amprReplaceTitle: "Von Hand abgelegtes ampr-emu-ng ersetzen?",
+    amprReplaceText: "Die neueste Version ersetzt es. Deine Datei wird nach {backup} verschoben.",
+    amprReplaceYes: "Ersetzen",
+    backports: 'Backports anwenden',
+    scanInterval: 'Scan-Intervall, Sekunden (1-3600)',
+    stabilityWait: 'Auf Ende des Kopierens warten, Sekunden (0-3600, 0 = aus)',
+    autoRemoveMissing: 'Spiel vom Startbildschirm entfernen, wenn seine Quelle fehlt',
+    autoRemoveDelay: 'Entfernen nach Fehlen von, Sekunden (1-86400)',
+    lowSpaceGb: 'Warnung bei wenig Platz, GB',
+    notify: 'Systembenachrichtigungen',
+    writeLog: 'kraken.log schreiben (bis 1 MB)',
+    debug: 'Debug (klog-Mitschnitt, Dateiroute)',
+    language: 'Sprache', system: 'System',
+    purgeCache: 'Cache bereinigen', save: 'Speichern',
+    cacheInfo: 'Cache: {size} in {path}, {free} frei auf der internen SSD.',
+    driveInfo: '{drive}: {free} von {total} frei',
+    loading: 'Wird geladen...', saving: 'Wird gespeichert...', saved: 'Gespeichert.',
+    loadFailed: 'Einstellungen konnten nicht geladen werden: {error}. Schließen und erneut öffnen; Speichern ist aus.',
+    saveFailed: 'Speichern fehlgeschlagen: {error}'
+  },
+  es: {
+    screens: 'Pantallas', library: 'Biblioteca', settings: 'Ajustes',
+    stopApp: 'Detener Kraken Mount', stop: 'Detener', github: 'Kraken Mount en GitHub',
+    offline: 'Sin conexión: el payload no se está ejecutando. Reintentando.',
+    starting: 'Iniciando Kraken Mount...',
+    elfMissing: 'kraken-mount.elf aún no está guardado: envía el ELF al puerto 9021 una vez.',
+    noAmpr: 'Falta ampr-emu-ng: pon {file} en {dir}. Sin él, los juegos FPKG no funcionan.',
+    lowSpace: 'Poco espacio en el SSD interno: {free} libres. La creación de cachés puede fallar.',
+    paused: 'Juego en curso ({games}), escaneo en pausa; las solicitudes se ejecutan cuando se cierre.',
+    queued: 'Tu solicitud está en cola.',
+    stopBusy: 'Hay un juego en curso: ciérralo primero y luego detén Kraken Mount.',
+    waitKstuff: 'Esperando a kstuff: aún no se está ejecutando. Los juegos aparecerán cuando se inicie.', waitSmp: 'ShadowMount+ está en ejecución: detenlo para usar Kraken Mount. Los juegos aparecerán cuando se detenga.',
+    stopped: 'Kraken Mount se ha detenido. Abre el icono de Kraken Mount para iniciarlo de nuevo.',
+    prevFilter: 'Filtro anterior (L2)', nextFilter: 'Filtro siguiente (R2)', sourceType: 'Tipo de origen',
+    kindAll: 'Todos', kindFolders: 'Carpetas', badgeFolder: 'Carpeta',
+    driveInternal: 'Interno', driveUsb: 'USB {n}', driveExt: 'Ampliado {n}',
+    driveFree: 'libre: {free} de {total}',
+    eject: 'Desmontar', ejecting: 'Desmontando...', ejectAria: 'Desmontar {drive}', ejectTitle: '¿Desmontar {drive}?',
+    ejectText: 'Mantén la unidad conectada hasta que termine. Sus juegos saldrán de la biblioteca.', ejected: '{drive} se desmontó. Ya puedes desconectar la unidad.', ejectFailed: 'No se pudo desmontar {drive}: {reason}',
+    stPending: 'Pendiente', stChecking: 'Comprobando', stBuilding: 'Creando', stReady: 'Listo',
+    stError: 'Error', stDuplicate: 'Duplicado', running: 'En curso',
+    statusRunning: '{status} · en curso',
+    cardAria: '{name}, {type}, {status}', cardAriaRunning: '{name}, {type}, {status}, en curso',
+    noGames: 'No se encontraron juegos.', noGamesType: 'No hay juegos de este tipo.',
+    emptyCopy: 'Copia archivos {pkg} o carpetas de juegos en {dir} (o en {usb} en una unidad USB) y pulsa Volver a escanear.',
+    emptyHome: 'Cada juego aparece aquí y en la pantalla de inicio cuando se registra.',
+    showLog: 'Mostrar registro', hideLog: 'Ocultar registro',
+    delete: 'Eliminar', rebuildCache: 'Recrear caché', close: 'Cerrar', storage: 'Almacenamiento',
+    fTitleId: 'Title ID', fVersion: 'Versión', fStatus: 'Estado', fType: 'Tipo', fDrive: 'Unidad',
+    fPath: 'Ruta', fCachePath: 'Ruta de caché', fCacheSize: 'Tamaño de caché', fCacheBuilt: 'Caché creada',
+    fBackport: 'Backport', yes: 'Sí', no: 'No', notBuilt: 'sin crear',
+    szGame: 'Juego', szDlc: 'DLC', szSave: 'Partidas', szCache: 'Caché',
+    szPart: '{part} {size}', szNa: '{part} n/d', szTotal: 'Total {size}',
+    sizesNone: 'Tamaños no disponibles', sizesLoading: 'Cargando tamaños...',
+    sizesDup: 'Copia duplicada: los tamaños se muestran en la copia de la biblioteca.',
+    cancel: 'Cancelar',
+    rebuildTitle: '¿Recrear la caché de {name}?',
+    rebuildText: 'La caché se creará de nuevo. El juego no estará disponible hasta que termine.',
+    rebuildYes: 'Recrear',
+    deleteTitle: '¿Eliminar {name}?',
+    deletePkg: 'El archivo .pkg y su caché se eliminarán de la unidad: {path}. No se puede deshacer.',
+    deleteFolder: 'La carpeta del juego y su caché se eliminarán de la unidad: {path}. No se puede deshacer.',
+    stopTitle: '¿Detener Kraken Mount?',
+    stopText: 'Los juegos siguen registrados. Abre el icono de Kraken Mount para iniciarlo de nuevo.',
+    stopYes: 'Detener',
+    rebuildAllTitle: '¿Recrear todas las cachés?',
+    rebuildAllText: 'La caché de cada juego se vacía y se crea de nuevo. Los juegos no están disponibles mientras tanto.',
+    purgeTitle: '¿Purgar la caché?',
+    purgeText: 'Elimina las cachés de los juegos que ya no están en la biblioteca y vacía y recrea todas las demás ({size} ahora). Los juegos no están disponibles mientras tanto.',
+    purgeYes: 'Purgar',
+    sNoAmpr: 'ampr-emu-ng ({file}) no está en {dir}.',
+    rescan: 'Volver a escanear', rebuildAll: 'Recrear todo',
+    scanPaths: 'Rutas de escaneo',
+    scanPathsHint: 'Una por línea. Vacío = raíces predeterminadas (/data/homebrew, /data/etaHEN/games y, en cada unidad, homebrew, etaHEN/games y la raíz).',
+    addEmulators: 'Añadir los emuladores incluidos de DLC (dlc_emu) y PlayGo (pgo_stub) cuando un juego los necesita y no los trae',
+    injectAmpr: 'Inyectar ampr-emu-ng en la fakelib de los juegos en carpeta (los juegos pkg siempre lo reciben)',
+    amprAutoUpdate: 'Actualizar ampr-emu-ng automáticamente (se comprueba una vez al iniciar)',
+    amprUpdateNow: "Actualizar ampr-emu-ng ahora",
+    amprUpdating: "Actualizando ampr-emu-ng...",
+    amprBundled: "incluido",
+    amprDownloaded: "descargado",
+    amprHand: "colocado a mano",
+    amprMissing: "no instalado",
+    amprReplaceTitle: "¿Reemplazar el ampr-emu-ng colocado a mano?",
+    amprReplaceText: "La última versión lo reemplaza. Tu archivo se mueve a {backup}.",
+    amprReplaceYes: "Reemplazar",
+    backports: 'Aplicar backports',
+    scanInterval: 'Intervalo de escaneo, segundos (1-3600)',
+    stabilityWait: 'Esperar a que termine la copia, segundos (0-3600, 0 = desactivado)',
+    autoRemoveMissing: 'Quitar un juego de la pantalla de inicio si falta su origen',
+    autoRemoveDelay: 'Quitar tras faltar durante, segundos (1-86400)',
+    lowSpaceGb: 'Aviso de poco espacio, GB',
+    notify: 'Notificaciones del sistema',
+    writeLog: 'Escribir kraken.log (hasta 1 MB)',
+    debug: 'Depuración (captura de klog, ruta de archivos)',
+    language: 'Idioma', system: 'Sistema',
+    purgeCache: 'Purgar caché', save: 'Guardar',
+    cacheInfo: 'Caché: {size} en {path}, {free} libres en el SSD interno.',
+    driveInfo: '{drive}: libre {free} de {total}',
+    loading: 'Cargando...', saving: 'Guardando...', saved: 'Guardado.',
+    loadFailed: 'No se pudieron cargar los ajustes: {error}. Cierra y vuelve a abrir para reintentar; Guardar está desactivado.',
+    saveFailed: 'Error al guardar: {error}'
+  },
+  fr: {
+    screens: 'Écrans', library: 'Bibliothèque', settings: 'Paramètres',
+    stopApp: 'Arrêter Kraken Mount', stop: 'Arrêter', github: 'Kraken Mount sur GitHub',
+    offline: 'Hors ligne : le payload ne tourne pas. Nouvelle tentative.',
+    starting: 'Démarrage de Kraken Mount...',
+    elfMissing: "kraken-mount.elf n'est pas encore enregistré : envoyez l'ELF une fois sur le port 9021.",
+    noAmpr: 'ampr-emu-ng est absent : placez {file} dans {dir}. Sans lui, les jeux FPKG ne peuvent pas tourner.',
+    lowSpace: 'Peu de place sur le SSD interne : {free} libres. La création des caches peut échouer.',
+    paused: "Jeu en cours ({games}), analyse en pause ; les demandes s'exécutent après sa fermeture.",
+    queued: 'Votre demande est en attente.',
+    stopBusy: 'Un jeu est en cours : fermez-le, puis arrêtez Kraken Mount.',
+    waitKstuff: 'En attente de kstuff : il n\'est pas encore lancé. Les jeux apparaîtront dès son démarrage.', waitSmp: 'ShadowMount+ est en cours d\'exécution : arrêtez-le pour utiliser Kraken Mount. Les jeux apparaîtront dès son arrêt.',
+    stopped: 'Kraken Mount est arrêté. Ouvrez la vignette Kraken Mount pour le relancer.',
+    prevFilter: 'Filtre précédent (L2)', nextFilter: 'Filtre suivant (R2)', sourceType: 'Type de source',
+    kindAll: 'Tous', kindFolders: 'Dossiers', badgeFolder: 'Dossier',
+    driveInternal: 'Interne', driveUsb: 'USB {n}', driveExt: 'Étendu {n}',
+    driveFree: '{free} libres sur {total}',
+    eject: 'Démonter', ejecting: 'Démontage...', ejectAria: 'Démonter {drive}', ejectTitle: 'Démonter {drive} ?',
+    ejectText: 'Laissez le disque branché jusqu\'à la fin. Ses jeux quittent la bibliothèque.', ejected: '{drive} est démonté. Vous pouvez le débrancher.', ejectFailed: 'Impossible de démonter {drive} : {reason}',
+    stPending: 'En attente', stChecking: 'Vérification', stBuilding: 'Création', stReady: 'Prêt',
+    stError: 'Erreur', stDuplicate: 'Doublon', running: 'En cours',
+    statusRunning: '{status} · en cours',
+    cardAria: '{name}, {type}, {status}', cardAriaRunning: '{name}, {type}, {status}, en cours',
+    noGames: 'Aucun jeu trouvé.', noGamesType: 'Aucun jeu de ce type.',
+    emptyCopy: 'Copiez des fichiers {pkg} ou des dossiers de jeux dans {dir} (ou {usb} sur une clé USB), puis appuyez sur Réanalyser.',
+    emptyHome: "Chaque jeu apparaît ici et sur l'écran d'accueil une fois enregistré.",
+    showLog: 'Afficher le journal', hideLog: 'Masquer le journal',
+    delete: 'Supprimer', rebuildCache: 'Recréer le cache', close: 'Fermer', storage: 'Stockage',
+    fTitleId: 'Title ID', fVersion: 'Version', fStatus: 'État', fType: 'Type', fDrive: 'Disque',
+    fPath: 'Chemin', fCachePath: 'Chemin du cache', fCacheSize: 'Taille du cache', fCacheBuilt: 'Cache créé',
+    fBackport: 'Backport', yes: 'Oui', no: 'Non', notBuilt: 'non créé',
+    szGame: 'Jeu', szDlc: 'DLC', szSave: 'Sauvegarde', szCache: 'Cache',
+    szPart: '{part} {size}', szNa: '{part} n/d', szTotal: 'Total {size}',
+    sizesNone: 'Tailles indisponibles', sizesLoading: 'Chargement des tailles...',
+    sizesDup: 'Copie en double : les tailles sont affichées sur la copie de la bibliothèque.',
+    cancel: 'Annuler',
+    rebuildTitle: 'Recréer le cache de {name} ?',
+    rebuildText: "Le cache sera recréé. Le jeu est indisponible jusqu'à la fin.",
+    rebuildYes: 'Recréer',
+    deleteTitle: 'Supprimer {name} ?',
+    deletePkg: 'Le fichier .pkg et son cache seront supprimés du disque : {path}. Action irréversible.',
+    deleteFolder: 'Le dossier du jeu et son cache seront supprimés du disque : {path}. Action irréversible.',
+    stopTitle: 'Arrêter Kraken Mount ?',
+    stopText: 'Les jeux restent enregistrés. Ouvrez la vignette Kraken Mount pour le relancer.',
+    stopYes: 'Arrêter',
+    rebuildAllTitle: 'Recréer tous les caches ?',
+    rebuildAllText: 'Le cache de chaque jeu est vidé et recréé. Les jeux sont indisponibles pendant ce temps.',
+    purgeTitle: 'Purger le cache ?',
+    purgeText: "Supprime les caches des jeux qui ne sont plus dans la bibliothèque, puis vide et recrée tous les autres ({size} actuellement). Les jeux sont indisponibles pendant ce temps.",
+    purgeYes: 'Purger',
+    sNoAmpr: "ampr-emu-ng ({file}) n'est pas dans {dir}.",
+    rescan: 'Réanalyser', rebuildAll: 'Tout recréer',
+    scanPaths: "Chemins d'analyse",
+    scanPathsHint: 'Un par ligne. Vide = racines par défaut (/data/homebrew, /data/etaHEN/games et, sur chaque disque, homebrew, etaHEN/games et la racine).',
+    addEmulators: "Ajouter les émulateurs DLC (dlc_emu) et PlayGo (pgo_stub) fournis quand un jeu en a besoin et n'en a pas",
+    injectAmpr: 'Injecter ampr-emu-ng dans la fakelib des jeux en dossier (les jeux pkg l\'ont toujours)',
+    amprAutoUpdate: 'Mettre à jour ampr-emu-ng automatiquement (vérifié une fois au démarrage)',
+    amprUpdateNow: "Mettre à jour ampr-emu-ng maintenant",
+    amprUpdating: "Mise à jour d'ampr-emu-ng...",
+    amprBundled: "intégré",
+    amprDownloaded: "téléchargé",
+    amprHand: "placé à la main",
+    amprMissing: "non installé",
+    amprReplaceTitle: "Remplacer l'ampr-emu-ng placé à la main ?",
+    amprReplaceText: "La dernière version le remplace. Votre fichier est déplacé vers {backup}.",
+    amprReplaceYes: "Remplacer",
+    backports: 'Appliquer les backports',
+    scanInterval: "Intervalle d'analyse, secondes (1-3600)",
+    stabilityWait: "Attendre la fin d'une copie, secondes (0-3600, 0 = désactivé)",
+    autoRemoveMissing: "Retirer un jeu de l'écran d'accueil quand sa source manque",
+    autoRemoveDelay: 'Retirer après une absence de, secondes (1-86400)',
+    lowSpaceGb: 'Alerte de place faible, GB',
+    notify: 'Notifications système',
+    writeLog: "Écrire kraken.log (jusqu'à 1 MB)",
+    debug: 'Débogage (capture klog, route des fichiers)',
+    language: 'Langue', system: 'Système',
+    purgeCache: 'Purger le cache', save: 'Enregistrer',
+    cacheInfo: 'Cache : {size} dans {path}, {free} libres sur le SSD interne.',
+    driveInfo: '{drive} : {free} libres sur {total}',
+    loading: 'Chargement...', saving: 'Enregistrement...', saved: 'Enregistré.',
+    loadFailed: "Impossible de charger les paramètres : {error}. Fermez et rouvrez pour réessayer ; l'enregistrement est désactivé.",
+    saveFailed: "Échec de l'enregistrement : {error}"
+  },
+  ja: {
+    screens: '画面', library: 'ライブラリ', settings: '設定',
+    stopApp: 'Kraken Mount を停止', stop: '停止', github: 'GitHub の Kraken Mount',
+    offline: 'オフライン: payload が動作していません。再試行しています。',
+    starting: 'Kraken Mount を起動しています...',
+    elfMissing: 'kraken-mount.elf はまだ保存されていません: ELF をポート 9021 に一度送信してください。',
+    noAmpr: 'ampr-emu-ng がありません: {file} を {dir} に置いてください。これがないと FPKG ゲームは動作しません。',
+    lowSpace: '内蔵 SSD の空き容量が不足しています: 空き {free}。キャッシュの作成に失敗することがあります。',
+    paused: 'ゲーム実行中 ({games})、スキャンを一時停止中。リクエストはゲーム終了後に実行されます。',
+    queued: 'リクエストは待機中です。',
+    stopBusy: 'ゲームが実行中です: 先にゲームを閉じてから Kraken Mount を停止してください。',
+    waitKstuff: 'kstuff を待っています: まだ起動していません。起動するとゲームが表示されます。', waitSmp: 'ShadowMount+ が実行中です: Kraken Mount を使うには停止してください。停止するとゲームが表示されます。',
+    stopped: 'Kraken Mount は停止しました。再び起動するには Kraken Mount タイルを開いてください。',
+    prevFilter: '前のフィルター (L2)', nextFilter: '次のフィルター (R2)', sourceType: 'ソースの種類',
+    kindAll: 'すべて', kindFolders: 'フォルダー', badgeFolder: 'フォルダー',
+    driveInternal: '内蔵', driveUsb: 'USB {n}', driveExt: '拡張 {n}',
+    driveFree: '空き {free} / {total}',
+    eject: 'マウント解除', ejecting: '解除中...', ejectAria: '{drive} のマウントを解除', ejectTitle: '{drive} のマウントを解除しますか？',
+    ejectText: '完了するまでドライブを接続したままにしてください。このドライブのゲームはライブラリから外れます。', ejected: '{drive} のマウントを解除しました。取り外せます。', ejectFailed: '{drive} のマウントを解除できませんでした: {reason}',
+    stPending: '待機中', stChecking: '確認中', stBuilding: '作成中', stReady: '準備完了',
+    stError: 'エラー', stDuplicate: '重複', running: '実行中',
+    statusRunning: '{status} · 実行中',
+    cardAria: '{name}、{type}、{status}', cardAriaRunning: '{name}、{type}、{status}、実行中',
+    noGames: 'ゲームが見つかりません。', noGamesType: 'この種類のゲームはありません。',
+    emptyCopy: '{pkg} ファイルまたはゲームフォルダーを {dir}（USB ドライブでは {usb}）にコピーしてから「再スキャン」を押してください。',
+    emptyHome: '各ゲームは登録されるとここにもホーム画面にも表示されます。',
+    showLog: 'ログを表示', hideLog: 'ログを隠す',
+    delete: '削除', rebuildCache: 'キャッシュを再作成', close: '閉じる', storage: 'ストレージ',
+    fTitleId: 'Title ID', fVersion: 'バージョン', fStatus: '状態', fType: '種類', fDrive: 'ドライブ',
+    fPath: 'パス', fCachePath: 'キャッシュのパス', fCacheSize: 'キャッシュのサイズ', fCacheBuilt: 'キャッシュ作成日時',
+    fBackport: 'バックポート', yes: 'はい', no: 'いいえ', notBuilt: '未作成',
+    szGame: 'ゲーム', szDlc: 'DLC', szSave: 'セーブ', szCache: 'キャッシュ',
+    szPart: '{part} {size}', szNa: '{part} 不明', szTotal: '合計 {size}',
+    sizesNone: 'サイズを取得できません', sizesLoading: 'サイズを読み込んでいます...',
+    sizesDup: '重複コピー: サイズはライブラリ側のコピーに表示されます。',
+    cancel: 'キャンセル',
+    rebuildTitle: '{name} のキャッシュを再作成しますか？',
+    rebuildText: 'キャッシュを作り直します。完了するまでゲームは使用できません。',
+    rebuildYes: '再作成',
+    deleteTitle: '{name} を削除しますか？',
+    deletePkg: '.pkg ファイルとそのキャッシュをドライブから削除します: {path}。元に戻せません。',
+    deleteFolder: 'ゲームフォルダーとそのキャッシュをドライブから削除します: {path}。元に戻せません。',
+    stopTitle: 'Kraken Mount を停止しますか？',
+    stopText: 'ゲームは登録されたままです。再び起動するには Kraken Mount タイルを開いてください。',
+    stopYes: '停止',
+    rebuildAllTitle: 'すべてのキャッシュを再作成しますか？',
+    rebuildAllText: 'すべてのゲームのキャッシュを空にして作り直します。再作成中はゲームを使用できません。',
+    purgeTitle: 'キャッシュを消去しますか？',
+    purgeText: 'ライブラリにないゲームのキャッシュを削除し、それ以外をすべて空にして作り直します（現在 {size}）。再作成中はゲームを使用できません。',
+    purgeYes: '消去',
+    sNoAmpr: 'ampr-emu-ng ({file}) が {dir} にありません。',
+    rescan: '再スキャン', rebuildAll: 'すべて再作成',
+    scanPaths: 'スキャンするパス',
+    scanPathsHint: '1 行に 1 つ。空欄 = 既定のルート（/data/homebrew、/data/etaHEN/games、各ドライブの homebrew、etaHEN/games とルート）。',
+    addEmulators: 'ゲームが必要とし、自前で持っていない場合に同梱の DLC (dlc_emu) と PlayGo (pgo_stub) エミュレーターを追加',
+    injectAmpr: 'フォルダ形式のゲームの fakelib に ampr-emu-ng を組み込む（pkg ゲームには常に組み込み）',
+    amprAutoUpdate: 'ampr-emu-ng を自動更新（起動時に一度確認）',
+    amprUpdateNow: "今すぐ ampr-emu-ng を更新",
+    amprUpdating: "ampr-emu-ng を更新中...",
+    amprBundled: "同梱",
+    amprDownloaded: "ダウンロード済み",
+    amprHand: "手動で配置",
+    amprMissing: "未インストール",
+    amprReplaceTitle: "手動で配置した ampr-emu-ng を置き換えますか？",
+    amprReplaceText: "最新リリースで置き換えます。元のファイルは {backup} に移動されます。",
+    amprReplaceYes: "置き換える",
+    backports: 'バックポートを適用',
+    scanInterval: 'スキャン間隔、秒 (1-3600)',
+    stabilityWait: 'コピー完了を待つ、秒 (0-3600、0 = オフ)',
+    autoRemoveMissing: 'ソースが見つからないゲームをホーム画面から削除',
+    autoRemoveDelay: '削除までの不在時間、秒 (1-86400)',
+    lowSpaceGb: '空き容量不足の警告、GB',
+    notify: 'システム通知',
+    writeLog: 'kraken.log に書き込む（最大 1 MB）',
+    debug: 'デバッグ（klog キャプチャ、ファイルルート）',
+    language: '言語', system: 'システム',
+    purgeCache: 'キャッシュを消去', save: '保存',
+    cacheInfo: 'キャッシュ: {path} に {size}、内蔵 SSD の空き {free}。',
+    driveInfo: '{drive}: 空き {free} / {total}',
+    loading: '読み込み中...', saving: '保存中...', saved: '保存しました。',
+    loadFailed: '設定を読み込めませんでした: {error}。閉じて開き直すと再試行します。保存は無効です。',
+    saveFailed: '保存に失敗しました: {error}'
+  },
+  pt: {
+    screens: 'Telas', library: 'Biblioteca', settings: 'Configurações',
+    stopApp: 'Parar o Kraken Mount', stop: 'Parar', github: 'Kraken Mount no GitHub',
+    offline: 'Offline: o payload não está em execução. Tentando de novo.',
+    starting: 'Iniciando o Kraken Mount...',
+    elfMissing: 'kraken-mount.elf ainda não foi salvo: envie o ELF para a porta 9021 uma vez.',
+    noAmpr: 'ampr-emu-ng não encontrado: coloque {file} em {dir}. Sem ele, os jogos FPKG não rodam.',
+    lowSpace: 'Pouco espaço no SSD interno: {free} livres. A criação de caches pode falhar.',
+    paused: 'Jogo em execução ({games}), varredura pausada; as solicitações rodam quando ele fechar.',
+    queued: 'Sua solicitação está na fila.',
+    stopBusy: 'Há um jogo em execução: feche-o primeiro e depois pare o Kraken Mount.',
+    waitKstuff: 'Aguardando o kstuff: ele ainda não está em execução. Os jogos aparecem quando ele iniciar.', waitSmp: 'O ShadowMount+ está em execução: pare-o para usar o Kraken Mount. Os jogos aparecem quando ele parar.',
+    stopped: 'O Kraken Mount foi parado. Abra o bloco do Kraken Mount para iniciá-lo de novo.',
+    prevFilter: 'Filtro anterior (L2)', nextFilter: 'Próximo filtro (R2)', sourceType: 'Tipo de origem',
+    kindAll: 'Todos', kindFolders: 'Pastas', badgeFolder: 'Pasta',
+    driveInternal: 'Interno', driveUsb: 'USB {n}', driveExt: 'Estendido {n}',
+    driveFree: 'livre: {free} de {total}',
+    eject: 'Desmontar', ejecting: 'Desmontando...', ejectAria: 'Desmontar {drive}', ejectTitle: 'Desmontar {drive}?',
+    ejectText: 'Mantenha a unidade conectada até terminar. Os jogos dela saem da biblioteca.', ejected: 'Desmontagem de {drive} concluída. Você já pode desconectar a unidade.', ejectFailed: 'Não foi possível desmontar {drive}: {reason}',
+    stPending: 'Pendente', stChecking: 'Verificando', stBuilding: 'Criando', stReady: 'Pronto',
+    stError: 'Erro', stDuplicate: 'Duplicado', running: 'Em execução',
+    statusRunning: '{status} · em execução',
+    cardAria: '{name}, {type}, {status}', cardAriaRunning: '{name}, {type}, {status}, em execução',
+    noGames: 'Nenhum jogo encontrado.', noGamesType: 'Nenhum jogo deste tipo.',
+    emptyCopy: 'Copie arquivos {pkg} ou pastas de jogos para {dir} (ou {usb} em um drive USB) e pressione Escanear de novo.',
+    emptyHome: 'Cada jogo aparece aqui e na tela inicial assim que é registrado.',
+    showLog: 'Mostrar log', hideLog: 'Ocultar log',
+    delete: 'Excluir', rebuildCache: 'Recriar cache', close: 'Fechar', storage: 'Armazenamento',
+    fTitleId: 'Title ID', fVersion: 'Versão', fStatus: 'Status', fType: 'Tipo', fDrive: 'Drive',
+    fPath: 'Caminho', fCachePath: 'Caminho do cache', fCacheSize: 'Tamanho do cache', fCacheBuilt: 'Cache criado',
+    fBackport: 'Backport', yes: 'Sim', no: 'Não', notBuilt: 'não criado',
+    szGame: 'Jogo', szDlc: 'DLC', szSave: 'Salvamento', szCache: 'Cache',
+    szPart: '{part} {size}', szNa: '{part} n/d', szTotal: 'Total {size}',
+    sizesNone: 'Tamanhos indisponíveis', sizesLoading: 'Carregando tamanhos...',
+    sizesDup: 'Cópia duplicada: os tamanhos aparecem na cópia da biblioteca.',
+    cancel: 'Cancelar',
+    rebuildTitle: 'Recriar o cache de {name}?',
+    rebuildText: 'O cache será criado de novo. O jogo fica indisponível até terminar.',
+    rebuildYes: 'Recriar',
+    deleteTitle: 'Excluir {name}?',
+    deletePkg: 'O arquivo .pkg e o cache dele serão excluídos do drive: {path}. Não é possível desfazer.',
+    deleteFolder: 'A pasta do jogo e o cache dela serão excluídos do drive: {path}. Não é possível desfazer.',
+    stopTitle: 'Parar o Kraken Mount?',
+    stopText: 'Os jogos continuam registrados. Abra o bloco do Kraken Mount para iniciá-lo de novo.',
+    stopYes: 'Parar',
+    rebuildAllTitle: 'Recriar todos os caches?',
+    rebuildAllText: 'O cache de cada jogo é esvaziado e criado de novo. Os jogos ficam indisponíveis enquanto isso.',
+    purgeTitle: 'Limpar cache?',
+    purgeText: 'Exclui os caches de jogos que não estão mais na biblioteca e esvazia e recria todos os outros ({size} agora). Os jogos ficam indisponíveis enquanto isso.',
+    purgeYes: 'Limpar',
+    sNoAmpr: 'ampr-emu-ng ({file}) não está em {dir}.',
+    rescan: 'Escanear de novo', rebuildAll: 'Recriar tudo',
+    scanPaths: 'Caminhos de varredura',
+    scanPathsHint: 'Um por linha. Vazio = raízes padrão (/data/homebrew, /data/etaHEN/games e, em cada drive, homebrew, etaHEN/games e a raiz).',
+    addEmulators: 'Adicionar os emuladores incluídos de DLC (dlc_emu) e PlayGo (pgo_stub) quando um jogo precisa e não os tem',
+    injectAmpr: 'Injetar ampr-emu-ng na fakelib dos jogos em pasta (jogos pkg sempre o recebem)',
+    amprAutoUpdate: 'Atualizar o ampr-emu-ng automaticamente (verificado uma vez ao iniciar)',
+    amprUpdateNow: "Atualizar o ampr-emu-ng agora",
+    amprUpdating: "Atualizando o ampr-emu-ng...",
+    amprBundled: "incluído",
+    amprDownloaded: "baixado",
+    amprHand: "colocado manualmente",
+    amprMissing: "não instalado",
+    amprReplaceTitle: "Substituir o ampr-emu-ng colocado manualmente?",
+    amprReplaceText: "A versão mais recente o substitui. Seu arquivo é movido para {backup}.",
+    amprReplaceYes: "Substituir",
+    backports: 'Aplicar backports',
+    scanInterval: 'Intervalo de varredura, segundos (1-3600)',
+    stabilityWait: 'Aguardar o fim da cópia, segundos (0-3600, 0 = desligado)',
+    autoRemoveMissing: 'Remover um jogo da tela inicial quando a origem sumir',
+    autoRemoveDelay: 'Remover após ausência de, segundos (1-86400)',
+    lowSpaceGb: 'Aviso de pouco espaço, GB',
+    notify: 'Notificações do sistema',
+    writeLog: 'Gravar kraken.log (até 1 MB)',
+    debug: 'Depuração (captura de klog, rota de arquivos)',
+    language: 'Idioma', system: 'Sistema',
+    purgeCache: 'Limpar cache', save: 'Salvar',
+    cacheInfo: 'Cache: {size} em {path}, {free} livres no SSD interno.',
+    driveInfo: '{drive}: livre {free} de {total}',
+    loading: 'Carregando...', saving: 'Salvando...', saved: 'Salvo.',
+    loadFailed: 'Não foi possível carregar as configurações: {error}. Feche e abra de novo para tentar outra vez; Salvar está desativado.',
+    saveFailed: 'Falha ao salvar: {error}'
+  },
+  it: {
+    screens: 'Schermate', library: 'Libreria', settings: 'Impostazioni',
+    stopApp: 'Arresta Kraken Mount', stop: 'Arresta', github: 'Kraken Mount su GitHub',
+    offline: 'Offline: il payload non è in esecuzione. Nuovo tentativo in corso.',
+    starting: 'Avvio di Kraken Mount...',
+    elfMissing: 'kraken-mount.elf non è ancora salvato: invia una volta il file ELF alla porta 9021.',
+    noAmpr: 'Manca ampr-emu-ng: metti {file} in {dir}. Senza di esso i giochi FPKG non funzionano.',
+    lowSpace: "Poco spazio sull'SSD interno: {free} liberi. La creazione delle cache può non riuscire.",
+    paused: 'Gioco in esecuzione ({games}), scansione in pausa; le richieste partono quando viene chiuso.',
+    queued: 'La richiesta è in coda.',
+    stopBusy: 'Un gioco è in esecuzione: chiudilo prima, poi arresta Kraken Mount.',
+    waitKstuff: 'In attesa di kstuff: non è ancora in esecuzione. I giochi compariranno quando si avvia.', waitSmp: 'ShadowMount+ è in esecuzione: arrestalo per usare Kraken Mount. I giochi compariranno quando si arresta.',
+    stopped: 'Kraken Mount è stato arrestato. Apri il riquadro Kraken Mount per avviarlo di nuovo.',
+    prevFilter: 'Filtro precedente (L2)', nextFilter: 'Filtro successivo (R2)', sourceType: 'Tipo di sorgente',
+    kindAll: 'Tutti', kindFolders: 'Cartelle', badgeFolder: 'Cartella',
+    driveInternal: 'Interno', driveUsb: 'USB {n}', driveExt: 'Esteso {n}',
+    driveFree: 'liberi {free} su {total}',
+    eject: 'Smonta', ejecting: 'Smontaggio...', ejectAria: 'Smonta {drive}', ejectTitle: 'Smontare {drive}?',
+    ejectText: 'Tieni l\'unità collegata finché non finisce. I suoi giochi escono dalla libreria.', ejected: 'Smontaggio di {drive} completato. Ora puoi scollegare l\'unità.', ejectFailed: 'Impossibile smontare {drive}: {reason}',
+    stPending: 'In attesa', stChecking: 'Verifica', stBuilding: 'Creazione', stReady: 'Pronto',
+    stError: 'Errore', stDuplicate: 'Duplicato', running: 'In esecuzione',
+    statusRunning: '{status} · in esecuzione',
+    cardAria: '{name}, {type}, {status}', cardAriaRunning: '{name}, {type}, {status}, in esecuzione',
+    noGames: 'Nessun gioco trovato.', noGamesType: 'Nessun gioco di questo tipo.',
+    emptyCopy: 'Copia file {pkg} o cartelle di giochi in {dir} (o in {usb} su un\'unità USB), poi premi Ripeti scansione.',
+    emptyHome: 'Ogni gioco compare qui e nella schermata Home una volta registrato.',
+    showLog: 'Mostra registro', hideLog: 'Nascondi registro',
+    delete: 'Elimina', rebuildCache: 'Ricrea cache', close: 'Chiudi', storage: 'Archiviazione',
+    fTitleId: 'Title ID', fVersion: 'Versione', fStatus: 'Stato', fType: 'Tipo', fDrive: 'Unità',
+    fPath: 'Percorso', fCachePath: 'Percorso cache', fCacheSize: 'Dimensione cache', fCacheBuilt: 'Cache creata',
+    fBackport: 'Backport', yes: 'Sì', no: 'No', notBuilt: 'non creata',
+    szGame: 'Gioco', szDlc: 'DLC', szSave: 'Salvataggi', szCache: 'Cache',
+    szPart: '{part} {size}', szNa: '{part} n/d', szTotal: 'Totale {size}',
+    sizesNone: 'Dimensioni non disponibili', sizesLoading: 'Caricamento delle dimensioni...',
+    sizesDup: 'Copia duplicata: le dimensioni sono mostrate sulla copia in libreria.',
+    cancel: 'Annulla',
+    rebuildTitle: 'Ricreare la cache di {name}?',
+    rebuildText: 'La cache verrà creata di nuovo. Il gioco non è disponibile finché non termina.',
+    rebuildYes: 'Ricrea',
+    deleteTitle: 'Eliminare {name}?',
+    deletePkg: "Il file .pkg e la sua cache verranno eliminati dall'unità: {path}. L'operazione non è reversibile.",
+    deleteFolder: "La cartella del gioco e la sua cache verranno eliminate dall'unità: {path}. L'operazione non è reversibile.",
+    stopTitle: 'Arrestare Kraken Mount?',
+    stopText: 'I giochi restano registrati. Apri il riquadro Kraken Mount per avviarlo di nuovo.',
+    stopYes: 'Arresta',
+    rebuildAllTitle: 'Ricreare tutte le cache?',
+    rebuildAllText: 'La cache di ogni gioco viene svuotata e creata di nuovo. Nel frattempo i giochi non sono disponibili.',
+    purgeTitle: 'Pulire la cache?',
+    purgeText: 'Elimina le cache dei giochi non più in libreria e svuota e ricrea tutte le altre (ora {size}). Nel frattempo i giochi non sono disponibili.',
+    purgeYes: 'Pulisci',
+    sNoAmpr: 'ampr-emu-ng ({file}) non è in {dir}.',
+    rescan: 'Ripeti scansione', rebuildAll: 'Ricrea tutto',
+    scanPaths: 'Percorsi di scansione',
+    scanPathsHint: "Uno per riga. Vuoto = radici predefinite (/data/homebrew, /data/etaHEN/games e, su ogni unità, homebrew, etaHEN/games e la radice).",
+    addEmulators: 'Aggiungi gli emulatori inclusi di DLC (dlc_emu) e PlayGo (pgo_stub) quando un gioco ne ha bisogno e non li ha',
+    injectAmpr: 'Inserisci ampr-emu-ng nella fakelib dei giochi in cartella (i giochi pkg lo ricevono sempre)',
+    amprAutoUpdate: "Aggiorna automaticamente ampr-emu-ng (controllato una volta all'avvio)",
+    amprUpdateNow: "Aggiorna ampr-emu-ng ora",
+    amprUpdating: "Aggiornamento di ampr-emu-ng...",
+    amprBundled: "incluso",
+    amprDownloaded: "scaricato",
+    amprHand: "messo a mano",
+    amprMissing: "non installato",
+    amprReplaceTitle: "Sostituire l'ampr-emu-ng messo a mano?",
+    amprReplaceText: "L'ultima versione lo sostituisce. Il tuo file viene spostato in {backup}.",
+    amprReplaceYes: "Sostituisci",
+    backports: 'Applica i backport',
+    scanInterval: 'Intervallo di scansione, secondi (1-3600)',
+    stabilityWait: 'Attendi la fine della copia, secondi (0-3600, 0 = disattivato)',
+    autoRemoveMissing: 'Rimuovi un gioco dalla schermata home se la sorgente manca',
+    autoRemoveDelay: "Rimuovi dopo un'assenza di, secondi (1-86400)",
+    lowSpaceGb: 'Avviso spazio insufficiente, GB',
+    notify: 'Notifiche di sistema',
+    writeLog: 'Scrivi kraken.log (fino a 1 MB)',
+    debug: 'Debug (acquisizione klog, instradamento file)',
+    language: 'Lingua', system: 'Sistema',
+    purgeCache: 'Pulisci cache', save: 'Salva',
+    cacheInfo: "Cache: {size} in {path}, {free} liberi sull'SSD interno.",
+    driveInfo: '{drive}: liberi {free} su {total}',
+    loading: 'Caricamento...', saving: 'Salvataggio...', saved: 'Salvato.',
+    loadFailed: 'Impossibile caricare le impostazioni: {error}. Chiudi e riapri per riprovare; Salva è disattivato.',
+    saveFailed: 'Salvataggio non riuscito: {error}'
+  },
+  ko: {
+    screens: '화면', library: '라이브러리', settings: '설정',
+    stopApp: 'Kraken Mount 중지', stop: '중지', github: 'GitHub의 Kraken Mount',
+    offline: '오프라인: payload가 실행되고 있지 않습니다. 다시 시도하는 중입니다.',
+    starting: 'Kraken Mount를 시작하는 중...',
+    elfMissing: 'kraken-mount.elf가 아직 저장되지 않았습니다: ELF를 포트 9021로 한 번 보내세요.',
+    noAmpr: 'ampr-emu-ng가 없습니다: {file} 파일을 {dir}에 넣으세요. 없으면 FPKG 게임을 실행할 수 없습니다.',
+    lowSpace: '내장 SSD의 공간이 부족합니다: {free} 사용 가능. 캐시 생성이 실패할 수 있습니다.',
+    paused: '게임 실행 중({games}), 스캔 일시 중지됨. 요청은 게임이 종료된 후 실행됩니다.',
+    queued: '요청이 대기 중입니다.',
+    stopBusy: '게임이 실행 중입니다: 먼저 게임을 닫은 다음 Kraken Mount를 중지하세요.',
+    waitKstuff: 'kstuff를 기다리는 중: 아직 실행되지 않았습니다. 실행되면 게임이 표시됩니다.', waitSmp: 'ShadowMount+가 실행 중입니다: Kraken Mount를 사용하려면 중지하세요. 중지되면 게임이 표시됩니다.',
+    stopped: 'Kraken Mount가 중지되었습니다. 다시 시작하려면 Kraken Mount 타일을 여세요.',
+    prevFilter: '이전 필터 (L2)', nextFilter: '다음 필터 (R2)', sourceType: '소스 유형',
+    kindAll: '전체', kindFolders: '폴더', badgeFolder: '폴더',
+    driveInternal: '내장', driveUsb: 'USB {n}', driveExt: '확장 {n}',
+    driveFree: '{total} 중 {free} 사용 가능',
+    eject: '마운트 해제', ejecting: '해제 중...', ejectAria: '{drive} 마운트 해제', ejectTitle: '{drive} 마운트를 해제할까요?',
+    ejectText: '완료될 때까지 드라이브를 연결해 두세요. 이 드라이브의 게임은 라이브러리에서 사라집니다.', ejected: '{drive} 마운트를 해제했습니다. 이제 분리해도 됩니다.', ejectFailed: '{drive} 마운트를 해제하지 못했습니다: {reason}',
+    stPending: '대기 중', stChecking: '확인 중', stBuilding: '생성 중', stReady: '준비됨',
+    stError: '오류', stDuplicate: '중복', running: '실행 중',
+    statusRunning: '{status} · 실행 중',
+    cardAria: '{name}, {type}, {status}', cardAriaRunning: '{name}, {type}, {status}, 실행 중',
+    noGames: '게임을 찾을 수 없습니다.', noGamesType: '이 유형의 게임이 없습니다.',
+    emptyCopy: '{pkg} 파일이나 게임 폴더를 {dir}(USB 드라이브에서는 {usb})에 복사한 다음 다시 스캔을 누르세요.',
+    emptyHome: '각 게임은 등록되면 여기와 홈 화면에 나타납니다.',
+    showLog: '로그 표시', hideLog: '로그 숨기기',
+    delete: '삭제', rebuildCache: '캐시 다시 생성', close: '닫기', storage: '저장소',
+    fTitleId: 'Title ID', fVersion: '버전', fStatus: '상태', fType: '유형', fDrive: '드라이브',
+    fPath: '경로', fCachePath: '캐시 경로', fCacheSize: '캐시 크기', fCacheBuilt: '캐시 생성 시각',
+    fBackport: '백포트', yes: '예', no: '아니요', notBuilt: '생성 안 됨',
+    szGame: '게임', szDlc: 'DLC', szSave: '세이브', szCache: '캐시',
+    szPart: '{part} {size}', szNa: '{part} 해당 없음', szTotal: '합계 {size}',
+    sizesNone: '크기를 알 수 없음', sizesLoading: '크기를 불러오는 중...',
+    sizesDup: '중복 사본: 크기는 라이브러리의 사본에 표시됩니다.',
+    cancel: '취소',
+    rebuildTitle: '{name}의 캐시를 다시 생성할까요?',
+    rebuildText: '캐시가 다시 생성됩니다. 완료될 때까지 게임을 사용할 수 없습니다.',
+    rebuildYes: '다시 생성',
+    deleteTitle: '{name}을(를) 삭제할까요?',
+    deletePkg: '.pkg 파일과 캐시가 드라이브에서 삭제됩니다: {path}. 되돌릴 수 없습니다.',
+    deleteFolder: '게임 폴더와 캐시가 드라이브에서 삭제됩니다: {path}. 되돌릴 수 없습니다.',
+    stopTitle: 'Kraken Mount를 중지할까요?',
+    stopText: '게임은 등록된 상태로 유지됩니다. 다시 시작하려면 Kraken Mount 타일을 여세요.',
+    stopYes: '중지',
+    rebuildAllTitle: '모든 캐시를 다시 생성할까요?',
+    rebuildAllText: '모든 게임 캐시를 비우고 다시 생성합니다. 다시 생성하는 동안 게임을 사용할 수 없습니다.',
+    purgeTitle: '캐시를 정리할까요?',
+    purgeText: '라이브러리에 더 이상 없는 게임의 캐시를 삭제하고 나머지는 모두 비운 뒤 다시 생성합니다(현재 {size}). 다시 생성하는 동안 게임을 사용할 수 없습니다.',
+    purgeYes: '정리',
+    sNoAmpr: 'ampr-emu-ng({file})가 {dir}에 없습니다.',
+    rescan: '다시 스캔', rebuildAll: '모두 다시 생성',
+    scanPaths: '스캔 경로',
+    scanPathsHint: '한 줄에 하나씩. 비워 두면 기본 루트(/data/homebrew, /data/etaHEN/games, 각 드라이브의 homebrew, etaHEN/games 및 루트).',
+    addEmulators: '게임에 필요하지만 없을 때 내장 DLC (dlc_emu) 및 PlayGo (pgo_stub) 에뮬레이터 추가',
+    injectAmpr: '폴더 게임의 fakelib에 ampr-emu-ng 삽입 (pkg 게임은 항상 삽입)',
+    amprAutoUpdate: 'ampr-emu-ng 자동 업데이트 (시작 시 한 번 확인)',
+    amprUpdateNow: "지금 ampr-emu-ng 업데이트",
+    amprUpdating: "ampr-emu-ng 업데이트 중...",
+    amprBundled: "내장",
+    amprDownloaded: "다운로드됨",
+    amprHand: "수동으로 넣음",
+    amprMissing: "설치되지 않음",
+    amprReplaceTitle: "수동으로 넣은 ampr-emu-ng을 바꿀까요?",
+    amprReplaceText: "최신 릴리스로 바꿉니다. 기존 파일은 {backup}(으)로 옮겨집니다.",
+    amprReplaceYes: "바꾸기",
+    backports: '백포트 적용',
+    scanInterval: '스캔 간격, 초 (1-3600)',
+    stabilityWait: '복사가 끝날 때까지 대기, 초 (0-3600, 0 = 끔)',
+    autoRemoveMissing: '소스가 없으면 홈 화면에서 게임 제거',
+    autoRemoveDelay: '없어진 뒤 제거까지, 초 (1-86400)',
+    lowSpaceGb: '공간 부족 경고, GB',
+    notify: '시스템 알림',
+    writeLog: 'kraken.log 기록 (최대 1 MB)',
+    debug: '디버그 (klog 캡처, 파일 경로 추적)',
+    language: '언어', system: '시스템',
+    purgeCache: '캐시 정리', save: '저장',
+    cacheInfo: '캐시: {path}에 {size}, 내장 SSD 여유 공간 {free}.',
+    driveInfo: '{drive}: {total} 중 {free} 사용 가능',
+    loading: '불러오는 중...', saving: '저장하는 중...', saved: '저장되었습니다.',
+    loadFailed: '설정을 불러올 수 없습니다: {error}. 닫았다가 다시 열어 재시도하세요. 저장은 꺼져 있습니다.',
+    saveFailed: '저장 실패: {error}'
+  },
+  ar: {
+    screens: 'الأقسام', library: 'المكتبة', settings: 'الإعدادات',
+    stopApp: 'إيقاف Kraken Mount', stop: 'إيقاف', github: 'Kraken Mount على GitHub',
+    offline: 'غير متصل: الـ payload لا يعمل. جارٍ إعادة المحاولة.',
+    starting: 'جارٍ تشغيل Kraken Mount...',
+    elfMissing: 'لم يُحفظ kraken-mount.elf بعد: أرسل ملف ELF إلى المنفذ 9021 مرة واحدة.',
+    noAmpr: 'ampr-emu-ng غير موجود: ضع {file} في {dir}. لا تعمل ألعاب FPKG بدونه.',
+    lowSpace: 'المساحة قليلة على SSD الداخلي: المتاح {free}. قد يفشل إنشاء ذاكرة التخزين المؤقت.',
+    paused: 'لعبة قيد التشغيل ({games})، المسح متوقف مؤقتًا؛ تُنفَّذ الطلبات بعد إغلاقها.',
+    queued: 'طلبك في الانتظار.',
+    stopBusy: 'هناك لعبة قيد التشغيل: أغلقها أولًا، ثم أوقف Kraken Mount.',
+    waitKstuff: 'في انتظار kstuff: لم يبدأ تشغيله بعد. ستظهر الألعاب عند تشغيله.', waitSmp: 'ShadowMount+ قيد التشغيل: أوقفه لاستخدام Kraken Mount. ستظهر الألعاب عند إيقافه.',
+    stopped: 'توقّف Kraken Mount. افتح لوحة Kraken Mount لتشغيله مرة أخرى.',
+    prevFilter: 'الفلتر السابق (L2)', nextFilter: 'الفلتر التالي (R2)', sourceType: 'نوع المصدر',
+    kindAll: 'الكل', kindFolders: 'المجلدات', badgeFolder: 'مجلد',
+    driveInternal: 'داخلي', driveUsb: 'USB {n}', driveExt: 'موسّع {n}',
+    driveFree: 'متاح {free} من {total}',
+    eject: 'إلغاء التركيب', ejecting: 'جارٍ إلغاء التركيب...', ejectAria: 'إلغاء تركيب {drive}', ejectTitle: 'إلغاء تركيب {drive}؟',
+    ejectText: 'أبقِ محرك الأقراص متصلًا حتى تنتهي العملية. ستخرج ألعابه من المكتبة.', ejected: 'تم إلغاء تركيب {drive}. يمكنك فصله الآن.', ejectFailed: 'تعذّر إلغاء تركيب {drive}: {reason}',
+    stPending: 'قيد الانتظار', stChecking: 'جارٍ الفحص', stBuilding: 'جارٍ الإنشاء', stReady: 'جاهز',
+    stError: 'خطأ', stDuplicate: 'مكرر', running: 'قيد التشغيل',
+    statusRunning: '{status} · قيد التشغيل',
+    cardAria: '{name}، {type}، {status}', cardAriaRunning: '{name}، {type}، {status}، قيد التشغيل',
+    noGames: 'لم يُعثر على ألعاب.', noGamesType: 'لا توجد ألعاب من هذا النوع.',
+    emptyCopy: 'انسخ ملفات {pkg} أو مجلدات الألعاب إلى {dir} (أو {usb} على محرك USB)، ثم اضغط إعادة المسح.',
+    emptyHome: 'تظهر كل لعبة هنا وعلى الشاشة الرئيسية بعد تسجيلها.',
+    showLog: 'إظهار السجل', hideLog: 'إخفاء السجل',
+    delete: 'حذف', rebuildCache: 'إعادة إنشاء الذاكرة المؤقتة', close: 'إغلاق', storage: 'التخزين',
+    fTitleId: 'Title ID', fVersion: 'الإصدار', fStatus: 'الحالة', fType: 'النوع', fDrive: 'المحرك',
+    fPath: 'المسار', fCachePath: 'مسار الذاكرة المؤقتة', fCacheSize: 'حجم الذاكرة المؤقتة', fCacheBuilt: 'أُنشئت الذاكرة المؤقتة',
+    fBackport: 'الباكبورت', yes: 'نعم', no: 'لا', notBuilt: 'لم تُنشأ',
+    szGame: 'اللعبة', szDlc: 'DLC', szSave: 'الحفظ', szCache: 'الذاكرة المؤقتة',
+    szPart: '{part} {size}', szNa: '{part} غير متاح', szTotal: 'الإجمالي {size}',
+    sizesNone: 'الأحجام غير متاحة', sizesLoading: 'جارٍ تحميل الأحجام...',
+    sizesDup: 'نسخة مكررة: الأحجام معروضة على النسخة الموجودة في المكتبة.',
+    cancel: 'إلغاء',
+    rebuildTitle: 'إعادة إنشاء الذاكرة المؤقتة لـ {name}؟',
+    rebuildText: 'ستُنشأ الذاكرة المؤقتة من جديد. اللعبة غير متاحة حتى ينتهي ذلك.',
+    rebuildYes: 'إعادة الإنشاء',
+    deleteTitle: 'حذف {name}؟',
+    deletePkg: 'سيُحذف ملف .pkg وذاكرته المؤقتة من المحرك: {path}. لا يمكن التراجع عن ذلك.',
+    deleteFolder: 'سيُحذف مجلد اللعبة وذاكرته المؤقتة من المحرك: {path}. لا يمكن التراجع عن ذلك.',
+    stopTitle: 'إيقاف Kraken Mount؟',
+    stopText: 'تبقى الألعاب مسجّلة. افتح لوحة Kraken Mount لتشغيله مرة أخرى.',
+    stopYes: 'إيقاف',
+    rebuildAllTitle: 'إعادة إنشاء كل الذاكرات المؤقتة؟',
+    rebuildAllText: 'تُفرَّغ الذاكرة المؤقتة لكل لعبة وتُنشأ من جديد. الألعاب غير متاحة أثناء ذلك.',
+    purgeTitle: 'تنظيف الذاكرة المؤقتة؟',
+    purgeText: 'يحذف الذاكرات المؤقتة للألعاب التي لم تعد في المكتبة، ويفرّغ كل الباقي ويعيد إنشاءه ({size} الآن). الألعاب غير متاحة أثناء ذلك.',
+    purgeYes: 'تنظيف',
+    sNoAmpr: 'ampr-emu-ng ({file}) غير موجود في {dir}.',
+    rescan: 'إعادة المسح', rebuildAll: 'إعادة إنشاء الكل',
+    scanPaths: 'مسارات المسح',
+    scanPathsHint: 'مسار واحد في كل سطر. فارغ = الجذور الافتراضية (/data/homebrew و/data/etaHEN/games، وعلى كل محرك homebrew وetaHEN/games والجذر).',
+    addEmulators: 'إضافة محاكيات DLC (dlc_emu) وPlayGo (pgo_stub) المضمّنة عندما تحتاجها اللعبة ولا تتضمنها',
+    injectAmpr: 'حقن ampr-emu-ng في fakelib لألعاب المجلدات (ألعاب pkg تحصل عليه دائمًا)',
+    amprAutoUpdate: 'تحديث ampr-emu-ng تلقائيًا (يُفحص مرة واحدة عند البدء)',
+    amprUpdateNow: "تحديث ampr-emu-ng الآن",
+    amprUpdating: "جارٍ تحديث ampr-emu-ng...",
+    amprBundled: "مضمّن",
+    amprDownloaded: "تم تنزيله",
+    amprHand: "وُضع يدويًا",
+    amprMissing: "غير مثبّت",
+    amprReplaceTitle: "استبدال ampr-emu-ng الموضوع يدويًا؟",
+    amprReplaceText: "سيستبدله أحدث إصدار. يُنقل ملفك إلى {backup}.",
+    amprReplaceYes: "استبدال",
+    backports: 'تطبيق الباكبورت',
+    scanInterval: 'فاصل المسح، بالثواني (1-3600)',
+    stabilityWait: 'انتظار انتهاء النسخ، بالثواني (0-3600، 0 = إيقاف)',
+    autoRemoveMissing: 'إزالة اللعبة من الشاشة الرئيسية عند فقدان مصدرها',
+    autoRemoveDelay: 'الإزالة بعد الغياب لمدة، بالثواني (1-86400)',
+    lowSpaceGb: 'تحذير المساحة القليلة، GB',
+    notify: 'إشعارات النظام',
+    writeLog: 'كتابة kraken.log (حتى 1 MB)',
+    debug: 'تصحيح الأخطاء (التقاط klog، مسار الملفات)',
+    language: 'اللغة', system: 'لغة النظام',
+    purgeCache: 'تنظيف الذاكرة المؤقتة', save: 'حفظ',
+    cacheInfo: 'الذاكرة المؤقتة: {size} في {path}، والمتاح {free} على SSD الداخلي.',
+    driveInfo: '{drive}: متاح {free} من {total}',
+    loading: 'جارٍ التحميل...', saving: 'جارٍ الحفظ...', saved: 'تم الحفظ.',
+    loadFailed: 'تعذّر تحميل الإعدادات: {error}. أغلق وافتح من جديد لإعادة المحاولة؛ الحفظ معطّل.',
+    saveFailed: 'فشل الحفظ: {error}'
+  }
+};
+// Each language in its own words (dump-forge's names and order), the <html lang> tag where it
+// needs more than the key, and rtl for a right-to-left script.
+var LANGS = {
+  en: { name: 'English' }, ru: { name: 'Русский' }, zh: { name: '简体中文', tag: 'zh-Hans' },
+  de: { name: 'Deutsch' }, es: { name: 'Español' }, fr: { name: 'Français' }, ja: { name: '日本語' },
+  pt: { name: 'Português (Brasil)', tag: 'pt-BR' }, it: { name: 'Italiano' }, ko: { name: '한국어' },
+  ar: { name: 'العربية', rtl: true }
+};
+var LANG_KEY = 'kraken.lang';
+function isLang(v) { return typeof v === 'string' && Object.prototype.hasOwnProperty.call(LANGS, v); }
+function storedLang() {
+  try { var v = localStorage.getItem(LANG_KEY); return isLang(v) ? v : null; } catch (e) { return null; }
+}
+// The first system language the UI has (pt-BR -> pt), else English.
+function detectLang() {
+  var tags = navigator.languages && navigator.languages.length ? navigator.languages :
+    navigator.language ? [navigator.language] : [];
+  for (var i = 0; i < tags.length; i++) {
+    var l = String(tags[i]).toLowerCase().split('-')[0];
+    if (isLang(l)) return l;
+  }
+  return 'en';
+}
+var langChoice = storedLang(), lang = langChoice || detectLang();
+function t(key, args) {
+  var own = MSG[lang] && MSG[lang][key], m = own != null ? own : MSG.en[key];
+  if (m == null) return key;
+  return String(m).replace(/\{(\w+)\}/g, function (all, name) {
+    return args && args[name] != null ? String(args[name]) : all;
+  });
+}
+function isRtl() { return !!LANGS[lang].rtl; }
+// Arabic keeps Latin digits, like the paths, versions and title ids around them.
+function dateLocale() { return lang === 'ar' ? 'ar-u-nu-latn' : LANGS[lang].tag || lang; }
+// "a=b;c=d" -> {a: 'b', c: 'd'} (data-args, data-wrap).
+function parseArgs(s) {
+  var out = {};
+  (s || '').split(';').forEach(function (p) {
+    var i = p.indexOf('=');
+    if (i > 0) out[p.slice(0, i)] = p.slice(i + 1);
+  });
+  return out;
+}
+// A message with markup around some args (wrap: {name: 'code'}), built as nodes, no innerHTML.
+function fill(node, key, args, wrap) {
+  var parts = t(key).split(/\{(\w+)\}/);
+  node.textContent = '';
+  parts.forEach(function (part, i) {
+    if (i % 2 === 0) { if (part) node.appendChild(document.createTextNode(part)); return; }
+    var v = args[part] != null ? args[part] : '{' + part + '}';
+    node.appendChild(wrap[part] ? el(wrap[part], null, v) : document.createTextNode(v));
+  });
+}
+// Static markup: data-i18n (text, with data-args/data-wrap), data-i18n-aria, data-i18n-title.
+function applyStatic() {
+  var list = document.querySelectorAll('[data-i18n]'), i, n;
+  for (i = 0; i < list.length; i++) {
+    n = list[i];
+    if (n.hasAttribute('data-args'))
+      fill(n, n.getAttribute('data-i18n'), parseArgs(n.getAttribute('data-args')), parseArgs(n.getAttribute('data-wrap')));
+    else setText(n, t(n.getAttribute('data-i18n')));
+  }
+  list = document.querySelectorAll('[data-i18n-aria]');
+  for (i = 0; i < list.length; i++) list[i].setAttribute('aria-label', t(list[i].getAttribute('data-i18n-aria')));
+  list = document.querySelectorAll('[data-i18n-title]');
+  for (i = 0; i < list.length; i++) list[i].title = t(list[i].getAttribute('data-i18n-title'));
+}
+// Text set from script keeps its producer, so a switch can render it again.
+function live(node, fn) { node._live = fn || null; setText(node, fn ? fn() : ''); }
+function applyLang() {
+  document.documentElement.lang = LANGS[lang].tag || lang;
+  document.documentElement.dir = isRtl() ? 'rtl' : 'ltr';
+}
+function fillLangSelect() {
+  var sel = $('f_lang');
+  if (!sel.options.length) {
+    var o = el('option');
+    o.value = '';
+    sel.appendChild(o);
+    Object.keys(LANGS).forEach(function (k) {
+      var opt = el('option', null, LANGS[k].name);
+      opt.value = k;
+      opt.lang = LANGS[k].tag || k;
+      sel.appendChild(opt);
+    });
+    sel.onchange = function () { setLang(this.value || null); };
+  }
+  setText(sel.options[0], t('system'));
+  sel.value = langChoice || '';
+}
+// A choice, or null to follow the system languages again; the whole UI renders again in place.
+function setLang(l) {
+  langChoice = isLang(l) ? l : null;
+  lang = langChoice || detectLang();
+  try {
+    if (langChoice) localStorage.setItem(LANG_KEY, langChoice); else localStorage.removeItem(LANG_KEY);
+  } catch (e) { /* Private mode or blocked storage: the choice lasts until the page closes. */ }
+  applyLang();
+  renderAll();
+}
+var state = null, cardsById = {}, filter = 'all', openTid = null, opener = null;
+var confirmFn = null, confirmOpener = null, timer = null, queued = false;
+var logOpen = false, settingsLoaded = false, sizesRequest = 0, modalActionError = '';
+var PS = /PlayStation (?:4|5)\b/i.test(navigator.userAgent || '');
+var ELF = 'http://127.0.0.1:9021/data/krakenmount/kraken-mount.elf';
+var LOOPBACK = (location.hostname === '127.0.0.1' || location.hostname === 'localhost') && location.port === '8097';
+var stopped = false, launchTried = false;
+var KINDS = [
+  { id: 'all', key: 'kindAll' }, { id: 'pkg', label: 'PKG' }, { id: 'folder', key: 'kindFolders' },
+  { id: 'lz4', label: 'LZ4' }, { id: 'zstd', label: 'ZSTD' }
+];
+function kindLabel(kind) { return kind.key ? t(kind.key) : kind.label; }
+var LABEL = { pending: 'stPending', checking: 'stChecking', building: 'stBuilding', ready: 'stReady', error: 'stError', duplicate: 'stDuplicate' };
+function statusLabel(s) { return t(LABEL[s] || LABEL.pending); }
+
+function el(tag, cls, value) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (value != null) e.textContent = value;
+  return e;
+}
+function setText(node, value) {
+  var s = value == null ? '' : String(value);
+  if (node.textContent !== s) node.textContent = s;
+}
+function fmtSize(bytes) {
+  var n = Number(bytes) || 0;
+  if (n >= 1073741824) return (n / 1073741824).toFixed(2) + ' GB';
+  return (n / 1048576).toFixed(n >= 104857600 ? 0 : 1) + ' MB';
+}
+function gb(bytes) { return ((Number(bytes) || 0) / 1073741824).toFixed(1) + ' GB'; }
+function fmtTime(secs) { return secs ? new Date(secs * 1000).toLocaleString(dateLocale()) : t('notBuilt'); }
+// text: a function that renders the banner's text (kept for a language switch); omitted keeps the last one.
+function setBanner(id, show, text) {
+  if (text != null) live($(id), text);
+  $(id).classList.toggle('show', !!show);
+}
+function schedule(ms) { clearTimeout(timer); if (!stopped) timer = setTimeout(poll, ms); }
+function pausedText() {
+  var run = state && Array.isArray(state.running) ? state.running.join(', ') : '';
+  return t('paused', { games: run || '?' }) + (queued ? ' ' + t('queued') : '');
+}
+async function post(path) {
+  try {
+    var r = await fetch(path, { method: 'POST' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (state && state.paused) { queued = true; setBanner('paused', true, pausedText); }
+  } catch (e) { setBanner('offline', true); }
+  schedule(300);
+}
+async function startPayload() {
+  launchTried = true;
+  setBanner('offline', true, function () { return t('starting'); });
+  var ctl = new AbortController(), abortTimer = setTimeout(function () { ctl.abort(); }, 10000);
+  try {
+    var r = await fetch(ELF + '?args=serve&pipe=0&n=' + Date.now(),
+      { mode: 'cors', credentials: 'omit', cache: 'no-store', signal: ctl.signal });
+    var body = await r.text();
+    if (body.indexOf('Error reading') >= 0)
+      setBanner('offline', true, function () { return t('elfMissing'); });
+  } catch (e) { /* elfldr may hold the connection after starting the payload. */ }
+  finally { clearTimeout(abortTimer); }
+}
+
+function gameId(g) { return g.title_id + (g.status === 'duplicate' ? '|' + g.path : ''); }
+function findGame(id) {
+  var games = state && Array.isArray(state.games) ? state.games : [];
+  for (var i = 0; i < games.length; i++) if (games[i] && gameId(games[i]) === id) return games[i];
+  return null;
+}
+function gameKind(g) {
+  if (g.kind === 'pkg') return 'pkg';
+  if (g.packing === 'lz4' || g.packing === 'zstd') return g.packing;
+  return 'folder';
+}
+function badgeText(g) { return { pkg: 'PKG', folder: t('badgeFolder'), lz4: 'LZ4', zstd: 'ZSTD' }[gameKind(g)]; }
+function gameName(g) { return g.title_name || g.title_id; }
+function gameSub(g) { return g.title_id + (g.version ? ' · ' + g.version : ''); }
+function isRunning(g) { return state && Array.isArray(state.running) && state.running.indexOf(g.title_id) >= 0; }
+function driveLabel(mount) {
+  if (mount === '/data') return t('driveInternal');
+  // ponytail: the same names storage::drives() sends as `label`, built here so they translate.
+  var m = /^\/mnt\/(usb|ext)(\d+)$/.exec(mount || '');
+  if (m) return t(m[1] === 'usb' ? 'driveUsb' : 'driveExt', { n: Number(m[2]) + 1 });
+  var drives = state && Array.isArray(state.drives) ? state.drives : [];
+  for (var i = 0; i < drives.length; i++)
+    if (drives[i].mount === mount) return drives[i].label || drives[i].mount;
+  return mount || '?';
+}
+function initials(name) {
+  var words = String(name || '?').replace(/[^A-Za-z0-9 ]/g, '').split(' ').filter(Boolean);
+  if (!words.length) return '?';
+  return (words.length > 1 ? words[0].charAt(0) + words[1].charAt(0) : words[0].slice(0, 2)).toUpperCase();
+}
+function coverStyle(h) {
+  return 'radial-gradient(circle at 25% 20%, hsla(' + h + ',90%,70%,0.95), transparent 55%),' +
+    'radial-gradient(circle at 80% 75%, hsla(' + (h + 50) + ',85%,45%,0.95), transparent 60%),' +
+    'linear-gradient(160deg, hsl(' + h + ',60%,30%), hsl(' + (h + 30) + ',70%,12%))';
+}
+function gameHue(id) {
+  var h = 0;
+  for (var i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360;
+  return h;
+}
+function makeCover() {
+  var cover = el('div', 'cover'), ini = el('div', 'ini'), img = el('img');
+  img.alt = '';
+  img.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;display:none';
+  cover.appendChild(ini);
+  cover.appendChild(img);
+  return { el: cover, ini: ini, img: img, key: null, status: null, failed: false };
+}
+function updateCover(c, g) {
+  c.el.style.background = coverStyle(gameHue(g.title_id));
+  setText(c.ini, initials(gameName(g)));
+  var key = String(g.cache_built || 0);
+  // Rebuilds and a status change after missing art give the image another chance.
+  if (c.key !== key || (c.failed && c.status !== g.status)) {
+    c.key = key;
+    c.failed = false;
+    c.img.style.display = 'none';
+    var img = c.img, tid = encodeURIComponent(g.title_id), version = '?v=' + encodeURIComponent(key);
+    img.onload = function () { img.style.display = 'block'; };
+    // icon0.png (512x512, the home-screen tile) fits the square frames of cards and the sheet;
+    // pic0.png (16:9, 3840x2160, often 10+ MB) is only the fallback when a game has no icon.
+    img.onerror = function () {
+      if (img.src.indexOf('/icon/') >= 0) img.src = '/pic/' + tid + version;
+      else { img.style.display = 'none'; c.failed = true; }
+    };
+    img.src = '/icon/' + tid + version;
+  }
+  c.status = g.status;
+}
+
+function renderChips(games) {
+  var counts = { all: 0, pkg: 0, folder: 0, lz4: 0, zstd: 0 };
+  games.forEach(function (g) { if (g && g.title_id) { counts.all++; counts[gameKind(g)]++; } });
+  var box = $('chips');
+  KINDS.forEach(function (kind, i) {
+    var b = box.children[i];
+    if (!b) {
+      b = el('button', 'seg-opt');
+      b.type = 'button';
+      b.setAttribute('data-kind', kind.id);
+      b.appendChild(document.createTextNode(''));
+      b.appendChild(el('span', 'count'));
+      b.onclick = function () { setFilter(kind.id); };
+      box.appendChild(b);
+    }
+    b.setAttribute('aria-pressed', String(kind.id === filter));
+    setText(b.firstChild, kindLabel(kind) + ' ');
+    setText(b.lastChild, counts[kind.id]);
+  });
+}
+function focusChip() {
+  var chip = $('chips').querySelector('[aria-pressed="true"]');
+  if (chip) chip.focus();
+}
+function setFilter(id) {
+  var focus = document.activeElement;
+  var cardFocused = focus && focus.parentNode === $('grid');
+  filter = id;
+  var games = state && Array.isArray(state.games) ? state.games : [];
+  renderChips(games);
+  renderGrid(games);
+  if (cardFocused && $('grid').firstChild && document.activeElement === document.body)
+    $('grid').firstChild.focus();
+}
+function stepFilter(d) {
+  // L2/R2 (triggers and keycaps) step by screen side: the chips run right to left in RTL.
+  if (isRtl()) d = -d;
+  var i = 0;
+  KINDS.forEach(function (k, j) { if (k.id === filter) i = j; });
+  setFilter(KINDS[(i + d + KINDS.length) % KINDS.length].id);
+}
+function renderStorage(drives) {
+  var list = [], internal = null;
+  (drives || []).forEach(function (d) { if (d.mount === '/data') internal = d; else list.push(d); });
+  if (internal) list.push(internal);
+  var box = $('storage');
+  box.hidden = !list.length;
+  var key = list.map(function (d) { return d.mount + (d.ejectable ? '*' : ''); }).join('|');
+  if (box.getAttribute('data-key') !== key) {
+    var hadFocus = box.contains(document.activeElement);
+    box.setAttribute('data-key', key);
+    box.textContent = '';
+    list.forEach(function (d) {
+      var pill = el('div', 'storage-pill glass'), meter = el('span', 'meter');
+      meter.appendChild(el('i'));
+      pill.appendChild(el('b'));
+      pill.appendChild(meter);
+      pill.appendChild(el('span'));
+      if (d.ejectable) {
+        var btn = el('button', 'small eject');
+        btn.type = 'button';
+        btn.setAttribute('data-mount', d.mount);
+        btn.onclick = function () { askEject(d.mount); };
+        pill.appendChild(btn);
+      }
+      box.appendChild(pill);
+    });
+    if (hadFocus) focusChip();
+  }
+  list.forEach(function (d, i) {
+    var pill = box.children[i];
+    var used = d.total ? Math.max(0, Math.min(100, 100 * (d.total - d.free) / d.total)) : 0;
+    setText(pill.children[0], driveLabel(d.mount));
+    pill.children[1].firstChild.style.width = used.toFixed(1) + '%';
+    setText(pill.children[2], t('driveFree', { free: fmtSize(d.free), total: fmtSize(d.total) }));
+    var btn = pill.children[3];
+    if (btn) {
+      btn.disabled = ejecting != null;
+      setText(btn, t(ejecting === d.mount ? 'ejecting' : 'eject'));
+      btn.setAttribute('aria-label', t('ejectAria', { drive: driveLabel(d.mount) }));
+    }
+  });
+}
+// One unmount at a time; the server answers within ~6 s. The reason comes from the server, in English.
+var ejecting = null, ejectTimer = null;
+function ejectBanner(text, ok) {
+  clearTimeout(ejectTimer);
+  $('eject').classList.toggle('ok', !!ok);
+  setBanner('eject', !!text, text || function () { return ''; });
+  if (ok) ejectTimer = setTimeout(function () { setBanner('eject', false); }, 8000);
+}
+function askEject(mount) {
+  var drive = function () { return driveLabel(mount); };
+  ask(t('ejectTitle', { drive: drive() }), t('ejectText'), t('eject'), async function () {
+    ejecting = mount;
+    ejectBanner(null);
+    if (state) renderStorage(state.drives);
+    try {
+      var r = await fetch('/api/eject', { method: 'POST', body: mount });
+      if (!r.ok) throw new Error((await r.text()) || 'HTTP ' + r.status);
+      ejectBanner(function () { return t('ejected', { drive: drive() }); }, true);
+      schedule(300);
+    } catch (e) {
+      var reason = e.message;
+      ejectBanner(function () { return t('ejectFailed', { drive: drive(), reason: reason }); }, false);
+    }
+    ejecting = null;
+    if (state) renderStorage(state.drives);
+    var again = document.querySelector('#storage .eject[data-mount="' + mount + '"]');
+    if (again && (!document.activeElement || document.activeElement === document.body)) again.focus();
+  });
+}
+function makeCard(id) {
+  var button = el('button', 'card'), cover = makeCover();
+  button.type = 'button';
+  button.setAttribute('data-key', id);
+  button.onclick = function () { openModal(id, button); };
+  cover.badge = el('span', 'badge');
+  cover.el.appendChild(cover.badge);
+  button.appendChild(cover.el);
+  var info = el('div', 'info');
+  var name = el('h3'), sub = el('p');
+  info.appendChild(name);
+  info.appendChild(sub);
+  button.appendChild(info);
+  var status = el('span', 'status-pill'), running = el('span', 'running-pill');
+  button.appendChild(status);
+  button.appendChild(running);
+  return { el: button, cover: cover, name: name, sub: sub, status: status, running: running };
+}
+function updateCard(c, g) {
+  var name = gameName(g), status = LABEL[g.status] ? g.status : 'pending', label = statusLabel(status);
+  setText(c.name, name);
+  c.name.title = name;
+  setText(c.sub, gameSub(g));
+  setText(c.cover.badge, badgeText(g));
+  c.el.setAttribute('aria-label', t(isRunning(g) ? 'cardAriaRunning' : 'cardAria', { name: name, type: badgeText(g), status: label }));
+  c.status.hidden = status === 'ready';
+  c.status.className = 'status-pill s-' + status;
+  setText(c.status, label);
+  setText(c.running, t('running'));
+  c.running.hidden = !isRunning(g);
+  updateCover(c.cover, g);
+}
+function renderGrid(games) {
+  var grid = $('grid'), seen = {}, count = 0;
+  var focus = document.activeElement, focusKey = focus && focus.getAttribute ? focus.getAttribute('data-key') : null;
+  games.forEach(function (g) {
+    if (!g || !g.title_id || (filter !== 'all' && gameKind(g) !== filter)) return;
+    var id = gameId(g);
+    if (seen[id]) return;
+    seen[id] = true;
+    var c = cardsById[id] || (cardsById[id] = makeCard(id));
+    updateCard(c, g);
+    if (grid.children[count] !== c.el) grid.insertBefore(c.el, grid.children[count] || null);
+    count++;
+  });
+  Object.keys(cardsById).forEach(function (id) {
+    if (!seen[id]) {
+      if (cardsById[id].el.parentNode === grid) grid.removeChild(cardsById[id].el);
+      delete cardsById[id];
+    }
+  });
+  var empty = $('empty'), any = games.some(function (g) { return g && g.title_id; });
+  // While start-up waits (kstuff, ShadowMount+) the banner explains the empty library.
+  empty.hidden = count > 0 || !!(state && state.waiting);
+  setText(empty.querySelector('h2'), t(any ? 'noGamesType' : 'noGames'));
+  var paragraphs = empty.querySelectorAll('p');
+  for (var i = 0; i < paragraphs.length; i++) paragraphs[i].hidden = any;
+  if (focusKey && document.activeElement === document.body) {
+    if (cardsById[focusKey]) cardsById[focusKey].el.focus();
+    else if (grid.firstChild) grid.firstChild.focus();
+    else focusChip();
+  }
+}
+
+function modalOpen() { return !$('modal').hidden; }
+// PS browser drives its own cursor, so only inert keeps it out of the layers behind the top one (as SMP does).
+function syncInert() {
+  if (!PS) return;
+  var dialog = !$('confirm').hidden, below = dialog || modalOpen();
+  ['.topbar', '.banners', 'main'].forEach(function (q) { document.querySelector(q).inert = below; });
+  $('modal').inert = dialog && modalOpen();
+}
+function closeModal() {
+  sizesRequest++;
+  openTid = null;
+  $('modal').hidden = true;
+  syncInert();
+  var back = opener;
+  opener = null;
+  if (back && document.body.contains(back) && !back.disabled) back.focus();
+  else if ($('grid').firstChild) $('grid').firstChild.focus();
+  else focusChip();
+}
+function renderModal() {
+  var g = openTid && findGame(openTid);
+  if (!g) { if (modalOpen()) closeModal(); return; }
+  var name = gameName(g);
+  setText($('m-name'), name);
+  setText($('m-sub'), gameSub(g));
+  var picture = $('m-pic')._cover;
+  if (!picture) {
+    $('m-pic').textContent = '';
+    picture = makeCover();
+    picture.badge = el('span', 'badge');
+    picture.el.appendChild(picture.badge);
+    $('m-pic')._cover = picture;
+    $('m-pic').appendChild(picture.el);
+  }
+  updateCover(picture, g);
+  setText(picture.badge, badgeText(g));
+  var status = statusLabel(g.status);
+  if (isRunning(g)) status = t('statusRunning', { status: status });
+  var backport = g.backport == null || g.backport === false || g.backport === '' ? t('no') :
+    g.backport === true ? t('yes') : String(g.backport);
+  // [label, value, kind]: 'mono' for ids and paths, 'tag' for the status.
+  var rows = [
+    [t('fTitleId'), g.title_id, 'mono'], [t('fVersion'), g.version || '—'], [t('fStatus'), status, 'tag'],
+    [t('fType'), badgeText(g) + ' (' + g.kind + ')'], [t('fDrive'), driveLabel(g.drive)],
+    [t('fPath'), g.path || '—', 'mono'],
+    [t('fCachePath'), (state.cache && state.cache.path ? state.cache.path : '/data/krakenmount/caches') + '/' + g.title_id, 'mono'],
+    [t('fCacheSize'), fmtSize(g.cache_size)], [t('fCacheBuilt'), fmtTime(g.cache_built)], [t('fBackport'), backport]
+  ];
+  var fields = $('m-fields'), sig = JSON.stringify(rows);
+  if (fields._sig !== sig) {
+    fields._sig = sig;
+    fields.textContent = '';
+    rows.forEach(function (row) {
+      fields.appendChild(el('dt', null, row[0]));
+      var dd = el('dd', row[2] === 'mono' ? 'mono' : null);
+      if (row[2] === 'tag') dd.appendChild(el('span', 'tag' + (g.status === 'ready' ? ' green' : ''), row[1]));
+      else setText(dd, row[1]);
+      fields.appendChild(dd);
+    });
+  }
+  setText($('m-err'), modalActionError || g.error || '');
+  // A duplicate shares the title id of the library copy: the API calls would act on that copy.
+  $('m-rebuild').disabled = g.status === 'duplicate' || g.status === 'building';
+  $('m-delete').disabled = g.status === 'duplicate';
+}
+function renderSizes(sizes) {
+  var stack = $('m-stack'), legend = $('m-legend');
+  legend._redo = function () { renderSizes(sizes); };
+  stack.textContent = '';
+  legend.textContent = '';
+  if (!sizes) { setText(legend, t('sizesNone')); return; }
+  var parts = [
+    ['game', t('szGame'), sizes.game], ['dlc', t('szDlc'), sizes.dlc],
+    ['save', t('szSave'), sizes.save], ['cache', t('szCache'), sizes.cache]
+  ];
+  var total = 0;
+  parts.forEach(function (part) { if (part[2] != null) total += Math.max(0, Number(part[2]) || 0); });
+  parts.forEach(function (part) {
+    if (part[2] == null) { legend.appendChild(el('span', 'c-' + part[0], t('szNa', { part: part[1] }))); return; }
+    var amount = Math.max(0, Number(part[2]) || 0);
+    var bar = el('i', 'c-' + part[0]);
+    bar.style.width = (total ? amount / total * 100 : 0).toFixed(2) + '%';
+    bar.style.background = 'var(--c)';
+    stack.appendChild(bar);
+    legend.appendChild(el('span', 'c-' + part[0], t('szPart', { part: part[1], size: fmtSize(amount) })));
+  });
+  legend.appendChild(el('span', null, t('szTotal', { size: fmtSize(total) })));
+}
+async function loadSizes(tid, request) {
+  try {
+    var r = await fetch('/api/sizes/' + encodeURIComponent(tid), { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var sizes = await r.json();
+    if (request === sizesRequest && modalOpen()) renderSizes(sizes);
+  } catch (e) { if (request === sizesRequest && modalOpen()) renderSizes(null); }
+}
+function legendText(key) {
+  $('m-legend')._redo = function () { legendText(key); };
+  setText($('m-legend'), t(key));
+}
+function openModal(id, fromCard) {
+  if (!findGame(id)) return;
+  opener = fromCard || document.activeElement;
+  openTid = id;
+  modalActionError = '';
+  $('m-pic').textContent = '';
+  $('m-pic')._cover = null;
+  $('m-fields')._sig = null;
+  $('modal').hidden = false;
+  syncInert();
+  renderModal();
+  renderSizes(null);
+  sizesRequest++;
+  if (findGame(id).status === 'duplicate') legendText('sizesDup');
+  else { legendText('sizesLoading'); loadSizes(findGame(id).title_id, sizesRequest); }
+  $('m-close').focus();
+}
+$('m-close').onclick = closeModal;
+$('m-rebuild').onclick = function () {
+  var g = openTid && findGame(openTid);
+  if (!g) return;
+  ask(t('rebuildTitle', { name: gameName(g) }), t('rebuildText'), t('rebuildYes'),
+    function () { post('/api/rebuild/' + encodeURIComponent(g.title_id)); });
+};
+$('m-delete').onclick = function () {
+  var g = openTid && findGame(openTid);
+  if (!g) return;
+  var tid = g.title_id;
+  ask(t('deleteTitle', { name: gameName(g) }), t(g.kind === 'pkg' ? 'deletePkg' : 'deleteFolder', { path: g.path }),
+    t('delete'), async function () {
+      try {
+        var r = await fetch('/api/delete/' + encodeURIComponent(tid), { method: 'POST', body: g.path });
+        if (!r.ok) throw new Error((await r.text()) || 'HTTP ' + r.status);
+        closeModal();
+        schedule(300);
+      } catch (e) {
+        if (modalOpen() && openTid === gameId(g)) {
+          modalActionError = e.message;
+          setText($('m-err'), modalActionError);
+        }
+      }
+    });
+};
+
+function closeConfirm() {
+  $('confirm').hidden = true;
+  syncInert();
+  var back = confirmOpener;
+  confirmOpener = null;
+  if (back && document.body.contains(back) && !back.disabled) back.focus();
+  else if (modalOpen()) $('m-close').focus();
+  else focusChip();
+}
+function ask(title, message, yes, fn) {
+  setText($('ctitle'), title);
+  setText($('ctext'), message);
+  setText($('cyes'), yes);
+  confirmFn = fn;
+  confirmOpener = document.activeElement;
+  $('confirm').hidden = false;
+  syncInert();
+  $('cno').focus();
+}
+$('cno').onclick = function () { confirmFn = null; closeConfirm(); };
+$('cyes').onclick = function () {
+  var fn = confirmFn;
+  confirmFn = null;
+  closeConfirm();
+  if (fn) fn();
+};
+$('stop').onclick = function () {
+  ask(t('stopTitle'), t('stopText'), t('stopYes'), async function () {
+    try {
+      var r = await fetch('/api/quit', { method: 'POST', body: 'shutdown' });
+      if (r.status === 409) {
+        setBanner('paused', true, function () { return t('stopBusy'); });
+        return;
+      }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      stopped = true;
+      clearTimeout(timer);
+      setBanner('offline', true, function () { return t('stopped'); });
+    } catch (e) { setBanner('offline', true); }
+  });
+};
+$('rescan').onclick = function () { post('/api/rescan'); };
+$('rebuildall').onclick = function () {
+  ask(t('rebuildAllTitle'), t('rebuildAllText'), t('rebuildAll'), function () { post('/api/rebuild-all'); });
+};
+
+async function poll() {
+  if (stopped) return;
+  try {
+    var r = await fetch('/api/state', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    state = await r.json();
+    setBanner('offline', false);
+    var cache = state.cache || {};
+    setBanner('lowspace', !!cache.low_space, function () { return t('lowSpace', { free: gb(cache.free) }); });
+    setBanner('noampr', cache.ampr_present === false);
+    setBanner('snoampr', cache.ampr_present === false);
+    if (!state.paused) queued = false;
+    setBanner('paused', !!state.paused, pausedText);
+    setBanner('waiting', !!state.waiting, function () { return t(state.waiting === 'kstuff' ? 'waitKstuff' : 'waitSmp'); });
+    var games = Array.isArray(state.games) ? state.games : [];
+    renderChips(games);
+    renderStorage(state.drives);
+    renderGrid(games);
+    if (modalOpen()) renderModal();
+    if (typeof renderSettingsInfo === 'function') renderSettingsInfo();
+    var lines = Array.isArray(state.log) ? state.log : [];
+    var logText = lines.slice(-100).join('\n');
+    if ($('log').textContent !== logText) {
+      setText($('log'), logText);
+      if (logOpen) $('log').scrollTop = $('log').scrollHeight;
+    }
+  } catch (e) {
+    if (stopped) return;
+    setBanner('offline', true);
+    if (LOOPBACK && !launchTried) await startPayload();
+  }
+  if (!stopped) schedule(2000);
+}
+
+// ---- chunk 3: settings, log, views, keys ----
+var BOOLS = ['inject_ampr', 'add_emulators', 'ampr_auto_update', 'backports', 'auto_remove_missing', 'notify', 'log', 'debug'];
+var NUMS = ['scan_interval_seconds', 'stability_wait_seconds', 'auto_remove_delay_seconds', 'low_space_gb'];
+var settingsRequest = 0;
+function fillSettings(v) {
+  $('f_scanpath').value = (v.scanpath || []).join('\n');
+  BOOLS.forEach(function (k) { $('f_' + k).checked = v[k] === true || v[k] === 1; });
+  NUMS.forEach(function (k) { $('f_' + k).value = v[k] == null ? '' : v[k]; });
+}
+function readSettings() {
+  var v = {
+    scanpath: $('f_scanpath').value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean)
+  };
+  BOOLS.forEach(function (k) { v[k] = $('f_' + k).checked; });
+  NUMS.forEach(function (k) { var n = parseInt($('f_' + k).value, 10); if (!isNaN(n)) v[k] = n; });
+  return v;
+}
+function renderSettingsInfo() {
+  var c = (state && state.cache) || {};
+  setText($('scache'), t('cacheInfo', { size: fmtSize(c.size), path: c.path || '/data/krakenmount/caches', free: gb(c.free) }));
+  var drives = (state && Array.isArray(state.drives)) ? state.drives : [];
+  setText($('sdrives'), drives.map(function (d) {
+    return t('driveInfo', { drive: driveLabel(d.mount), free: gb(d.free), total: gb(d.total) });
+  }).join(' · '));
+}
+var amprInfo = null, amprBusy = false;
+var AMPR_KINDS = { bundled: 'amprBundled', downloaded: 'amprDownloaded', hand: 'amprHand', missing: 'amprMissing' };
+function renderAmpr() {
+  var a = amprInfo;
+  live($('amprstatus'), function () {
+    if (!a) return 'ampr-emu-ng';
+    return 'ampr-emu-ng' + (a.version ? ' ' + a.version : '') + ' (' + t(AMPR_KINDS[a.kind] || 'amprMissing') + ')';
+  });
+  $('amprupdate').disabled = amprBusy || !!(a && a.updating);
+}
+async function loadAmpr() {
+  try {
+    var r = await fetch('/api/ampr', { cache: 'no-store' });
+    if (r.ok) { amprInfo = await r.json(); renderAmpr(); }
+  } catch (e) { /* Offline: the banner says so; the line keeps its last value. */ }
+}
+async function runAmprUpdate() {
+  amprBusy = true;
+  renderAmpr();
+  live($('amprmsg'), function () { return t('amprUpdating'); });
+  var msg;
+  try {
+    var r = await fetch('/api/ampr/update', { method: 'POST' });
+    msg = (await r.text()) || 'HTTP ' + r.status;
+  } catch (e) { msg = e.message; }
+  live($('amprmsg'), function () { return msg; });
+  amprBusy = false;
+  loadAmpr();
+  schedule(300);
+}
+$('amprupdate').onclick = function () {
+  if (amprInfo && amprInfo.kind === 'hand')
+    ask(t('amprReplaceTitle'), t('amprReplaceText', { backup: '/data/krakenmount/libSceAmpr.sprx.hand' }),
+      t('amprReplaceYes'), runAmprUpdate);
+  else runAmprUpdate();
+};
+async function loadSettings() {
+  loadAmpr();
+  var request = ++settingsRequest;
+  settingsLoaded = false;
+  $('ssave').disabled = true;
+  live($('smsg'), function () { return t('loading'); });
+  renderSettingsInfo();
+  try {
+    var r = await fetch('/api/settings', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var v = await r.json();
+    if (request !== settingsRequest || $('settings').hidden) return;
+    fillSettings(v);
+    settingsLoaded = true;
+    $('ssave').disabled = false;
+    live($('smsg'), null);
+  } catch (e) {
+    if (request === settingsRequest && !$('settings').hidden)
+      live($('smsg'), function () { return t('loadFailed', { error: e.message }); });
+  }
+}
+function setView(v) {
+  var opening = v === 'settings' && $('settings').hidden;
+  var tabs = document.querySelectorAll('.nav .seg-opt');
+  for (var i = 0; i < tabs.length; i++) {
+    var on = tabs[i].getAttribute('data-view') === v;
+    tabs[i].setAttribute('aria-selected', String(on));
+    $(tabs[i].getAttribute('aria-controls')).hidden = !on;
+  }
+  if (opening) loadSettings();
+  else if (v === 'library') settingsRequest++;
+}
+var tabs = document.querySelectorAll('.nav .seg-opt');
+for (var i = 0; i < tabs.length; i++)
+  tabs[i].onclick = function () { setView(this.getAttribute('data-view')); };
+$('ssave').onclick = async function () {
+  if (!settingsLoaded) return;
+  live($('smsg'), function () { return t('saving'); });
+  try {
+    var r = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(readSettings()) });
+    if (!r.ok) throw new Error((await r.text()) || 'HTTP ' + r.status);
+    live($('smsg'), function () { return t('saved'); });
+    schedule(300);
+  } catch (e) { live($('smsg'), function () { return t('saveFailed', { error: e.message }); }); }
+};
+$('spurge').onclick = function () {
+  ask(t('purgeTitle'), t('purgeText', { size: fmtSize(state && state.cache && state.cache.size) }),
+    t('purgeYes'), function () { post('/api/purge'); });
+};
+$('logtoggle').onclick = function () {
+  logOpen = !logOpen;
+  $('logbox').classList.toggle('open', logOpen);
+  this.setAttribute('aria-expanded', String(logOpen));
+  setText(this, t(logOpen ? 'hideLog' : 'showLog'));
+  if (logOpen) $('log').scrollTop = $('log').scrollHeight;
+};
+var shoulders = document.querySelectorAll('.shoulder[data-step]');
+for (var s = 0; s < shoulders.length; s++)
+  shoulders[s].onclick = function () { stepFilter(+this.getAttribute('data-step')); };
+$('modal').onclick = function (e) { if (e.target === this) closeModal(); };
+
+function cards() { return Array.prototype.slice.call(document.querySelectorAll('#grid .card')); }
+function columns(list) {
+  var n = 0;
+  while (n < list.length && list[n].offsetTop === list[0].offsetTop) n++;
+  return n || 1;
+}
+function moveInGrid(card, key) {
+  var list = cards(), i = list.indexOf(card), cols = columns(list);
+  if (key === 'ArrowLeft' && i % cols === 0) return;
+  if (key === 'ArrowRight' && i % cols === cols - 1) return;
+  var j = key === 'ArrowLeft' ? i - 1 : key === 'ArrowRight' ? i + 1 :
+    key === 'ArrowUp' ? i - cols : i + cols;
+  if (key === 'ArrowUp' && j < 0) { focusChip(); return; }
+  if (key === 'ArrowDown' && j >= list.length) {
+    if (Math.floor(i / cols) < Math.floor((list.length - 1) / cols)) j = list.length - 1;
+    else return;
+  }
+  if (j >= 0 && j < list.length) list[j].focus();
+}
+function moveInSeg(btn, key) {
+  var seg = btn.parentNode;
+  if (key === 'ArrowLeft' || key === 'ArrowRight') {
+    var sib = key === 'ArrowLeft' ? btn.previousElementSibling : btn.nextElementSibling;
+    if (sib) sib.focus();
+    else if (seg.id !== 'chips') moveInTop(btn, key);
+    else if (key === 'ArrowRight' && document.querySelector('#storage .eject')) document.querySelector('#storage .eject').focus();
+  } else if (seg.id === 'chips') {
+    if (key === 'ArrowDown' && cards().length) cards()[0].focus();
+    if (key === 'ArrowUp') document.querySelector('.nav [aria-selected="true"]').focus();
+  } else if (key === 'ArrowDown') {
+    if ($('library').hidden) fields()[0].focus(); else focusChip();
+  }
+}
+// The Unmount buttons on the drive pills, right of the filter chips.
+function moveInStorage(btn, key) {
+  var row = Array.prototype.slice.call(document.querySelectorAll('#storage .eject')), i = row.indexOf(btn);
+  if (key === 'ArrowRight' && row[i + 1]) row[i + 1].focus();
+  else if (key === 'ArrowLeft') { if (row[i - 1]) row[i - 1].focus(); else focusChip(); }
+  else if (key === 'ArrowDown' && cards().length) cards()[0].focus();
+  else if (key === 'ArrowUp') document.querySelector('.nav [aria-selected="true"]').focus();
+}
+// The top row: screen tabs, then Stop and GitHub.
+function moveInTop(t, key) {
+  var row = Array.prototype.slice.call(document.querySelectorAll('.topbar .nav .seg-opt, .topbar .top-actions button, .topbar .top-actions a'));
+  var j = row.indexOf(t) + (key === 'ArrowLeft' ? -1 : 1);
+  if (row[j]) row[j].focus();
+}
+function fields() {
+  return Array.prototype.slice.call(document.querySelectorAll('#settings textarea, #settings input, #settings select, #settings button'));
+}
+function moveInSettings(t, key) {
+  var list = fields(), i = list.indexOf(t);
+  if (i < 0) return false;
+  if (key === 'ArrowLeft' || key === 'ArrowRight') {
+    if (t.tagName !== 'BUTTON') return false;
+    var sib = key === 'ArrowLeft' ? t.previousElementSibling : t.nextElementSibling;
+    if (sib && sib.tagName === 'BUTTON') sib.focus();
+    return true;
+  }
+  if (t.tagName === 'TEXTAREA' &&
+      (key === 'ArrowUp' ? t.selectionStart > 0 : t.selectionEnd < t.value.length)) return false;
+  if (t.tagName === 'BUTTON') {
+    if (t.parentNode.classList.contains('settings-actions')) {
+      if (key === 'ArrowUp') $('tab-settings').focus(); else $('f_scanpath').focus();
+      return true;
+    }
+    if (t.parentNode.classList.contains('btns')) {
+      if (key === 'ArrowDown') return true;
+      i = list.indexOf(t.parentNode.firstElementChild);
+    }
+  }
+  if (key === 'ArrowUp' && i === 0) $('tab-settings').focus();
+  else if (list[i + (key === 'ArrowUp' ? -1 : 1)]) list[i + (key === 'ArrowUp' ? -1 : 1)].focus();
+  return true;
+}
+function moveInModal(key) {
+  var list = Array.prototype.slice.call(document.querySelectorAll('#modal button:not([disabled])'));
+  var i = list.indexOf(document.activeElement);
+  var d = key === 'ArrowLeft' || key === 'ArrowUp' ? -1 : 1;
+  list[(i + d + list.length) % list.length].focus();
+}
+function keepTabInside(e, list) {
+  var i = list.indexOf(document.activeElement);
+  if (i < 0 || (e.shiftKey && i === 0) || (!e.shiftKey && i === list.length - 1)) {
+    e.preventDefault();
+    list[e.shiftKey ? list.length - 1 : 0].focus();
+  }
+}
+var KEYS = { 8: 'Backspace', 27: 'Escape', 37: 'ArrowLeft', 38: 'ArrowUp',
+  39: 'ArrowRight', 40: 'ArrowDown', 118: 'F7', 119: 'F8' };
+document.addEventListener('keydown', function (e) {
+  // Old WebKit may leave e.key empty; PS5 L2/R2 arrive as F7/F8.
+  var k = e.key || KEYS[e.keyCode] || '', t = e.target;
+  // Right to left: the rows run the other way, so Left moves to the next item.
+  if (isRtl() && (k === 'ArrowLeft' || k === 'ArrowRight')) k = k === 'ArrowLeft' ? 'ArrowRight' : 'ArrowLeft';
+  var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) && t.type !== 'checkbox';
+  var arrow = /^Arrow/.test(k);
+  if (!$('confirm').hidden) {
+    if (k === 'Escape' || (k === 'Backspace' && !typing)) { e.preventDefault(); $('cno').click(); return; }
+    if (k === 'Tab') { keepTabInside(e, [$('cno'), $('cyes')]); return; }
+    if (arrow && !PS) {
+      e.preventDefault();
+      (document.activeElement === $('cno') ? $('cyes') : $('cno')).focus();
+    }
+    return;
+  }
+  if (modalOpen()) {
+    if (k === 'Escape' || k === 'Backspace') { e.preventDefault(); closeModal(); return; }
+    if (k === 'Tab') {
+      keepTabInside(e, Array.prototype.slice.call(document.querySelectorAll('#modal button:not([disabled])')));
+      return;
+    }
+    if (arrow && !PS) { e.preventDefault(); moveInModal(k); }
+    return;
+  }
+  if (k === 'Escape' || (k === 'Backspace' && !typing)) {
+    if (!$('settings').hidden) { e.preventDefault(); setView('library'); $('tab-library').focus(); }
+    return;
+  }
+  if ((k === 'F7' || k === 'F8') && !$('library').hidden) {
+    e.preventDefault(); stepFilter(k === 'F7' ? -1 : 1); return;
+  }
+  // PlayStation uses unconsumed arrows to move its native cursor and open the text IME.
+  if (!arrow || PS) return;
+  if ($('settings').contains(t)) { if (moveInSettings(t, k)) e.preventDefault(); return; }
+  if (typing) return;
+  if (t.classList.contains('card')) { e.preventDefault(); moveInGrid(t, k); }
+  else if (t.classList.contains('seg-opt')) { e.preventDefault(); moveInSeg(t, k); }
+  else if (t.classList.contains('eject')) { e.preventDefault(); moveInStorage(t, k); }
+  else if ((k === 'ArrowLeft' || k === 'ArrowRight') && t.parentNode.classList.contains('top-actions')) {
+    e.preventDefault(); moveInTop(t, k);
+  }
+  else if (k === 'ArrowDown' && document.querySelector('.topbar').contains(t)) {
+    e.preventDefault();
+    if ($('library').hidden) fields()[0].focus(); else focusChip();
+  }
+});
+document.addEventListener('focusin', function (e) {
+  var top = !$('confirm').hidden ? $('confirm') : modalOpen() ? $('modal') : null;
+  if (top && !top.contains(e.target))
+    (top === $('confirm') ? $('cno') : $('m-close')).focus();
+});
+
+// Everything on screen in the current language: static markup, then what the last state drew.
+// ponytail: an open confirm dialog keeps its text (the language select sits behind it).
+function renderAll() {
+  applyStatic();
+  fillLangSelect();
+  setText($('logtoggle'), t(logOpen ? 'hideLog' : 'showLog'));
+  ['offline', 'lowspace', 'paused', 'smsg', 'eject'].forEach(function (id) { if ($(id)._live) live($(id), $(id)._live); });
+  if (state) {
+    var games = Array.isArray(state.games) ? state.games : [];
+    renderChips(games);
+    renderStorage(state.drives);
+    renderGrid(games);
+    if (modalOpen()) { renderModal(); if ($('m-legend')._redo) $('m-legend')._redo(); }
+    renderSettingsInfo();
+  }
+}
+live($('offline'), function () { return t('offline'); });
+applyLang();
+renderAll();
+$('tab-library').focus();
+poll();
+</script>
+</body>
+</html>

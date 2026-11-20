@@ -13,6 +13,8 @@ namespace pbc {
 
 // Une ligne « PBC2 … » : sur la console vers le journal système, sur le Mac vers stderr.
 void log_line(const char* line);
+// Journal aussi dans ce fichier (chemin hôte ; vide : arrêté). Appelé par le moteur une fois démarré pour de bon.
+void set_log_file(const std::string& host_path);
 void log(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 
 class Sha256 {

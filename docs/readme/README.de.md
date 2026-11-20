@@ -4,6 +4,17 @@
 
 [English](../../README.md) · [Français](README.fr.md) · [Français (Canada)](README.fr-CA.md) · [Español](README.es.md) · [Español (Latinoamérica)](README.es-419.md) · [Português (Brasil)](README.pt-BR.md) · [Português (Portugal)](README.pt-PT.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Nederlands](README.nl.md) · [Polski](README.pl.md) · [Türkçe](README.tr.md) · [Русский](README.ru.md) · [简体中文](README.zh-Hans.md) · [繁體中文](README.zh-Hant.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Tiếng Việt](README.vi.md) · [العربية](README.ar.md)
 
+## 3.2.0
+
+- Unter Downloads nimmt „+ Link hinzufügen“ auch einen Magnet-Link oder eine .torrent-Datei: Du wählst den Datenträger (der aus Einstellungen › Netzwerk kommt zuerst), verfolgst den Fortschritt (Quellen, Geschwindigkeit, Restzeit) und pausierst, setzt fort oder entfernst (TV und Web).
+- Downloads › Meine Links: alle von der Konsole vergebenen Links (BitTorrent, Konsolen-.zip, MEGA, OneDrive), mit QR-Code, Adresse und zum Beenden. MEGA- und OneDrive-Links werden dort aufbewahrt.
+- Pläne: Ein Spielstand oder Spiel, das schon am Ziel liegt (gleicher Inhalt, von irgendeiner PS5 kopiert), wird nicht erneut kopiert; die Bilanz sagt „bereits aktuell“. Dafür wird nichts neu gelesen.
+- Downloads › „ORBIT UND BLACKBOX“: was Orbit und BlackBox auf die Konsole geladen haben (Status, Laufwerk, Größe, Datei nicht gefunden) und ihre temporären Dateien (behaltenes Archiv, laufender Download, Rest), bei ihnen gelesen, ohne etwas zu ändern.
+- „Installieren…“ in den Werkzeugen eines Spiels, bei .pkg-Paketen und unter Downloads › Orbit und BlackBox: dort einbinden, wo es ist (in den Spieleordner seines Laufwerks gelegt, ohne Kopie, von ShadowMount eingebunden), oder auf einem anderen Laufwerk bzw. einer anderen PS5 installieren (geprüfte Kopie, Original behalten oder entfernen).
+- „Installieren… › Dort einbinden, wo es ist“ für ein Kraken-.pkg: das Spiel wird bei der Konsole angemeldet und startet aus seinem Paket, nichts wird entpackt — durch Kraken Mount, wenn es installiert ist, sonst durch unsere eingebaute Version (die Arbeit von Kraken Mount in unserer Engine, mit von uns gebautem ampr-emu-ng, pgo_stub und dlc_emu; braucht kstuff). Ein Spiel, das ShadowMount schon hat oder die Konsole installiert hat, bleibt unberührt. Erste Version, zum Ausprobieren.
+
+Die Produktionsfreigabe von Dropbox steht noch aus. Automatische PS5-Synchronisierung und Installation auf einer anderen Konsole sind erste Versionen mit ausstehenden Konsolentests.
+
 <p align="center">
   <img src="../assets/screenshots/en-oled-home.png" alt="PS5 Backup Center — Startbildschirm" width="88%">
 </p>
@@ -14,7 +25,7 @@
 
 **Lade deine Spiele herunter, installiere und übertrage sie.** Empfange Spiele von einer gekoppelten PS5 im lokalen Netzwerk. Sichere, vergleiche, synchronisiere und stelle Spielstände auf PS5-Konsolen, USB-Laufwerken, NAS und Cloud-Speichern über den Fernseher oder Browser wieder her. Verwalte PS5-Apps, DLCs und Spielstände von Switch und kompatiblen Emulatoren.
 
-[Neuerungen 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+[Neuerungen 3.2.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.2.0)
 
 **Deine Sammlung. Dein Spielfortschritt. Deine Backups.**
 

@@ -4,6 +4,17 @@
 
 [English](../../README.md) · [Français](README.fr.md) · [Français (Canada)](README.fr-CA.md) · [Español](README.es.md) · [Español (Latinoamérica)](README.es-419.md) · [Português (Brasil)](README.pt-BR.md) · [Português (Portugal)](README.pt-PT.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Nederlands](README.nl.md) · [Polski](README.pl.md) · [Türkçe](README.tr.md) · [Русский](README.ru.md) · [简体中文](README.zh-Hans.md) · [繁體中文](README.zh-Hant.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Tiếng Việt](README.vi.md) · [العربية](README.ar.md)
 
+## 3.2.0
+
+- في التنزيلات، يقبل «+ إضافة رابط» أيضًا رابط magnet أو ملف .torrent: تختار القرص الذي يُحفظ فيه (قرص الإعدادات › الشبكة أولًا)، ثم تتابع التقدّم (المصادر، السرعة، الوقت المتبقي) وتوقفه مؤقتًا أو تستأنفه أو تزيله (التلفاز والويب).
+- التنزيلات › روابطي: كل الروابط المعطاة من الجهاز (BitTorrent، ‏.zip الجهاز، MEGA، OneDrive) مع رمز QR والعنوان وطريقة الإيقاف. تُحفظ روابط MEGA وOneDrive هناك.
+- الخطط: الحفظ أو اللعبة الموجودة أصلًا في الوجهة (المحتوى نفسه، نسختها أي PS5) لا تُنسخ مجددًا؛ ويقول الملخّص «محدّث أصلًا». لا يُعاد قراءة أي شيء لمعرفة ذلك.
+- التنزيلات › «ORBIT وBLACKBOX»: ما نزّله Orbit وBlackBox على الجهاز (الحالة، القرص، الحجم، ملف غير موجود) وملفاتهما المؤقتة (أرشيف محفوظ، تنزيل جارٍ، بقايا)، مقروءة لديهما دون تغيير أي شيء.
+- «تثبيت…» في أدوات اللعبة وحزم ‎.pkg والتنزيلات › Orbit وBlackBox: تركيبها في مكانها (تُنقل إلى مجلد الألعاب في قرصها دون نسخ، ويركّبها ShadowMount) أو تثبيتها على قرص آخر أو PS5 أخرى (نسخة متحقَّق منها، مع إبقاء الأصل أو حذفه).
+- «تثبيت… › تركيبها في مكانها» لحزمة .pkg من Kraken: تُعلَن اللعبة للجهاز وتعمل من حزمتها دون فك أي شيء — عبر Kraken Mount إن كان مثبَّتًا، وإلا عبر نسختنا المدمجة (عمل Kraken Mount داخل محرّكنا، مع ampr-emu-ng وpgo_stub وdlc_emu المبنية من قِبلنا؛ يتطلب kstuff). لا نلمس لعبة يتولاها ShadowMount مسبقًا أو ثبّتها الجهاز. الإصدار الأول، للتجربة.
+
+موافقة Dropbox للإنتاج قيد الانتظار. المزامنة التلقائية بين أجهزة PS5 والتثبيت على جهاز آخر ميزتان في إصدار أولي وما زالت اختبارات الأجهزة مطلوبة.
+
 <p align="center">
   <img src="../assets/screenshots/en-oled-home.png" alt="PS5 Backup Center — الشاشة الرئيسية" width="88%">
 </p>
@@ -14,7 +25,7 @@
 
 **نزّل ألعابك وثبّتها وانقلها.** استقبل الألعاب من جهاز PS5 مقترن على شبكتك المحلية. انسخ ملفات الحفظ احتياطيًا وقارنها وزامنها واستعدها عبر أجهزة PS5 ووحدات USB وNAS والتخزين السحابي من التلفاز أو المتصفح. أدِر تطبيقات PS5 ومحتواها الإضافي وملفات حفظ Switch والمحاكيات المتوافقة.
 
-[الجديد 3.1.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.1.0)
+[الجديد 3.2.0](https://github.com/consolecenterstudio/ps5-backup-center/releases/tag/v3.2.0)
 
 **مجموعتك. تقدمك في اللعب. نسخك الاحتياطية.**
 

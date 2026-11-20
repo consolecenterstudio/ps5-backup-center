@@ -21,6 +21,9 @@
 #include "core/fs.hpp"
 #include "core/util.hpp"
 #include "engine.hpp"
+#if !defined(PBCK_PS5)
+#include "store/cloud.hpp"
+#endif
 #include "update/self_launch.hpp"
 #include "http/server.hpp"
 
@@ -106,6 +109,24 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--state")) state = argv[++i];
         else if (!std::strcmp(argv[i], "--app-dir")) app_dir = argv[++i];
         else if (!std::strcmp(argv[i], "--port")) port = static_cast<std::uint16_t>(std::atoi(argv[++i]));
+#if !defined(PBCK_PS5)
+        // Mac seulement (captures de démonstration, qa/demo_console.py) : Google Drive et OneDrive pointent vers le faux
+        // serveur des tests (tests/drives_test_server.py) ; jamais dans le moteur de la console.
+        else if (!std::strcmp(argv[i], "--demo-cloud")) {
+            const std::string base = argv[++i];
+            for (const char* t : {"gdrive", "onedrive"}) {
+                pbc::store::cloud::Provider* pr = pbc::store::cloud::provider(t);
+                if (!pr) continue;
+                const bool g = std::strcmp(t, "gdrive") == 0;
+                pr->device_url = base + "/oauth/device";
+                pr->token_url = base + "/oauth/token";
+                pr->api_base = base + (g ? "/drive/v3" : "/graph/v1.0");
+                pr->upload_base = g ? base + "/upload/drive/v3" : "";
+                pr->client_id = "test-client";
+                pr->client_secret = g ? "test-secret" : "";
+            }
+        }
+#endif
     }
     std::signal(SIGPIPE, SIG_IGN);
     std::signal(SIGINT, on_signal);
@@ -154,6 +175,12 @@ int main(int argc, char** argv) {
         ::ftruncate(lock_fd, 0);
         if (n > 0) (void)::pwrite(lock_fd, info, static_cast<std::size_t>(n), 0);
     }
+#if defined(PBCK_PS5)
+    // Le moteur qui reste (copie en double déjà partie) garde aussi son journal sur fichier.
+    pbc::fs::mkdirs(pbc::fs::host(state + "/logs"));
+    pbc::set_log_file(pbc::fs::host(state + "/logs/engine.log"));
+    pbc::log("journal sur fichier : %s/logs/engine.log", state.c_str());
+#endif
     pbc::Engine engine(state, app_dir);
     engine.set_http_port(port);  // annoncé aux autres consoles (liaison)
     pbc::HttpServer http(engine, port);

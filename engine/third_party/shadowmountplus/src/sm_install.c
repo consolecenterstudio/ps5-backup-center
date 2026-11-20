@@ -1,0 +1,544 @@
+#include "sm_platform.h"
+#include "sm_shellcore_service.h"
+#include "sm_game_lifecycle.h"
+#include "sm_config_mount.h"
+#include "sm_runtime.h"
+#include "sm_install.h"
+#include "sm_install_queue.h"
+#include "sm_types.h"
+#include "sm_game_cache.h"
+#include "sm_log.h"
+#include "sm_filesystem.h"
+#include "sm_limits.h"
+#include "sm_path_utils.h"
+#include "sm_appdb.h"
+#include "sm_title_state.h"
+#include "sm_image_cache.h"
+#include "sm_paths.h"
+#include "sm_manual.h"
+#include "sm_shellcore_hooks.h"
+
+#include <dlfcn.h>
+
+typedef int (*app_install_title_dir_fn_t)(const char *title_id,
+                                          const char *install_path,
+                                          void *reserved);
+
+static const char *const k_app_inst_util_sprx_path =
+    "/system/common/lib/libSceAppInstUtil.sprx";
+static const char *const k_app_install_title_dir_symbol =
+    "sceAppInstUtilAppInstallTitleDir";
+
+static app_install_title_dir_fn_t g_app_install_title_dir_fn = NULL;
+static bool g_app_install_title_dir_resolve_attempted = false;
+
+static app_install_title_dir_fn_t resolve_app_install_title_dir(void) {
+  if (g_app_install_title_dir_fn)
+    return g_app_install_title_dir_fn;
+  if (g_app_install_title_dir_resolve_attempted)
+    return NULL;
+  if (sm_firmware_major_version() >= 12u) {
+    g_app_install_title_dir_resolve_attempted = true;
+    return NULL;
+  }
+
+  g_app_install_title_dir_resolve_attempted = true;
+  void *app_inst_util_handle = dlopen(k_app_inst_util_sprx_path, RTLD_LAZY);
+  if (!app_inst_util_handle) {
+    const char *error = dlerror();
+    log_debug("  [REG] dlopen(%s) failed: %s", k_app_inst_util_sprx_path,
+              error ? error : "unknown");
+    return NULL;
+  }
+
+  dlerror();
+  g_app_install_title_dir_fn = (app_install_title_dir_fn_t)dlsym(
+      app_inst_util_handle, k_app_install_title_dir_symbol);
+  if (g_app_install_title_dir_fn)
+    return g_app_install_title_dir_fn;
+
+  const char *error = dlerror();
+  log_debug("  [REG] %s lookup in %s failed: %s",
+            k_app_install_title_dir_symbol, k_app_inst_util_sprx_path,
+            error ? error : "unknown");
+  return NULL;
+}
+
+bool sm_install_register_title_dir(const char *title_id,
+                                   const char *install_dir,
+                                   int *result_out) {
+  if (!title_id || !install_dir || !result_out)
+    return false;
+
+  if (sm_shellcore_install_bridge_enabled())
+    return sm_shellcore_install_title_dir(title_id, install_dir, result_out);
+
+  app_install_title_dir_fn_t install_title_dir =
+      resolve_app_install_title_dir();
+  if (!install_title_dir)
+    return false;
+
+  *result_out = install_title_dir(title_id, install_dir, NULL);
+  return true;
+}
+
+static bool is_appmeta_file(const char *name) {
+  if (!name)
+    return false;
+  if (strcasecmp(name, "param.json") == 0 || strcasecmp(name, "param.sfo") == 0)
+    return true;
+
+  const char *ext = strrchr(name, '.');
+  if (!ext)
+    return false;
+
+  return (strcasecmp(ext, ".png") == 0 || strcasecmp(ext, ".dds") == 0 ||
+          strcasecmp(ext, ".at9") == 0);
+}
+
+static bool copy_sce_sys_to_appmeta(const char *src_sce_sys,
+                                    const char *user_appmeta_dir) {
+  if (should_stop_requested() || runtime_sleep_mode_active()) {
+    errno = ECANCELED;
+    return false;
+  }
+  DIR *dir = opendir(src_sce_sys);
+  if (!dir)
+    return false;
+
+  int error = 0;
+  char src_path[MAX_PATH];
+  char dst_path[MAX_PATH];
+  struct stat st;
+  for (;;) {
+    if (should_stop_requested() || runtime_sleep_mode_active()) {
+      error = ECANCELED;
+      break;
+    }
+    errno = 0;
+    const struct dirent *e = readdir(dir);
+    if (!e) {
+      error = errno;
+      break;
+    }
+    if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0)
+      continue;
+    if (!is_appmeta_file(e->d_name))
+      continue;
+
+    int written = snprintf(src_path, sizeof(src_path), "%s/%s", src_sce_sys,
+                            e->d_name);
+    if (written < 0 || (size_t)written >= sizeof(src_path)) {
+      error = ENAMETOOLONG;
+      break;
+    }
+    if (stat(src_path, &st) != 0) {
+      error = errno;
+      break;
+    }
+    if (!S_ISREG(st.st_mode))
+      continue;
+
+    written = snprintf(dst_path, sizeof(dst_path), "%s/%s", user_appmeta_dir,
+                        e->d_name);
+    if (written < 0 || (size_t)written >= sizeof(dst_path)) {
+      error = ENAMETOOLONG;
+      break;
+    }
+    lowercase_sce_sys_name(dst_path + strlen(user_appmeta_dir) + 1);
+    errno = 0;
+    if (copy_file(src_path, dst_path) != 0) {
+      error = errno != 0 ? errno : EIO;
+      break;
+    }
+  }
+
+  if (closedir(dir) != 0 && error == 0)
+    error = errno;
+
+  if (error != 0)
+    errno = error;
+  return error == 0;
+}
+
+static bool copy_optional_trophy_metadata_file(const char *src_sce_sys,
+                                               const char *dst_base,
+                                               const char *relative_path) {
+  if (should_stop_requested() || runtime_sleep_mode_active()) {
+    errno = ECANCELED;
+    return false;
+  }
+  char src_path[MAX_PATH];
+  char dst_path[MAX_PATH];
+
+  if (!resolve_sce_sys_file(src_sce_sys, relative_path, src_path))
+    return errno == ENOENT || errno == ENOTDIR;
+  struct stat st;
+  if (stat(src_path, &st) != 0)
+    return errno == ENOENT || errno == ENOTDIR;
+  if (!S_ISREG(st.st_mode)) {
+    errno = EINVAL;
+    return false;
+  }
+
+  int written = snprintf(dst_path, sizeof(dst_path), "%s/%s", dst_base,
+                          relative_path);
+  if (written < 0 || (size_t)written >= sizeof(dst_path)) {
+    errno = ENAMETOOLONG;
+    return false;
+  }
+  if (stat(dst_path, &st) == 0) {
+    if (S_ISREG(st.st_mode))
+      return true;
+    errno = EINVAL;
+    return false;
+  }
+  if (errno != ENOENT)
+    return false;
+
+  errno = 0;
+  if (copy_file(src_path, dst_path) == 0)
+    return true;
+
+  int error = errno != 0 ? errno : EIO;
+  log_debug("  [COPY] Failed to copy trophy metadata: %s -> %s", src_path,
+            dst_path);
+  errno = error;
+  return false;
+}
+
+static bool update_trophy_metadata(const char *title_id,
+                                   const char *src_sce_sys) {
+  if (should_stop_requested() || runtime_sleep_mode_active()) {
+    errno = ECANCELED;
+    return false;
+  }
+  char dst_base[MAX_PATH];
+  char dst_dir[MAX_PATH];
+  int written = snprintf(dst_base, sizeof(dst_base),
+                          "/system_data/priv/appmeta/%s", title_id);
+  if (written < 0 || (size_t)written >= sizeof(dst_base)) {
+    errno = ENAMETOOLONG;
+    return false;
+  }
+  mkdir("/system_data/priv/appmeta", 0755);
+  mkdir(dst_base, 0755);
+
+  if (strncmp(title_id, "CUSA", 4u) == 0) {
+    return copy_optional_trophy_metadata_file(src_sce_sys, dst_base,
+                                              "npbind.dat") &&
+           copy_optional_trophy_metadata_file(src_sce_sys, dst_base,
+                                              "nptitle.dat") &&
+           copy_optional_trophy_metadata_file(src_sce_sys, dst_base,
+                                              "param.sfo");
+  }
+
+  written = snprintf(dst_dir, sizeof(dst_dir), "%s/trophy2", dst_base);
+  if (written < 0 || (size_t)written >= sizeof(dst_dir)) {
+    errno = ENAMETOOLONG;
+    return false;
+  }
+  mkdir(dst_dir, 0755);
+  written = snprintf(dst_dir, sizeof(dst_dir), "%s/uds", dst_base);
+  if (written < 0 || (size_t)written >= sizeof(dst_dir)) {
+    errno = ENAMETOOLONG;
+    return false;
+  }
+  mkdir(dst_dir, 0755);
+
+  return copy_optional_trophy_metadata_file(src_sce_sys, dst_base,
+                                            "trophy2/npbind.dat") &&
+         copy_optional_trophy_metadata_file(src_sce_sys, dst_base,
+                                            "uds/npbind.dat") &&
+         copy_optional_trophy_metadata_file(src_sce_sys, dst_base, "param.json");
+}
+
+static void update_registered_title_snd0info(const char *title_id) {
+  sceKernelUsleep(200000);
+  int snd0_updates = update_snd0info(title_id);
+  if (snd0_updates >= 0)
+    log_debug("  [DB] snd0info updated rows=%d", snd0_updates);
+}
+
+// --- Install/Remount Action ---
+static bool mount_and_install(const char *src_path, const char *title_id,
+                              const char *title_name, bool is_remount,
+                              bool should_register,
+                              bool use_app_install_all,
+                              bool *has_src_snd0_out) {
+  char user_appmeta_dir[MAX_PATH];
+  char user_app_dir[MAX_PATH];
+  char user_sce_sys[MAX_PATH];
+  char src_sce_sys[MAX_PATH];
+  char src_snd0[MAX_PATH];
+  char image_source_chain[MAX_IMAGE_CHAIN_DEPTH][MAX_PATH];
+  size_t image_source_count = 0;
+  bool has_image_source = false;
+  bool appmeta_missing = false;
+  bool metadata_restaged = false;
+  bool restage_staging = false;
+  bool restage_appmeta = false;
+  bool has_src_snd0 = false;
+
+  snprintf(user_appmeta_dir, sizeof(user_appmeta_dir), "%s/%s", APPMETA_BASE,
+           title_id);
+  snprintf(user_app_dir, sizeof(user_app_dir), "%s/%s", APP_BASE, title_id);
+
+  if (is_under_image_mount_base(src_path)) {
+    image_source_count = resolve_image_source_chain_from_mount_cache(
+        src_path, image_source_chain);
+    has_image_source = image_source_count > 0;
+    if (!has_image_source) {
+      log_debug("  [LINK] image source lookup failed for %s: %s", title_id,
+                src_path);
+    }
+  }
+
+  if (!resolve_sce_sys_file(src_path, "sce_sys", src_sce_sys))
+    return false;
+  appmeta_missing = !has_appmeta_data(title_id);
+  if (is_remount && appmeta_missing) {
+    log_debug("  [REG] appmeta missing, restaging metadata only: %s", title_id);
+  }
+
+  restage_staging = (!is_remount || should_register);
+  restage_appmeta = (!is_remount || appmeta_missing);
+
+  if (should_stop_requested() || runtime_sleep_mode_active())
+    return false;
+
+  // COPY FILES
+  has_src_snd0 = resolve_sce_sys_file(src_sce_sys, "snd0.at9", src_snd0) &&
+                 path_exists(src_snd0);
+  if (!restage_staging && !restage_appmeta)
+    log_debug("  [SPEED] Skipping file copy (Assets already exist)");
+
+  if (restage_staging) {
+    mkdir(APP_BASE, 0777);
+    mkdir(user_app_dir, 0777);
+    snprintf(user_sce_sys, sizeof(user_sce_sys), "%s/sce_sys", user_app_dir);
+    mkdir(user_sce_sys, 0777);
+    if (copy_sce_sys_dir(src_sce_sys, user_sce_sys) != 0) {
+      log_debug("  [COPY] Failed to copy sce_sys staging: %s -> %s", src_sce_sys,
+                user_sce_sys);
+      return false;
+    }
+
+    char icon_src[MAX_PATH];
+    char icon_dst[MAX_PATH];
+    snprintf(icon_src, sizeof(icon_src), "%s/icon0.png", user_sce_sys);
+    snprintf(icon_dst, sizeof(icon_dst), "%s/icon0.png", user_app_dir);
+    if (copy_file(icon_src, icon_dst) != 0) {
+      log_debug("  [COPY] Failed to copy staged icon: %s -> %s", icon_src,
+                icon_dst);
+      return false;
+    }
+  }
+
+  if (restage_appmeta) {
+    mkdir(APPMETA_BASE, 0777);
+    mkdir(user_appmeta_dir, 0777);
+    if (!copy_sce_sys_to_appmeta(src_sce_sys, user_appmeta_dir)) {
+      log_debug("  [COPY] Failed to copy appmeta files: %s -> %s", src_sce_sys,
+                user_appmeta_dir);
+      return false;
+    }
+    metadata_restaged = true;
+  }
+
+  if (!update_trophy_metadata(title_id, src_sce_sys))
+    return false;
+
+  if (should_stop_requested() || runtime_sleep_mode_active())
+    return false;
+
+  if (!mount_title_nullfs(title_id, src_path)) {
+    log_debug("  [LINK] nullfs mount failed: title=%s src=%s", title_id,
+              src_path);
+    return false;
+  }
+
+  // WRITE TRACKER
+  char lnk_path[MAX_PATH];
+  runtime_mount_state_lock();
+  if (runtime_sleep_mode_active()) {
+    (void)rollback_title_nullfs_mount(title_id, src_path);
+    runtime_mount_state_unlock();
+    return false;
+  }
+
+  mkdir(APP_BASE, 0777);
+  mkdir(user_app_dir, 0777);
+  snprintf(lnk_path, sizeof(lnk_path), "%s/mount.lnk", user_app_dir);
+  if (!write_mount_link(title_id, src_path)) {
+    log_debug("  [LINK] write failed for %s: %s", lnk_path, strerror(errno));
+    (void)rollback_title_nullfs_mount(title_id, src_path);
+    runtime_mount_state_unlock();
+    return false;
+  }
+
+  log_debug("  [LINK] mount.lnk created: %s -> %s", lnk_path, src_path);
+
+  char img_lnk_path[MAX_PATH];
+  snprintf(img_lnk_path, sizeof(img_lnk_path), "%s/mount_img.lnk",
+           user_app_dir);
+  if (has_image_source) {
+    if (!write_mount_image_chain(title_id, image_source_chain,
+                                 image_source_count)) {
+      (void)unlink(lnk_path);
+      (void)rollback_title_nullfs_mount(title_id, src_path);
+      runtime_mount_state_unlock();
+      return false;
+    }
+    log_debug("  [LINK] mount_img.lnk created: %s -> %s layers=%zu",
+              img_lnk_path, image_source_chain[0], image_source_count);
+    if (!cache_image_source_mapping(image_source_chain[0], src_path)) {
+      log_debug("  [LINK] image source cache update failed: %s -> %s",
+                image_source_chain[0], src_path);
+    }
+  } else if (unlink(img_lnk_path) != 0 && errno != ENOENT) {
+    log_debug("  [LINK] remove failed for %s: %s", img_lnk_path,
+              strerror(errno));
+  }
+  bool sleep_started = runtime_sleep_mode_active();
+  runtime_mount_state_unlock();
+  if (sleep_started || runtime_sleep_mode_active())
+    return true;
+
+  if (!should_register) {
+    if (metadata_restaged && has_src_snd0) {
+      int snd0_updates = update_snd0info(title_id);
+      if (snd0_updates >= 0)
+        log_debug("  [DB] snd0info force-updated after appmeta refresh rows=%d",
+                  snd0_updates);
+    }
+    log_debug("  [REG] Skip (already present in app.db)");
+    return true;
+  }
+
+  if (use_app_install_all) {
+    if (has_src_snd0_out)
+      *has_src_snd0_out = has_src_snd0;
+    log_debug("  [REG] Prepared for batch install: %s (%s)", title_name,
+              title_id);
+    return true;
+  }
+
+  // REGISTER
+  int res = 0;
+  bool bridge_enabled = sm_shellcore_install_bridge_enabled();
+  if (!sm_install_register_title_dir(title_id, APP_BASE "/", &res)) {
+    if (bridge_enabled) {
+      log_debug("  [REG] internal AppInstallTitleDir bridge unavailable");
+      notify_system_l10n(SM_L10N_REGISTER_BRIDGE_UNAVAILABLE, title_name,
+                         title_id);
+    } else {
+      log_debug("  [REG] sceAppInstUtilAppInstallTitleDir unavailable");
+      notify_system_l10n(SM_L10N_REGISTER_FAILED_UNAVAILABLE, title_name,
+                         title_id);
+    }
+    return false;
+  }
+  mark_register_attempted(title_id);
+  if (res == 0) {
+    invalidate_app_db_title_cache();
+    clear_register_attempts(title_id);
+    log_debug("  [REG] Installed NEW!");
+    notify_game_installed_rich(title_id);
+    if (has_src_snd0)
+      update_registered_title_snd0info(title_id);
+  } else if ((uint32_t)res == 0x80990002u) {
+    invalidate_app_db_title_cache();
+    clear_register_attempts(title_id);
+    log_debug("  [REG] Restored.");
+    if (has_src_snd0)
+      update_registered_title_snd0info(title_id);
+    // Silent on restore/remount to avoid spam
+  } else {
+    log_debug("  [REG] FAIL: 0x%x", res);
+    notify_system_l10n(SM_L10N_REGISTER_FAILED_CODE, title_name, title_id,
+                       (uint32_t)res);
+    return false;
+  }
+
+  return true;
+}
+
+// --- Execution (per discovered candidate) ---
+void process_scan_candidates(const scan_candidate_t *candidates,
+                             int candidate_count) {
+  if (runtime_sleep_mode_active())
+    return;
+
+  sm_install_poll_pending();
+
+  for (int i = 0; i < candidate_count; i++) {
+    if (should_stop_requested() || runtime_sleep_mode_active() ||
+        !sm_game_lifecycle_background_title(NULL))
+      return;
+
+    const scan_candidate_t *c = &candidates[i];
+    if (sm_shellcore_title_is_protected(c->title_id))
+      continue;
+    bool has_src_snd0 = false;
+    bool use_app_install_all =
+        runtime_config().app_install_all_enabled && !c->in_app_db;
+    if (c->installed) {
+      log_debug("  [ACTION] Remounting: %s", c->title_name);
+    } else {
+      log_debug("  [ACTION] Installing: %s (%s)", c->title_name, c->title_id);
+      if (!use_app_install_all) {
+        notify_system_info_l10n(SM_L10N_INSTALLING, c->title_name,
+                                c->title_id);
+      }
+    }
+
+    bool mounted = mount_and_install(c->path, c->title_id, c->title_name,
+                                     c->installed, !c->in_app_db,
+                                     use_app_install_all, &has_src_snd0);
+    if (runtime_sleep_mode_active())
+      return;
+
+    if (mounted) {
+      if (c->manual && !use_app_install_all) {
+        sm_manual_note_installed(c->manual_source_path, c->title_id,
+                                 c->title_name);
+      }
+      if (use_app_install_all) {
+        if (!sm_install_queue_candidate(c, has_src_snd0)) {
+          log_debug("  [REG] Failed to queue staged install: %s (%s)",
+                    c->title_name, c->title_id);
+          if (should_stop_requested() || runtime_sleep_mode_active())
+            return;
+
+          uint8_t failed_attempts = bump_failed_mount_attempts(c->title_id);
+          if (failed_attempts == MAX_FAILED_MOUNT_ATTEMPTS) {
+            log_debug("  [RETRY] limit reached (%u/%u): %s (%s)",
+                      (unsigned)failed_attempts,
+                      (unsigned)MAX_FAILED_MOUNT_ATTEMPTS, c->title_name,
+                      c->title_id);
+          }
+          continue;
+        }
+        clear_failed_mount_attempts(c->title_id);
+      } else {
+        clear_failed_mount_attempts(c->title_id);
+        cache_game_entry(c->path, c->title_id, c->title_name);
+      }
+    } else {
+      if (should_stop_requested() || runtime_sleep_mode_active())
+        return;
+
+      uint8_t failed_attempts = bump_failed_mount_attempts(c->title_id);
+      if (failed_attempts == MAX_FAILED_MOUNT_ATTEMPTS) {
+        log_debug("  [RETRY] limit reached (%u/%u): %s (%s)",
+                  (unsigned)failed_attempts,
+                  (unsigned)MAX_FAILED_MOUNT_ATTEMPTS, c->title_name,
+                  c->title_id);
+      }
+    }
+  }
+
+  if (!sm_install_submit_queued())
+    sm_install_note_submit_failure();
+}

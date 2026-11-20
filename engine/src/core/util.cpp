@@ -7,6 +7,9 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <string>
+#include <sys/stat.h>
 #if defined(PBCK_PS5)
 #include <sys/types.h>
 #include <sys/sysctl.h>
@@ -35,12 +38,51 @@ int firmware_number(const std::string& v) {
     return std::atoi(v.substr(0, dot).c_str()) * 100 + std::atoi(v.substr(dot + 1, 2).c_str());
 }
 
+namespace {
+// Journal aussi sur fichier (PS5) : le journal système s'efface au redémarrage, celui-ci reste — pour comprendre un
+// blocage après coup (PS5-02, 18/11 : moteur muet puis console figée, aucune trace). 4 Mio, l'ancien gardé en « .1 ».
+std::mutex g_log_mu;
+int g_log_fd = -1;
+std::string g_log_path;
+std::uint64_t g_log_size = 0;
+std::time_t g_log_synced = 0;
+constexpr std::uint64_t log_max = 4u << 20;
+void log_open_locked() {
+    g_log_fd = ::open(g_log_path.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+    struct ::stat st {};
+    g_log_size = g_log_fd >= 0 && ::fstat(g_log_fd, &st) == 0 ? static_cast<std::uint64_t>(st.st_size) : 0;
+}
+}  // namespace
+
+void set_log_file(const std::string& host_path) {
+    std::lock_guard<std::mutex> l(g_log_mu);
+    if (g_log_fd >= 0) ::close(g_log_fd);
+    g_log_fd = -1;
+    g_log_path = host_path;
+    if (!g_log_path.empty()) log_open_locked();
+}
+
 void log_line(const char* line) {
 #if defined(PBCK_PS5)
     sceKernelDebugOutText(0, line);
 #else
     std::fputs(line, stderr);
 #endif
+    std::lock_guard<std::mutex> l(g_log_mu);
+    if (g_log_fd < 0) return;
+    const std::time_t now = std::time(nullptr);
+    std::tm tm {};
+    ::localtime_r(&now, &tm);
+    char stamp[32];
+    const int n = static_cast<int>(std::strftime(stamp, sizeof stamp, "%Y-%m-%d %H:%M:%S ", &tm));
+    const std::size_t len = std::strlen(line);
+    if (::write(g_log_fd, stamp, static_cast<std::size_t>(n)) > 0 && ::write(g_log_fd, line, len) > 0) g_log_size += static_cast<std::uint64_t>(n) + len;
+    if (now - g_log_synced >= 2) { ::fsync(g_log_fd); g_log_synced = now; }  // sur le disque au plus tard 2 s après
+    if (g_log_size > log_max) {  // un fichier de 4 Mio au plus, plus le précédent
+        ::close(g_log_fd);
+        ::rename(g_log_path.c_str(), (g_log_path + ".1").c_str());
+        log_open_locked();
+    }
 }
 
 void log(const char* fmt, ...) {
