@@ -6,6 +6,12 @@
 
 ## 3.2.0
 
+- ShadowMount tích hợp của chúng tôi (ShadowMountPlus 1.7, do chúng tôi biên dịch): khi ShadowMountPlus đã cài không chạy, ảnh đĩa và thư mục trò chơi vẫn được gắn và đăng ký — không móc vào hệ thống, không mở cổng; bản đã cài được ưu tiên ngay khi chạy (Cài đặt › Gắn trò chơi). Cài đặt của nó không bao giờ bị thay đổi.
+- “Cài đặt…” cho trò chơi ở nơi khác (NAS, đám mây, PS5 khác), từ Tệp: chọn PS5 đích và ổ đĩa của nó; sao chép có kiểm tra, rồi gắn hoặc cài qua máy. NAS và đám mây là nguồn, không bao giờ là đích.
+- Web: “Cài từ PC này…” (Tệp) — tệp trò chơi trên PC (.pkg hoặc ảnh đĩa) được gửi từng phần đến PS5 và ổ đĩa đã chọn, tiếp tục sau khi mất kết nối, rồi gắn hoặc cài qua máy.
+- Cài đặt › Công cụ của máy: các payload của Payload Manager và những cái đang chạy — khởi chạy hoặc dừng từ đây (kstuff và engine của chúng tôi được bảo vệ, ShadowMountPlus dừng an toàn), và mở Payload Manager; không cần khởi động lại máy để chạy lại một công cụ nữa.
+- Thư viện trò chơi: một thư mục trên NAS, đám mây, ổ USB hoặc PS5 còn lại, chọn từ Tệp; các trò chơi chưa cài xuất hiện ở Trang chủ và Thư viện («Để cài đặt»), sẵn sàng cài lên PS5 và ổ đã chọn. Đọc ở chế độ nền, không thay đổi gì ở đó. Mỗi tệp .pkg được nhận biết qua phần đầu: trò chơi, bản cập nhật hay DLC (không bao giờ bị nhầm là trò chơi: xếp dưới trò chơi, cài qua máy console sau khi đã cài trò chơi), PS4 hay PS5, fake PKG hay gói chính thức; Kraken chỉ được đề xuất cho trò chơi PS5 dạng fake PKG, nếu không sẽ nêu lý do.
+- «Cài đặt…» từ nơi khác: chọn định dạng (ảnh đĩa, tệp .pkg của trò chơi chạy bằng Kraken hoặc cài qua máy console, hoặc ảnh đĩa chuyển sang .pkg rồi cài), kèm thời gian ước tính; sau đó là một tác vụ duy nhất với các bước đánh số (sao chép, kiểm tra, chuyển đổi, cài đặt), mỗi bước có thanh tiến trình, tốc độ và thời gian còn lại. Có thể dừng ở bất kỳ bước nào.
 - Trong Tải xuống, “+ Thêm liên kết” nhận cả liên kết magnet hoặc tệp .torrent: bạn chọn ổ để lưu (ổ trong Cài đặt › Mạng được đưa lên đầu), rồi theo dõi tiến độ (nguồn, tốc độ, thời gian còn lại) và tạm dừng, tiếp tục hoặc gỡ bỏ (TV và web).
 - Tải xuống › Liên kết của tôi: mọi liên kết máy đã cấp (BitTorrent, .zip của máy, MEGA, OneDrive), kèm mã QR, địa chỉ và cách dừng. Liên kết MEGA và OneDrive được lưu ở đó.
 - Kế hoạch: bản lưu hoặc trò chơi đã có ở nơi đến (cùng nội dung, do PS5 nào sao chép cũng vậy) không còn bị sao chép lại; bản tổng kết ghi “đã cập nhật”. Không đọc lại gì để biết điều đó.

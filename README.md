@@ -6,6 +6,12 @@
 
 ## 3.2.0
 
+- Our built-in ShadowMount (ShadowMountPlus 1.7, built by us): when the installed ShadowMountPlus isn't running, game images and folders are still mounted and registered — no hook in the system, no port; the installed one takes priority as soon as it runs (Settings › Game mounting). Its settings are never modified.
+- “Install…” for a game that is elsewhere (NAS, cloud, other PS5), from Files: choose the target PS5 and its drive; verified copy, then mounting or installation through the console. The NAS and the cloud are sources, never targets.
+- Web: “Install from this PC…” (Files) — a game file from the PC (.pkg or image) sent to the chosen PS5 and drive, in chunks, resuming after a dropout, then mounted or installed through the console.
+- Settings › Console tools: Payload Manager's payloads and those running — start or stop them from here (kstuff and our engine protected, ShadowMountPlus stopped cleanly), and open Payload Manager; no more restarting the console to relaunch a tool.
+- Game libraries: a folder on the NAS, a cloud, a USB drive or the other PS5, declared from Files; its uninstalled games appear in Home and Library (“To install”), ready to install on the chosen PS5 and drive. Read in the background, nothing there is changed. Each .pkg is recognized from its header: game, update or DLC (never taken for the game: filed under it, installable through the console once the game is installed), PS4 or PS5, fake PKG or official package; Kraken is offered only for a PS5 game in fake PKG, otherwise the reason is given.
+- “Install…” from elsewhere: choose the format (the image, the game's .pkg launched by Kraken or installed by the console, or the image converted to .pkg then installed), with the estimated time; then a single task with numbered steps (copy, verification, conversion, installation), each with its bar, speed and time left. It can be stopped at any step.
 - In Downloads, “+ Add a link” also takes a magnet link or a .torrent file: you choose the disk to store it on (the one from Settings › Network comes first), then follow its progress (sources, speed, time left) and pause, resume or remove it (TV and web).
 - Downloads › My links: every link given from the console (BitTorrent, console .zip, MEGA, OneDrive), with its QR code, its address and a way to stop it. MEGA and OneDrive links are kept there.
 - Plans: a save or a game already at the destination (same content, copied by any PS5) is no longer copied again; the summary says “already up to date”. Nothing is reread to know it.

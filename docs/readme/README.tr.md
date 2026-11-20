@@ -6,6 +6,12 @@
 
 ## 3.2.0
 
+- Yerleşik ShadowMount'umuz (ShadowMountPlus 1.7, bizim derlememiz): yüklü ShadowMountPlus çalışmıyorsa oyun görüntüleri ve klasörleri yine de bağlanır ve kaydedilir — sisteme kanca yok, port yok; yüklü olan çalışır çalışmaz önceliklidir (Ayarlar › Oyunların bağlanması). Ayarları asla değiştirilmez.
+- Başka yerdeki bir oyun için “Kur…” (NAS, bulut, diğer PS5), Dosyalar'dan: hedef PS5'i ve sürücüsünü seçersiniz; doğrulanmış kopya, ardından bağlama veya konsol ile kurulum. NAS ve bulut kaynaktır, asla hedef değildir.
+- Web: “Bu PC'den kur…” (Dosyalar) — PC'deki bir oyun dosyası (.pkg veya görüntü) seçilen PS5'e ve sürücüye parça parça gönderilir, kesintiden sonra sürer, ardından bağlanır veya konsol ile kurulur.
+- Ayarlar › Konsol araçları: Payload Manager'ın payload'ları ve çalışanlar — buradan başlatın veya durdurun (kstuff ve motorumuz korumalı, ShadowMountPlus düzgünce durdurulur) ve Payload Manager'ı açın; bir aracı yeniden başlatmak için artık konsolu yeniden başlatmaya gerek yok.
+- Oyun kitaplıkları: NAS, bulut, USB sürücü veya diğer PS5 üzerindeki bir klasör Dosyalar'dan belirlenir; kurulu olmayan oyunları Ana Sayfa ve Kitaplık'ta («Yüklenecekler») görünür, seçilen PS5 ve sürücüye yüklenmeye hazırdır. Arka planda okunur, orada hiçbir şey değiştirilmez. Her .pkg başlığından tanınır: oyun, güncelleme ya da DLC (asla oyun sanılmaz: altına yerleştirilir, oyun yüklendikten sonra konsolla yüklenebilir), PS4 ya da PS5, fake PKG ya da resmî paket; Kraken yalnızca fake PKG biçimindeki bir PS5 oyunu için önerilir, aksi hâlde nedeni söylenir.
+- Başka yerden «Yükle…»: biçimi seçin (kalıp, oyunun Kraken ile başlatılan ya da konsolla yüklenen .pkg'si ya da .pkg'ye dönüştürülüp yüklenen kalıp), tahmini süreyle; ardından numaralı adımlardan (kopyalama, doğrulama, dönüştürme, yükleme) oluşan tek bir görev, her adımın çubuğu, hızı ve kalan süresiyle. Her adımda durdurulabilir.
 - İndirmeler'de “+ Bağlantı ekle” bir magnet bağlantısı veya .torrent dosyası da alır: kaydedileceği diski seçersiniz (önce Ayarlar › Ağ'daki), sonra ilerlemeyi (kaynaklar, hız, kalan süre) izler, duraklatır, sürdürür veya kaldırırsınız (TV ve web).
 - İndirmeler › Bağlantılarım: konsoldan verilen tüm bağlantılar (BitTorrent, konsol .zip, MEGA, OneDrive), QR kodu, adresi ve durdurma seçeneğiyle. MEGA ve OneDrive bağlantıları orada saklanır.
 - Planlar: hedefte zaten bulunan bir kayıt ya da oyun (aynı içerik, hangi PS5 kopyalamış olursa olsun) artık yeniden kopyalanmaz; özet “zaten güncel” der. Bunun için hiçbir şey yeniden okunmaz.
