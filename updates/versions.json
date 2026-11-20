@@ -1,5 +1,13 @@
 [
  {
+  "version": "3.2.0",
+  "date": "2026-11-19",
+  "title": "Lancer un jeu depuis son .pkg (première version)",
+  "tested": true,
+  "channel": "stable",
+  "manifest": "3.2.0/manifest.json"
+ },
+ {
   "version": "3.1.57",
   "date": "2026-11-18",
   "title": "« Copie plus récente » : plus de fausse alerte quand la copie est la même partie",
@@ -11,8 +19,8 @@
   "version": "3.1.0",
   "date": "2026-11-15",
   "title": "Un centre pour vos jeux et vos sauvegardes, partout",
-  "tested": false,
-  "channel": "beta",
+  "tested": true,
+  "channel": "stable",
   "manifest": "3.1.0/manifest.json"
  },
  {
